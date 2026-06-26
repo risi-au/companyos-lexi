@@ -1,0 +1,25 @@
+# COS - Company Operating System
+.env
+.env.local
+.env.*.local
+
+# Logs and caches
+*.log
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Node
+node_modules/
+
+# Agent-generated (optional - can commit if desired)
+.cos/context.md
+agent-context-*.md
+
+# Local Docker volumes
+postgres_data/
+affine_data/
+n8n_data/
+hermes_data/

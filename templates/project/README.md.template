@@ -1,0 +1,39 @@
+---
+business: "[e.g. Full Funnel Agency]"
+client: "[Client or Internal Project Name]"
+project: "[Specific Engagement e.g. Meta Ads Management or Website]"
+tags: [meta-ads, website, strategy, content]
+status: "active"
+last-reviewed: "2026-06-26"
+github_repo: "your-org/client-project-repo"
+affine_page: "https://affine.yourdomain.com/workspaces/..."
+discord_thread: "https://discord.com/channels/.../threads/..."
+---
+
+# [Client/Project Name] - COS Project Hub
+
+## Overview
+Brief description of goals, scope, and current status.
+
+## Key Contacts
+- Client: 
+- Internal Owner: 
+
+## Status & Priorities
+- [ ] Current top priority
+
+## Important Links
+- GitHub Folder/Repo: 
+- Affine Dashboard: 
+- Discord: 
+- gbrain Scope: business/client/project
+
+## Subfolders
+- `meta-ads/`
+- `website/`
+- `decisions.md`
+- `changelog.md`
+- `.cos/` (standard agent context folder)
+
+---
+**This follows the official COS template from /templates/project/README.md.template. Changes to core standards must be propagated via the Auditor agent.**
