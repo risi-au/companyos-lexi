@@ -1,0 +1,99 @@
+{
+  "name": "Demo Metrics Pull (M2-05)",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "cron",
+              "cronExpression": "0 6 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate one day of plausible demo metric points\nconst now = new Date();\nconst date = now.toISOString().slice(0, 10);\nconst base = 80 + Math.random() * 20;\nconst points = [\n  { metric: \"demo.pull.value\", date, value: Math.round(base * 100) / 100, dims: { source: \"n8n-demo\" } },\n  { metric: \"demo.pull.count\", date, value: Math.floor(Math.random() * 5) + 1, dims: { source: \"n8n-demo\" } }\n];\nreturn [{ json: { scope: \"demo\", points } }];"
+      },
+      "id": "generate-points",
+      "name": "Generate Demo Points",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3000/api/v1/metrics/write",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "post-metrics",
+      "name": "POST to CompanyOS /metrics/write",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "cosdevtoken00001",
+          "name": "CompanyOS Agent Token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Generate Demo Points",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Demo Points": {
+      "main": [
+        [
+          {
+            "node": "POST to CompanyOS /metrics/write",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "m2-05-demo-1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "49f881b876c54cc0"
+}

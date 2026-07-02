@@ -24,6 +24,7 @@ All functions take injected `db: DB` first and `plane: PlaneClient` (fetch injec
 - `completeTask(db, plane, {issueId, scopePath, note?}, actor)`: editor/agent; moves to a state with group="completed"; if note, writes changelog record via records service; emits `task.completed`.
 - `updateTask(db, plane, {issueId, scopePath, title?, description?, state?, priority?, dueDate?}, actor)`: editor/agent; emits `task.updated`.
 - `listTasks(db, plane, {scopePath, state?("open"|"completed"|"all"), limit?}, actor)`: viewer; label-scoped list; returns compact TaskSummary[].
+- `findScopeByPlaneProject(db, planeProjectId, planeLabelId?)`: M2-05 webhook support; returns link result or null.
 
 PlaneClient (in same dir): getProjects, createProject, getStates, createIssue, updateIssue, getIssue, listIssues, createLabel, listLabels. Constructor takes config + optional fetch.
 
