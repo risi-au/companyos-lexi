@@ -15,6 +15,10 @@ Provides 9 tools over MCP (stdio transport). Auth via `COS_TOKEN` env (cos_ pref
 - `save_note({scope, title, body_md})` — create note. Editor/agent.
 - `list_records({scope, kind?, since?, limit?})` — tab-delimited compact list (id,kind,title,date). Viewer.
 - `get_record({id})` — full record (incl body_md + json data). Viewer.
+- `create_task({scope, title, description?, priority?, due_date?})` — create Plane-backed task. Editor/agent.
+- `complete_task({scope, issue_id, note?})` — transition to completed state; optional changelog note. Editor/agent.
+- `update_task({scope, issue_id, title?, description?, state?, priority?, due_date?})` — partial update. Editor/agent.
+- `list_tasks({scope, state?("open"|"completed"|"all"), limit?})` — compact list filtered by scope label. Viewer.
 
 All protected tools: unauth → clear error. AccessDenied surfaced as "Access denied: requires editor on <path>".
 

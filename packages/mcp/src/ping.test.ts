@@ -100,10 +100,10 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     await createRecord(db, { scopePath: subScope, kind: "changelog", title: "Sub change", bodyMd: "Did sub work." }, agentPrincipalId);
   });
 
-  async function makeRoundtrip(principalIdForServer: string | null) {
+  async function makeRoundtrip(principalIdForServer: string | null, planeClient: any = null) {
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const mcpClient = new Client({ name: "test-client", version: "0.0.0" });
-    const server = createServer({ db, principalId: principalIdForServer });
+    const server = createServer({ db, principalId: principalIdForServer, planeClient });
 
     await Promise.all([
       mcpClient.connect(clientTransport),
@@ -120,15 +120,19 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     const tools = await mcpClient.listTools();
     const names = (tools.tools || []).map((t: any) => t.name).sort();
     expect(names).toEqual([
+      "create_task",
+      "complete_task",
       "get_context",
       "get_record",
       "get_tree",
       "list_records",
+      "list_tasks",
       "log_change",
       "log_decision",
       "ping",
       "save_note",
       "save_report",
+      "update_task",
     ].sort());
 
     // ping
@@ -257,5 +261,61 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     expect(text).toContain("Initial setup");
     expect(text).toContain("Choose Postgres");
     expect(text).toMatch(/use list_records \/ get_record/i);
+  });
+
+  // === M1-07 task MCP roundtrips (mock injected, unconfigured error) ===
+  let taskScope: string;
+  let taskMockPlane: any;
+
+  beforeEach(async () => {
+    const now = Date.now();
+    taskScope = `mcp-task-${now}`;
+    await createScope(db, { slug: taskScope, name: "TaskScope", type: "project" }, rootPrincipalId);
+    await grantRole(db, { principalId: rootPrincipalId, scopePath: taskScope, role: "editor" }, rootPrincipalId);
+    await grantRole(db, { principalId: agentPrincipalId, scopePath: taskScope, role: "agent" }, rootPrincipalId);
+    await grantRole(db, { principalId: viewerPrincipalId, scopePath: taskScope, role: "viewer" }, rootPrincipalId);
+
+    // simple mock plane for mcp roundtrips
+    const calls: any[] = [];
+    taskMockPlane = {
+      getProjects: async () => [],
+      createProject: async (name: string) => { calls.push("createProject"); return { id: "p_" + name.slice(0,5) }; },
+      getStates: async () => ([{id:"s1", group:"started"}, {id:"s_done", group:"completed"}]),
+      listLabels: async () => [],
+      createLabel: async (_p: string, n: string) => { calls.push("createLabel"); return { id: "l_" + n.replace(/[^a-z]/g,"") }; },
+      createIssue: async (_pid: string, d: any) => { calls.push("createIssue"); return { id: "i_mcp", sequence_id: 7, name: d.name }; },
+      updateIssue: async () => { calls.push("updateIssue"); return {}; },
+      listIssues: async () => { calls.push("listIssues"); return [{id:"i_mcp", sequence_id:7, name:"T", state:{group:"started"}, labels:[] }]; },
+      _calls: calls,
+    };
+  });
+
+  it("MCP task tools roundtrip with injected mock (create, list, complete, update)", async () => {
+    const { mcpClient } = await makeRoundtrip(rootPrincipalId, taskMockPlane);
+
+    const c = await mcpClient.callTool({ name: "create_task", arguments: { scope: taskScope, title: "MCP Task", description: "via mcp" } });
+    expect((c as any).content?.[0]?.text).toMatch(/Created task/);
+
+    const lst = await mcpClient.callTool({ name: "list_tasks", arguments: { scope: taskScope } });
+    expect((lst as any).content?.[0]?.text).toMatch(/i_mcp/);
+
+    const comp = await mcpClient.callTool({ name: "complete_task", arguments: { scope: taskScope, issue_id: "i_mcp", note: "done via test" } });
+    expect((comp as any).content?.[0]?.text).toMatch(/Completed/);
+
+    const upd = await mcpClient.callTool({ name: "update_task", arguments: { scope: taskScope, issue_id: "i_mcp", title: "Updated" } });
+    expect((upd as any).content?.[0]?.text).toMatch(/Updated/);
+
+    expect(taskMockPlane._calls).toEqual(expect.arrayContaining(["createProject", "createLabel", "createIssue", "listIssues", "updateIssue"]));
+  });
+
+  it("unconfigured plane (no client) returns clear error for task tools", async () => {
+    const { mcpClient } = await makeRoundtrip(rootPrincipalId, null);
+    const res = await mcpClient.callTool({ name: "create_task", arguments: { scope: taskScope, title: "X" } });
+    expect(res.isError).toBe(true);
+    expect((res as any).content?.[0]?.text).toMatch(/tasks engine not configured/);
+
+    const lres = await mcpClient.callTool({ name: "list_tasks", arguments: { scope: taskScope } });
+    expect(lres.isError).toBe(true);
+    expect((lres as any).content?.[0]?.text).toMatch(/tasks engine not configured/);
   });
 });

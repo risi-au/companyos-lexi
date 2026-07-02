@@ -1,5 +1,5 @@
 # M1-07: Tasks module (Plane adapter + MCP tools)
-status: todo
+status: done
 module: tasks
 branch: task/M1-07
 
