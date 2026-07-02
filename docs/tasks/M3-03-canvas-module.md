@@ -1,5 +1,5 @@
 # M3-03: Canvas module (Excalidraw)
-status: todo
+status: done
 module: canvas
 branch: task/M3-03
 

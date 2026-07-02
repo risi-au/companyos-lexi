@@ -18,6 +18,7 @@
     "@companyos/api": "workspace:*",
     "@companyos/db": "workspace:*",
     "@companyos/ui": "workspace:*",
+    "@excalidraw/excalidraw": "^0.17.6",
     "better-auth": "^1.6.23",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

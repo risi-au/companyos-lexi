@@ -32,6 +32,7 @@ Implements the kernel: scope tree ops, grants/authz, token issuance+auth, event 
 - listEvents supports scopePath (resolved to id), type, since, limit. Desc createdAt.
 - listModules(scopePath, actor): requires viewer; returns attached moduleTypes + config for the scope (used by get_context).
 - (M2-05) Agent HTTP helpers: getContextBundle (same md as MCP), reportCapabilityRun (emits capability.run_reported), findScopeByPlaneProject (reverse task link lookup for webhooks). Re-exported; used by thin routes only.
+- (M3-03) Canvas: saveCanvas/getCanvas/listCanvases/archiveCanvas + size cap + events; exported for MCP/HTTP/UI.
 
 ## How to test
 From repo root:

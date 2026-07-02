@@ -26,6 +26,9 @@ import {
   listDocs,
   listDocRevisions,
   revertDoc,
+  saveCanvas,
+  getCanvas,
+  listCanvases,
   PlaneClient,
   type DB,
   AccessDeniedError,
@@ -33,6 +36,8 @@ import {
   RecordNotFoundError,
   DashboardValidationError,
   DocumentNotFoundError,
+  CanvasNotFoundError,
+  CanvasSizeError,
 } from "@companyos/api";
 
 export interface CreateServerOptions {
@@ -56,6 +61,12 @@ function formatError(e: unknown): string {
   }
   if (e instanceof DocumentNotFoundError) {
     return `Document not found: ${e.slug} in ${e.scopePath}`;
+  }
+  if (e instanceof CanvasNotFoundError) {
+    return `Canvas not found: ${e.slug} in ${e.scopePath}`;
+  }
+  if (e instanceof CanvasSizeError) {
+    return `Canvas size error: ${e.message}`;
   }
   if (e instanceof Error) {
     return e.message;
@@ -1019,6 +1030,95 @@ ${JSON.stringify(rec.data || {}, null, 2)}
         const restored = await revertDoc(db, { scopePath: scope, slug, revisionId: revision_id }, actor);
         return {
           content: [{ type: "text", text: `Reverted doc ${restored.id} (slug: ${restored.slug}) to revision ${revision_id}` }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // save_canvas
+  server.registerTool(
+    "save_canvas",
+    {
+      title: "Save Canvas",
+      description: "Save or update an Excalidraw canvas scene (JSON). Slug optional (auto from name). Requires editor/agent. Enforces 2MB size cap. Emits canvas.saved.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+        slug: z.string().optional().describe("Optional slug [a-z0-9-]; if omitted derived from name"),
+        name: z.string().min(1).describe("Canvas name"),
+        scene: z.record(z.any()).describe("Excalidraw serialized scene {elements, appState, files?}"),
+      }),
+    },
+    async ({ scope, slug, name, scene }) => {
+      try {
+        const actor = ensurePrincipal();
+        const saved = await saveCanvas(db, { scopePath: scope, slug, name, scene }, actor);
+        return {
+          content: [{ type: "text", text: `Saved canvas ${saved.id} (slug: ${saved.slug}) under ${scope}` }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // get_canvas
+  server.registerTool(
+    "get_canvas",
+    {
+      title: "Get Canvas",
+      description: "Fetch canvas by scope + slug. Returns name + full scene JSON. Viewer required.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+        slug: z.string().min(1).describe("Canvas slug"),
+      }),
+    },
+    async ({ scope, slug }) => {
+      try {
+        const actor = ensurePrincipal();
+        const cv = await getCanvas(db, { scopePath: scope, slug }, actor);
+        if (!cv) {
+          return {
+            content: [{ type: "text", text: `Canvas not found: ${slug} in ${scope}` }],
+            isError: true,
+          };
+        }
+        const text = `# Canvas ${cv.name}\nslug: ${cv.slug}\nid: ${cv.id}\nupdated: ${cv.updatedAt ? new Date(cv.updatedAt).toISOString() : ""}\n\n${JSON.stringify(cv.scene || {}, null, 2)}\n`;
+        return { content: [{ type: "text", text }] };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // list_canvases
+  server.registerTool(
+    "list_canvases",
+    {
+      title: "List Canvases",
+      description: "List canvases for scope (excludes archived by default). Compact id,slug,name,updated. Viewer.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+        include_archived: z.boolean().optional().describe("Include archived canvases"),
+      }),
+    },
+    async ({ scope, include_archived }) => {
+      try {
+        const actor = ensurePrincipal();
+        const list = await listCanvases(db, { scopePath: scope, includeArchived: !!include_archived }, actor);
+        const lines = list.map((c: { id: string; slug: string; name: string; updatedAt?: Date | string | null }) => `${c.id}\t${c.slug}\t${c.name}\t${c.updatedAt ? new Date(c.updatedAt).toISOString() : ""}`);
+        return {
+          content: [{ type: "text", text: "id\tslug\tname\tupdated\n" + (lines.join("\n") || "(none)") }],
         };
       } catch (e) {
         return {
