@@ -81,6 +81,28 @@ export class DocumentNotFoundError extends KernelError {
   }
 }
 
+export class CanvasNotFoundError extends KernelError {
+  public readonly scopePath: string;
+  public readonly slug: string;
+  constructor(scopePath: string, slug: string) {
+    super(`Canvas not found: ${slug} in scope ${scopePath}`);
+    this.name = "CanvasNotFoundError";
+    this.scopePath = scopePath;
+    this.slug = slug;
+  }
+}
+
+export class CanvasSizeError extends KernelError {
+  public readonly size: number;
+  public readonly max: number;
+  constructor(size: number, max: number) {
+    super(`Canvas scene exceeds size limit: ${size} bytes > ${max} bytes`);
+    this.name = "CanvasSizeError";
+    this.size = size;
+    this.max = max;
+  }
+}
+
 export interface DashboardSpecValidationErrorDetail {
   path: (string | number)[];
   message: string;

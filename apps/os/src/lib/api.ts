@@ -27,6 +27,10 @@ import {
   archiveDoc,
   listDocRevisions,
   revertDoc,
+  saveCanvas,
+  getCanvas,
+  listCanvases,
+  archiveCanvas,
 } from "@companyos/api";
 
 // Singleton DB for the lifetime of the server process (dev/prod)
@@ -96,6 +100,16 @@ export const api = {
     listDocRevisions(db, input, actorPrincipalId),
   revertDoc: (input: Parameters<typeof revertDoc>[1], actorPrincipalId: string) =>
     revertDoc(db, input, actorPrincipalId),
+
+  // Canvas (M3-03)
+  saveCanvas: (input: Parameters<typeof saveCanvas>[1], actorPrincipalId: string) =>
+    saveCanvas(db, input, actorPrincipalId),
+  getCanvas: (input: Parameters<typeof getCanvas>[1], actorPrincipalId: string) =>
+    getCanvas(db, input, actorPrincipalId),
+  listCanvases: (input: Parameters<typeof listCanvases>[1], actorPrincipalId: string) =>
+    listCanvases(db, input, actorPrincipalId),
+  archiveCanvas: (input: Parameters<typeof archiveCanvas>[1], actorPrincipalId: string) =>
+    archiveCanvas(db, input, actorPrincipalId),
 
   // Modules (for tab context, though tabs unconditional in M2-03)
   listModules: async (scopePath: string, actorPrincipalId: string) => {

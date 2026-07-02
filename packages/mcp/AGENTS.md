@@ -32,6 +32,9 @@ Provides tools over MCP (stdio transport). Auth via `COS_TOKEN` env (cos_ prefix
 - `list_docs({scope, include_archived?})` — tab-delimited list id/slug/title/updated (excludes archived default). Viewer.
 - `list_doc_revisions({scope, slug, limit?})` — list prior revisions for doc. Viewer.
 - `revert_doc({scope, slug, revision_id})` — restore prior revision. Editor/agent. Emits reverted.
+- `save_canvas({scope, slug?, name, scene})` — save/upsert Excalidraw scene JSON. Auto-slug from name + collision suffix. 2MB cap enforced. Editor/agent. Emits canvas.saved.
+- `get_canvas({scope, slug})` — fetch name + full scene JSON. Viewer.
+- `list_canvases({scope, include_archived?})` — tab-delimited list id/slug/name/updated (excludes archived default). Viewer.
 
 All protected tools: unauth → clear error. AccessDenied surfaced as "Access denied: requires editor on <path>".
 
@@ -46,7 +49,7 @@ All protected tools: unauth → clear error. AccessDenied surfaced as "Access de
 - `src/server.ts` — createServer({db, principalId}), all tool registration with zod schemas + handlers (thin).
 - `src/index.ts` — reexports createServer + ping (compat).
 - `src/stdio.ts` — executable entry: reads DATABASE_URL + COS_TOKEN, auths, wires StdioServerTransport.
-- `src/ping.test.ts` — full in-memory roundtrips + PGlite, all tools + auth matrix + get_context assertions. (metrics + dashboards tools covered in roundtrips too)
+- `src/ping.test.ts` — full in-memory roundtrips + PGlite, all tools + auth matrix + get_context assertions. (metrics + dashboards tools covered in roundtrips too; canvas added M3-03)
 - `tsconfig.build.json` — emits to dist/ (excludes tests).
 - `package.json` — bin: companyos-mcp → dist/stdio.js ; workspace deps on api+db+zod.
 

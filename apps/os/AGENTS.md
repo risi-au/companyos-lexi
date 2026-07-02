@@ -14,6 +14,7 @@ Next.js (app router) tenant UI + thin HTTP API surface for agents/engines (n8n, 
 - GET /api/v1/context?scope=... → getContextBundle markdown (viewer)
 - POST /api/v1/capabilities/report-run { capability, scope?, ... } → emits capability.run_reported (token validated)
 - POST /api/v1/webhooks/plane (Plane signed, X-Plane-Signature HMAC raw-body) → emits task.completed_external / task.updated_external or webhook.unhandled
+- GET/POST /api/v1/canvas ?scope= [&slug=] ; POST {scope, name, slug?, scene?} → canvas ops (viewer/editor)
 
 Auth helper: src/lib/agent-auth.ts (bearer → principal, consistent {error, requires?} JSON)
 
@@ -35,4 +36,4 @@ Auth helper: src/lib/agent-auth.ts (bearer → principal, consistent {error, req
 - Every write path ends in service which emits event.
 - Consistent error shape for agent clients: { error, requires? }
 
-Update this file when API surface or auth wiring changes.
+Update this file when API surface or auth wiring changes. (canvas added M3-03)

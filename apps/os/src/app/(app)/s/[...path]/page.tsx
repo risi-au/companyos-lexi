@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { api, getCurrentActorPrincipalId } from "@/lib/api";
 import { DashboardRenderer, DashboardEmptyState, RangePicker } from "@/modules/dashboards";
 import { DocsView } from "@/modules/docs";
+import { CanvasView } from "@/modules/canvas";
 import { getDashboard } from "@companyos/api";
 // Consume spec contract (never fork schema); derive type from service surface for compile
 type DashboardSpec = NonNullable<Awaited<ReturnType<typeof getDashboard>>>["spec"] & {
@@ -13,7 +14,7 @@ type DashboardSpec = NonNullable<Awaited<ReturnType<typeof getDashboard>>>["spec
 
 interface ScopePageProps {
   params: Promise<{ path: string[] }>;
-  searchParams: Promise<{ tab?: string; range?: string; doc?: string }>;
+  searchParams: Promise<{ tab?: string; range?: string; doc?: string; canvas?: string }>;
 }
 
 export default async function ScopePage({ params, searchParams }: ScopePageProps) {
@@ -23,6 +24,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
   const tabParam = sp.tab;
   const rangeParam = sp.range;
   const docParam = sp.doc;
+  const canvasParam = sp.canvas;
 
   const actor = await getCurrentActorPrincipalId();
   if (!actor) {
@@ -51,13 +53,16 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
   const tasks = await api.listTasks({ scopePath, state: "open", limit: 8 }, actor);
   const events = await api.listEvents({ scopePath, limit: 12 });
 
-  // Build tab links preserving range when on dashboard; doc param for docs tab
+  // Build tab links preserving range when on dashboard; doc param for docs tab; canvas param
   const makeTabHref = (t: string) => {
     if (t === "dashboard") {
       return `/s/${scopePath}?tab=dashboard${currentRange ? `&range=${currentRange}` : ""}`;
     }
     if (t === "docs") {
       return `/s/${scopePath}?tab=docs${docParam ? `&doc=${encodeURIComponent(docParam)}` : ""}`;
+    }
+    if (t === "canvas") {
+      return `/s/${scopePath}?tab=canvas${canvasParam ? `&canvas=${encodeURIComponent(canvasParam)}` : ""}`;
     }
     return `/s/${scopePath}?tab=${t}`;
   };
@@ -66,6 +71,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
   const isOverview = currentTab === "overview";
   const isActivity = currentTab === "activity";
   const isDocs = currentTab === "docs";
+  const isCanvas = currentTab === "canvas";
 
   return (
     <div className="space-y-[var(--space-6)]">
@@ -117,6 +123,12 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
             className={`${isDocs ? "border-b-2 border-[var(--primary)] font-medium text-[var(--primary)]" : "text-[var(--muted-foreground)]"} pb-[var(--space-2)]`}
           >
             Docs
+          </a>
+          <a
+            href={makeTabHref("canvas")}
+            className={`${isCanvas ? "border-b-2 border-[var(--primary)] font-medium text-[var(--primary)]" : "text-[var(--muted-foreground)]"} pb-[var(--space-2)]`}
+          >
+            Canvas
           </a>
         </div>
       </div>
@@ -231,8 +243,13 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
         <DocsView scopePath={scopePath} initialDocSlug={docParam} initialAccess={access} />
       )}
 
+      {/* Canvas tab (M3-03) */}
+      {isCanvas && (
+        <CanvasView scopePath={scopePath} initialCanvasSlug={canvasParam} initialAccess={access} />
+      )}
+
       {/* Overview + Activity legacy combined when not dashboard (keep full original layout for overview+activity non-tabbed fallback if any) */}
-      {!isDashboard && !isOverview && !isActivity && !isDocs && (
+      {!isDashboard && !isOverview && !isActivity && !isDocs && !isCanvas && (
         <div className="space-y-[var(--space-4)]">
           <div className="grid grid-cols-1 gap-[var(--space-4)] lg:grid-cols-2">
             <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">

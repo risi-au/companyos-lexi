@@ -17,6 +17,9 @@ export * from "./modules/dashboards/service";
 // Docs (KB) module
 export * from "./modules/docs/service";
 
+// Canvas module (M3-03)
+export * from "./modules/canvas/service";
+
 // Tasks module (Plane adapter)
 export * from "./modules/tasks/service";
 export { PlaneClient, type PlaneConfig, type FetchLike } from "./modules/tasks/plane-client";
