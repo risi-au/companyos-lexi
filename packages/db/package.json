@@ -13,8 +13,7 @@
     "test": "vitest run --passWithNoTests",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:seed": "tsx src/scripts/seed.ts",
-    "db:seed-demo": "tsx src/scripts/seed-demo-metrics.ts"
+    "db:seed": "tsx src/scripts/seed.ts"
   },
   "dependencies": {
     "dotenv": "^17.4.2",

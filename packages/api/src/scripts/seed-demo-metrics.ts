@@ -1,7 +1,7 @@
 import { config as loadEnv } from "dotenv";
 loadEnv({ path: ["../../.env", ".env"], quiet: true });
-import { createDb } from "../index";
-import { scopes, principals, grants } from "../schema";
+import { createDb } from "@companyos/db";
+import { scopes, principals, grants } from "@companyos/db";
 import { eq, and } from "drizzle-orm";
 // DB type avoided at top to prevent static resolution/cycle in db package build; use any for script boundary.
 
@@ -37,7 +37,7 @@ export interface GenerateDemoOptions {
   endDate?: Date;
 }
 
-export async function generateDemoMetrics(options: GenerateDemoOptions): Promise<{ written: number; metrics: string[] }> {
+export async function generateDemoMetrics(options: GenerateDemoOptions): Promise<{ written: number }> {
   const {
     db,
     scopePath = SCOPE_PATH,
@@ -48,7 +48,7 @@ export async function generateDemoMetrics(options: GenerateDemoOptions): Promise
 
   // dynamic to avoid package cycle between db and api for scripts/tests
   // @ts-expect-error - resolved at runtime via pnpm workspace when executed with tsx or in api context
-  const { writeMetrics } = await import("@companyos/api");
+  const { writeMetrics } = await import("../modules/metrics/service");
 
   let actorPrincipalId = providedPrincipal;
 
@@ -175,8 +175,14 @@ export async function generateDemoMetrics(options: GenerateDemoOptions): Promise
     points.push({ metric: "woo.orders", date: ds, value: orders, dims: {} });
   }
 
-  const result = await writeMetrics(db, { scopePath, points }, actorPrincipalId);
-  return result;
+  // writeMetrics caps at 1000 points per call — write in chunks
+  let written = 0;
+  for (let i = 0; i < points.length; i += 1000) {
+    const chunk = points.slice(i, i + 1000);
+    await writeMetrics(db, { scopePath, points: chunk }, actorPrincipalId);
+    written += chunk.length;
+  }
+  return { written };
 }
 
 async function main() {
@@ -184,7 +190,7 @@ async function main() {
 
   const res = await generateDemoMetrics({ db });
 
-  console.log(`Seed demo metrics complete for ${SCOPE_PATH}. Wrote ${res.written} points covering metrics: ${res.metrics.join(", ")}`);
+  console.log(`Seed demo metrics complete for ${SCOPE_PATH}. Wrote ${res.written} points`);
   process.exit(0);
 }
 

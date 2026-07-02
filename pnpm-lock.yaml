@@ -122,6 +122,12 @@ importers:
       '@electric-sql/pglite':
         specifier: 0.2.5
         version: 0.2.5
+      dotenv:
+        specifier: ^17.4.2
+        version: 17.4.2
+      tsx:
+        specifier: ^4.22.4
+        version: 4.22.4
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
