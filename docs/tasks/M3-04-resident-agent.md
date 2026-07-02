@@ -1,5 +1,5 @@
 # M3-04: Resident agent (chat + tools + model picker)
-status: todo
+status: done
 module: agent (apps/os + packages/api)
 branch: task/M3-04
 
