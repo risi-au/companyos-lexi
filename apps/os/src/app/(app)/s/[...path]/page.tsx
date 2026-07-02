@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { api, getCurrentActorPrincipalId } from "@/lib/api";
 import { DashboardRenderer, DashboardEmptyState, RangePicker } from "@/modules/dashboards";
+import { DocsView } from "@/modules/docs";
 import { getDashboard } from "@companyos/api";
 // Consume spec contract (never fork schema); derive type from service surface for compile
 type DashboardSpec = NonNullable<Awaited<ReturnType<typeof getDashboard>>>["spec"] & {
@@ -12,7 +13,7 @@ type DashboardSpec = NonNullable<Awaited<ReturnType<typeof getDashboard>>>["spec
 
 interface ScopePageProps {
   params: Promise<{ path: string[] }>;
-  searchParams: Promise<{ tab?: string; range?: string }>;
+  searchParams: Promise<{ tab?: string; range?: string; doc?: string }>;
 }
 
 export default async function ScopePage({ params, searchParams }: ScopePageProps) {
@@ -21,6 +22,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
   const sp = await searchParams;
   const tabParam = sp.tab;
   const rangeParam = sp.range;
+  const docParam = sp.doc;
 
   const actor = await getCurrentActorPrincipalId();
   if (!actor) {
@@ -49,10 +51,13 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
   const tasks = await api.listTasks({ scopePath, state: "open", limit: 8 }, actor);
   const events = await api.listEvents({ scopePath, limit: 12 });
 
-  // Build tab links preserving range when on dashboard
+  // Build tab links preserving range when on dashboard; doc param for docs tab
   const makeTabHref = (t: string) => {
     if (t === "dashboard") {
       return `/s/${scopePath}?tab=dashboard${currentRange ? `&range=${currentRange}` : ""}`;
+    }
+    if (t === "docs") {
+      return `/s/${scopePath}?tab=docs${docParam ? `&doc=${encodeURIComponent(docParam)}` : ""}`;
     }
     return `/s/${scopePath}?tab=${t}`;
   };
@@ -60,6 +65,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
   const isDashboard = currentTab === "dashboard";
   const isOverview = currentTab === "overview";
   const isActivity = currentTab === "activity";
+  const isDocs = currentTab === "docs";
 
   return (
     <div className="space-y-[var(--space-6)]">
@@ -106,6 +112,12 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
           >
             Activity
           </a>
+          <a
+            href={makeTabHref("docs")}
+            className={`${isDocs ? "border-b-2 border-[var(--primary)] font-medium text-[var(--primary)]" : "text-[var(--muted-foreground)]"} pb-[var(--space-2)]`}
+          >
+            Docs
+          </a>
         </div>
       </div>
 
@@ -146,7 +158,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
             ) : (
               <ul className="space-y-[var(--space-2)]">
                 {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-          {records.map((r: any) => (
+                {records.map((r: any) => (
                   <li key={r.id} className="flex items-center justify-between rounded border border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)]">
                     <div>
                       <span className="mr-2 inline text-[var(--font-size-xs)] rounded bg-[var(--muted)] px-[var(--space-1)] py-px text-[var(--muted-foreground)]">{r.kind}</span>
@@ -173,9 +185,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
             ) : (
               <ul className="space-y-[var(--space-2)]">
                 {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-          {tasks.map((t: any, idx: number) => (
+                {tasks.map((t: any, idx: number) => (
                   <li key={t.id || idx} className="rounded border border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)]">
                     <div className="font-medium">{t.title || t.name}</div>
                     {t.url && <a href={t.url} target="_blank" className="text-[var(--font-size-xs)] text-[var(--primary)]">open ↗</a>}
@@ -195,7 +205,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
             <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No events.</div>
           ) : (
             <ol className="space-y-[var(--space-3)] border-l border-[var(--border)] pl-[var(--space-4)] text-[var(--font-size-sm)]">
-              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+              { }
               {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
             {events.map((ev: any) => (
                 <li key={ev.id} className="relative">
@@ -216,8 +226,13 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
         </div>
       )}
 
+      {/* Docs tab (M3-02) */}
+      {isDocs && (
+        <DocsView scopePath={scopePath} initialDocSlug={docParam} initialAccess={access} />
+      )}
+
       {/* Overview + Activity legacy combined when not dashboard (keep full original layout for overview+activity non-tabbed fallback if any) */}
-      {!isDashboard && !isOverview && !isActivity && (
+      {!isDashboard && !isOverview && !isActivity && !isDocs && (
         <div className="space-y-[var(--space-4)]">
           <div className="grid grid-cols-1 gap-[var(--space-4)] lg:grid-cols-2">
             <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
@@ -229,7 +244,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
                 <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No records yet.</div>
               ) : (
                 <ul className="space-y-[var(--space-2)]">
-                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                  { }
                   {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
           {records.map((r: any) => (
                     <li key={r.id} className="flex items-center justify-between rounded border border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)]">
@@ -256,8 +271,8 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
                 </div>
               ) : (
                 <ul className="space-y-[var(--space-2)]">
-                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                  { }
+                  { }
           {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
           {tasks.map((t: any, idx: number) => (
                     <li key={t.id || idx} className="rounded border border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)]">
@@ -275,7 +290,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
               <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No events.</div>
             ) : (
               <ol className="space-y-[var(--space-3)] border-l border-[var(--border)] pl-[var(--space-4)] text-[var(--font-size-sm)]">
-                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                { }
                 {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
             {events.map((ev: any) => (
                   <li key={ev.id} className="relative">

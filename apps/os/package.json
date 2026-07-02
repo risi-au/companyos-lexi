@@ -12,6 +12,9 @@
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "^1.6.23",
+    "@blocknote/core": "^0.51.4",
+    "@blocknote/react": "^0.51.4",
+    "@blocknote/shadcn": "^0.51.4",
     "@companyos/api": "workspace:*",
     "@companyos/db": "workspace:*",
     "@companyos/ui": "workspace:*",
@@ -29,9 +32,11 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.8",
+    "@types/jsdom": "^28.0.3",
     "@types/node": "^22.15.21",
     "@types/react": "^19.1.6",
     "@types/react-dom": "^19.1.5",
+    "jsdom": "^29.1.1",
     "tailwindcss": "^4.1.8",
     "typescript": "^5.8.3"
   }
