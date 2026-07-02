@@ -17,6 +17,8 @@ import {
   resolveAccess,
   linkAuthUser,
   getPrincipalIdForAuthUser,
+  getDashboard,
+  queryMetrics,
   PlaneClient,
 } from "@companyos/api";
 
@@ -65,6 +67,12 @@ export const api = {
   // Grants
   resolveAccess: (principalId: string, scopePath: string) =>
     resolveAccess(db, principalId, scopePath),
+
+  // Dashboards + metrics (M2-04)
+  getDashboard: (input: Parameters<typeof getDashboard>[1], actorPrincipalId: string) =>
+    getDashboard(db, input, actorPrincipalId),
+  queryMetrics: (input: Parameters<typeof queryMetrics>[1], actorPrincipalId: string) =>
+    queryMetrics(db, input, actorPrincipalId),
 
   // Modules (for tab context, though tabs unconditional in M2-03)
   listModules: async (scopePath: string, actorPrincipalId: string) => {

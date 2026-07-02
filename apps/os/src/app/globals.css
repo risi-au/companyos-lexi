@@ -1,1 +1,20 @@
 @import "@companyos/ui/globals.css";
+
+/* Dashboard grid per DESIGN-SYSTEM + M2-04: 12-col, skeletons, token colors only */
+.dashboard-grid {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+@media (max-width: 767px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+  .dashboard-widget {
+    grid-column: 1 / -1 !important;
+    grid-row: auto !important;
+  }
+}
+.dashboard-widget {
+  min-height: 80px; /* reserve space */
+}
