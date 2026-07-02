@@ -34,3 +34,7 @@ coverage/
 
 # drizzle
 packages/db/drizzle/
+# agent session artifacts
+mcps/
+terminals/
+__pycache__/
