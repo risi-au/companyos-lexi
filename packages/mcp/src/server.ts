@@ -21,12 +21,18 @@ import {
   listDashboards,
   revertDashboard,
   getWidgetVocabulary,
+  saveDoc,
+  getDoc,
+  listDocs,
+  listDocRevisions,
+  revertDoc,
   PlaneClient,
   type DB,
   AccessDeniedError,
   ScopeNotFoundError,
   RecordNotFoundError,
   DashboardValidationError,
+  DocumentNotFoundError,
 } from "@companyos/api";
 
 export interface CreateServerOptions {
@@ -47,6 +53,9 @@ function formatError(e: unknown): string {
   }
   if (e instanceof DashboardValidationError) {
     return `Dashboard validation failed: ${e.errors.map((er: { path?: (string | number)[]; message: string }) => `${(er.path || []).join(".")}: ${er.message}`).join("; ")}`;
+  }
+  if (e instanceof DocumentNotFoundError) {
+    return `Document not found: ${e.slug} in ${e.scopePath}`;
   }
   if (e instanceof Error) {
     return e.message;
@@ -864,6 +873,152 @@ ${JSON.stringify(rec.data || {}, null, 2)}
         const restored = await revertDashboard(db, { scopePath: scope, name, revisionId: revision_id }, actor);
         return {
           content: [{ type: "text", text: `Reverted dashboard ${restored.id} (name: ${restored.name}) to revision ${revision_id}` }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // save_doc
+  server.registerTool(
+    "save_doc",
+    {
+      title: "Save Doc",
+      description: "Save or update a document (markdown body). Slug optional (defaults to slugified title with -2 suffix on collision for auto). Requires editor/agent. Appends revision (prunes to 50).",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+        slug: z.string().optional().describe("Optional explicit slug [a-z0-9-]+ ; if omitted, derived from title"),
+        title: z.string().min(1).describe("Document title"),
+        body_md: z.string().describe("Markdown body (canonical)"),
+      }),
+    },
+    async ({ scope, slug, title, body_md }) => {
+      try {
+        const actor = ensurePrincipal();
+        const saved = await saveDoc(db, { scopePath: scope, slug, title, bodyMd: body_md }, actor);
+        return {
+          content: [{ type: "text", text: `Saved doc ${saved.id} (slug: ${saved.slug}) under ${scope}` }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // get_doc
+  server.registerTool(
+    "get_doc",
+    {
+      title: "Get Doc",
+      description: "Fetch a document by scope + slug. Returns full title + body_md. Viewer required. (archived docs are fetchable).",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+        slug: z.string().min(1).describe("Document slug"),
+      }),
+    },
+    async ({ scope, slug }) => {
+      try {
+        const actor = ensurePrincipal();
+        const doc = await getDoc(db, { scopePath: scope, slug }, actor);
+        if (!doc) {
+          return {
+            content: [{ type: "text", text: `Document not found: ${slug} in ${scope}` }],
+            isError: true,
+          };
+        }
+        const md = `# ${doc.title}\nslug: ${doc.slug}\nid: ${doc.id}\nupdated: ${doc.updatedAt ? new Date(doc.updatedAt).toISOString() : ""}\n\n${doc.bodyMd || ""}\n`;
+        return { content: [{ type: "text", text: md }] };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // list_docs
+  server.registerTool(
+    "list_docs",
+    {
+      title: "List Docs",
+      description: "List documents for scope (excludes archived by default). Compact: id, slug, title, updated. Viewer.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+        include_archived: z.boolean().optional().describe("Include archived documents"),
+      }),
+    },
+    async ({ scope, include_archived }) => {
+      try {
+        const actor = ensurePrincipal();
+        const list = await listDocs(db, { scopePath: scope, includeArchived: !!include_archived }, actor);
+        const lines = list.map((d: { id: string; slug: string; title: string; updatedAt?: Date | string | null }) => `${d.id}\t${d.slug}\t${d.title}\t${d.updatedAt ? new Date(d.updatedAt).toISOString() : ""}`);
+        return {
+          content: [{ type: "text", text: "id\tslug\ttitle\tupdated\n" + (lines.join("\n") || "(none)") }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // list_revisions (doc)
+  server.registerTool(
+    "list_doc_revisions",
+    {
+      title: "List Doc Revisions",
+      description: "List recent revisions for a document (most recent first). Viewer.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+        slug: z.string().min(1).describe("Document slug"),
+        limit: z.number().int().min(1).max(200).optional(),
+      }),
+    },
+    async ({ scope, slug, limit }) => {
+      try {
+        const actor = ensurePrincipal();
+        const revs = await listDocRevisions(db, { scopePath: scope, slug, limit }, actor);
+        const lines = revs.map((r: { id: string; title: string; createdAt?: Date | string | null }) => `${r.id}\t${r.title}\t${r.createdAt ? new Date(r.createdAt).toISOString() : ""}`);
+        return {
+          content: [{ type: "text", text: "id\ttitle\tcreated\n" + (lines.join("\n") || "(none)") }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // revert_doc
+  server.registerTool(
+    "revert_doc",
+    {
+      title: "Revert Doc",
+      description: "Revert a document to a prior revision id. Requires editor/agent. Appends restored content as new revision.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+        slug: z.string().min(1).describe("Document slug"),
+        revision_id: z.string().min(1).describe("Revision id to restore"),
+      }),
+    },
+    async ({ scope, slug, revision_id }) => {
+      try {
+        const actor = ensurePrincipal();
+        const restored = await revertDoc(db, { scopePath: scope, slug, revisionId: revision_id }, actor);
+        return {
+          content: [{ type: "text", text: `Reverted doc ${restored.id} (slug: ${restored.slug}) to revision ${revision_id}` }],
         };
       } catch (e) {
         return {

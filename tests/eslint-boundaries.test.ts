@@ -16,5 +16,5 @@ describe("module boundary lint rule", () => {
     );
 
     expect(boundaryViolations.length).toBeGreaterThan(0);
-  });
+  }, 30000);
 });

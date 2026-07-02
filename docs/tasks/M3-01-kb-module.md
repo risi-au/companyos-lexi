@@ -1,5 +1,5 @@
 # M3-01: Knowledge base module (documents, markdown-canonical)
-status: todo
+status: done
 module: docs (KB)
 branch: task/M3-01
 

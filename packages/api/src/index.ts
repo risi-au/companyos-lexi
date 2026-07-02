@@ -14,6 +14,9 @@ export * from "./modules/metrics/service";
 // Dashboards module
 export * from "./modules/dashboards/service";
 
+// Docs (KB) module
+export * from "./modules/docs/service";
+
 // Tasks module (Plane adapter)
 export * from "./modules/tasks/service";
 export { PlaneClient, type PlaneConfig, type FetchLike } from "./modules/tasks/plane-client";

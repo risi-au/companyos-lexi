@@ -43,6 +43,13 @@
       "when": 1782994783233,
       "tag": "0005_thin_firebrand",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1783004732213,
+      "tag": "0006_medical_silver_centurion",
+      "breakpoints": true
     }
   ]
 }
