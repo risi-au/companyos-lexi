@@ -53,7 +53,7 @@ export async function ensureTaskTarget(
     projectId = topLink.planeProjectId;
   } else {
     // create project lazily in Plane; adopt an existing project on name
-    // conflict (409) — happens when task_links is missing but Plane has it
+    // conflict (409) â€” happens when task_links is missing but Plane has it
     const projName = topScope?.name || topPath;
     let proj;
     try {
