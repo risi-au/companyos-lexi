@@ -14,7 +14,7 @@ A clean TypeScript monorepo that installs, builds, lints, and tests with single 
 1. pnpm workspaces + turborepo. Root scripts: `dev`, `build`, `lint`, `test`, `typecheck`.
 2. `apps/os`: Next.js 15+ (App Router, TS strict, src/ layout) with Tailwind v4 + shadcn/ui initialized; a placeholder home page rendering "CompanyOS" using a `packages/ui` component; `modules/` directory with a `README.md` stub explaining the module pattern.
 3. `apps/control-plane`: minimal Next.js app, placeholder page only.
-4. `packages/ui`: design tokens file (CSS variables: colors, radius, spacing, typography — light + dark) + one Button primitive consuming tokens; exported for both apps.
+4. `packages/ui`: design tokens file implementing `docs/DESIGN-SYSTEM.md` exactly (CSS variables, primitive + semantic layers, light + dark; Inter + JetBrains Mono via next/font) + one Button primitive consuming tokens; exported for both apps.
 5. `packages/db`: Drizzle + postgres-js wired, empty schema dir, `drizzle.config.ts`, migration + seed script stubs reading `DATABASE_URL` from env.
 6. `packages/api`: empty service-layer package with one example function `health(): { ok: true }` and a vitest test.
 7. `packages/mcp`: stub package depending on `@modelcontextprotocol/sdk`, exporting a `createServer()` that registers a single `ping` tool returning "pong". No transport wiring yet.

@@ -5,7 +5,8 @@ You are in the CompanyOS repo: a self-hosted, AI-native, multi-tenant (instance-
 **Read in this order:**
 1. `docs/CONSTITUTION.md` — the non-negotiable engineering rules. Violations fail CI/review.
 2. `docs/DESIGN.md` — what we're building and why (requirements contract, component map, data model, MCP contract, build order).
-3. If you are implementing a task: `docs/ORCHESTRATION.md` + your brief in `docs/tasks/`.
+3. `docs/DESIGN-SYSTEM.md` — the visual contract (tokens, typography, UX rules) for any UI work.
+4. If you are implementing a task: `docs/ORCHESTRATION.md` + your brief in `docs/tasks/`.
 
 **Layout** (once scaffolded — M1-01):
 - `apps/os` — the tenant product (Next.js). Modules under `apps/os/modules/<name>/`, each with its own `AGENTS.md` — read only the module you're working on.
