@@ -4,6 +4,7 @@ import { DashboardRenderer, DashboardEmptyState, RangePicker } from "@/modules/d
 import { DocsView } from "@/modules/docs";
 import { CanvasView } from "@/modules/canvas";
 import { getDashboard } from "@companyos/api";
+import { AskOSButton } from "@/modules/agent";
 // Consume spec contract (never fork schema); derive type from service surface for compile
 type DashboardSpec = NonNullable<Awaited<ReturnType<typeof getDashboard>>>["spec"] & {
   version: 1;
@@ -94,7 +95,10 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
             ))}
           </div>
         </div>
-        <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Role: {access}</div>
+        <div className="flex items-center gap-[var(--space-2)]">
+          <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Role: {access}</div>
+          <AskOSButton scopePath={scopePath} />
+        </div>
       </div>
 
       {/* Tabs: Dashboard first when present */}

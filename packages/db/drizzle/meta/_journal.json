@@ -57,6 +57,13 @@
       "when": 1783008019579,
       "tag": "0007_clever_brother_voodoo",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783100000000,
+      "tag": "0008_brave_foxhound",
+      "breakpoints": true
     }
   ]
 }
