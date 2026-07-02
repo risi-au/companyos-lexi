@@ -19,7 +19,7 @@ const Excalidraw = dynamic(
   { ssr: false }
 );
 
-import "@excalidraw/excalidraw/index.css";
+// Excalidraw 0.17.x injects its styles at runtime; the index.css export exists only in 0.18+
 
 interface CanvasListItem {
   id: string;
