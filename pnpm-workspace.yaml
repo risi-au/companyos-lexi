@@ -1,3 +1,12 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+# Postinstall build scripts allowed to run (everything else blocked)
+allowBuilds:
+  esbuild: true
+  sharp: true
+  unrs-resolver: true
+
+# Supply-chain policy: packages must be >=24h old (explicit; pnpm 11 enforces)
+minimumReleaseAge: 1440
