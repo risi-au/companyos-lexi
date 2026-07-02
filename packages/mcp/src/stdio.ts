@@ -8,7 +8,7 @@
  */
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createDb } from "@companyos/db";
-import { authenticateToken } from "@companyos/api";
+import { authenticateToken, PlaneClient } from "@companyos/api";
 import { createServer } from "./server.js";
 
 async function main() {
@@ -35,7 +35,22 @@ async function main() {
     // continue unauth
   }
 
-  const server = createServer({ db, principalId });
+  let planeClient: PlaneClient | null = null;
+  const planeBase = process.env.PLANE_BASE_URL;
+  const planeToken = process.env.PLANE_API_TOKEN;
+  const planeWs = process.env.PLANE_WORKSPACE_SLUG;
+  if (planeBase && planeToken && planeWs) {
+    try {
+      planeClient = new PlaneClient({ baseUrl: planeBase, apiToken: planeToken, workspaceSlug: planeWs });
+      console.error("[mcp] Plane client configured");
+    } catch (e) {
+      console.error("[mcp] Plane client init failed (continuing without):", (e as Error).message);
+    }
+  } else {
+    console.error("[mcp] Plane not configured (PLANE_* missing); task tools will return clear error.");
+  }
+
+  const server = createServer({ db, principalId, planeClient });
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

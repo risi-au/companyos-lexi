@@ -9,6 +9,11 @@ import {
   getSubtree,
   listModules,
   requireAccess,
+  createTask,
+  completeTask,
+  updateTask,
+  listTasks,
+  PlaneClient,
   type DB,
   AccessDeniedError,
   ScopeNotFoundError,
@@ -18,6 +23,7 @@ import {
 export interface CreateServerOptions {
   db: DB;
   principalId: string | null;
+  planeClient?: PlaneClient | null;
 }
 
 function formatError(e: unknown): string {
@@ -43,7 +49,7 @@ function formatDate(d: Date | string | null | undefined): string {
 }
 
 export function createServer(options: CreateServerOptions) {
-  const { db, principalId } = options;
+  const { db, principalId, planeClient = null } = options;
 
   const server = new McpServer({
     name: "companyos",
@@ -446,6 +452,160 @@ ${JSON.stringify(rec.data || {}, null, 2)}
 \`\`\`
 `;
         return { content: [{ type: "text", text: md }] };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // create_task
+  server.registerTool(
+    "create_task",
+    {
+      title: "Create Task",
+      description: "Create a task backed by Plane under the scope. Requires editor/agent. Returns id + sequence + url.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path e.g. 'airbuddy' or 'airbuddy/website'"),
+        title: z.string().min(1).describe("Task title"),
+        description: z.string().optional().describe("Optional markdown/plain description"),
+        priority: z.enum(["urgent", "high", "medium", "low", "none"]).optional().describe("Priority"),
+        due_date: z.string().optional().describe("Target/due date as YYYY-MM-DD"),
+      }),
+    },
+    async ({ scope, title, description, priority, due_date }) => {
+      try {
+        const actor = ensurePrincipal();
+        if (!planeClient) {
+          return {
+            content: [{ type: "text", text: "tasks engine not configured" }],
+            isError: true,
+          };
+        }
+        const t = await createTask(
+          db,
+          planeClient,
+          { scopePath: scope, title, description, priority, dueDate: due_date },
+          actor
+        );
+        return {
+          content: [{ type: "text", text: `Created task ${t.id} (seq ${t.sequenceId})\n${t.url}` }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // complete_task
+  server.registerTool(
+    "complete_task",
+    {
+      title: "Complete Task",
+      description: "Transition a task/issue to completed state in its project. Optional note writes a changelog record. Editor/agent.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path of the task"),
+        issue_id: z.string().min(1).describe("Plane work-item id to complete"),
+        note: z.string().optional().describe("Optional completion note (written as changelog)"),
+      }),
+    },
+    async ({ scope, issue_id, note }) => {
+      try {
+        const actor = ensurePrincipal();
+        if (!planeClient) {
+          return {
+            content: [{ type: "text", text: "tasks engine not configured" }],
+            isError: true,
+          };
+        }
+        await completeTask(db, planeClient, { issueId: issue_id, scopePath: scope, note }, actor);
+        return {
+          content: [{ type: "text", text: `Completed task ${issue_id}${note ? " (note recorded)" : ""}` }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // update_task
+  server.registerTool(
+    "update_task",
+    {
+      title: "Update Task",
+      description: "Partial update of task fields. Editor/agent required.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+        issue_id: z.string().min(1).describe("Plane work-item id"),
+        title: z.string().optional(),
+        description: z.string().optional(),
+        state: z.string().optional().describe("State id or name"),
+        priority: z.string().optional(),
+        due_date: z.string().optional(),
+      }),
+    },
+    async ({ scope, issue_id, title, description, state, priority, due_date }) => {
+      try {
+        const actor = ensurePrincipal();
+        if (!planeClient) {
+          return {
+            content: [{ type: "text", text: "tasks engine not configured" }],
+            isError: true,
+          };
+        }
+        await updateTask(
+          db,
+          planeClient,
+          { issueId: issue_id, scopePath: scope, title, description, state, priority, dueDate: due_date },
+          actor
+        );
+        return {
+          content: [{ type: "text", text: `Updated task ${issue_id}` }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // list_tasks
+  server.registerTool(
+    "list_tasks",
+    {
+      title: "List Tasks",
+      description: "List tasks for scope (label-filtered in Plane). state=open|completed|all. Viewer access.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+        state: z.enum(["open", "completed", "all"]).optional().describe("Filter by state group"),
+        limit: z.number().int().min(1).max(200).optional().describe("Max results"),
+      }),
+    },
+    async ({ scope, state, limit }) => {
+      try {
+        const actor = ensurePrincipal();
+        if (!planeClient) {
+          return {
+            content: [{ type: "text", text: "tasks engine not configured" }],
+            isError: true,
+          };
+        }
+        const items = await listTasks(db, planeClient, { scopePath: scope, state, limit }, actor);
+        const header = "id\tseq\ttitle\tstate\tdue\n";
+        const lines = items.map((t: { id: string; sequenceId: string | number; title: string; state?: string; dueDate?: string | null }) => `${t.id}\t${t.sequenceId}\t${t.title}\t${t.state || ""}\t${t.dueDate || ""}`);
+        return {
+          content: [{ type: "text", text: header + (lines.join("\n") || "(no tasks)") }],
+        };
       } catch (e) {
         return {
           content: [{ type: "text", text: `Error: ${formatError(e)}` }],

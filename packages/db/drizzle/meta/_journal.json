@@ -15,6 +15,13 @@
       "when": 1782979421311,
       "tag": "0001_fluffy_tarantula",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782980500000,
+      "tag": "0002_clever_squirrel",
+      "breakpoints": true
     }
   ]
 }
