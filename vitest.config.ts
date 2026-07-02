@@ -8,6 +8,12 @@ export default defineConfig({
       "packages/mcp",
       {
         test: {
+          name: "os-web",
+          include: ["apps/os/src/**/*.test.ts"],
+        },
+      },
+      {
+        test: {
           name: "root",
           include: ["tests/**/*.test.ts"],
         },

@@ -1,5 +1,5 @@
 # M2-04: Dashboard renderer
-status: todo
+status: done
 module: web (apps/os)
 branch: task/M2-04
 

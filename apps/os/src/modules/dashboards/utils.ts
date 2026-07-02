@@ -56,12 +56,12 @@ export function formatValue(value: number, metricName?: string): string {
     s = Math.round(value / 1000) + "k";
   } else if (abs >= 1000) {
     s = (value / 1000).toFixed(1) + "k";
-  } else if (isMoney && abs >= 100) {
-    s = value.toFixed(0);
   } else if (isMoney) {
+    // currency: always 2dp below 1k for column consistency
     s = value.toFixed(2);
   } else {
-    s = abs < 10 ? value.toFixed(2) : value.toFixed(0);
+    // counts: up to 2dp, trailing zeros trimmed
+    s = String(Math.round(value * 100) / 100);
   }
   if (isMoney) {
     if (value < 0) s = "-" + s.replace(/^-/, "");

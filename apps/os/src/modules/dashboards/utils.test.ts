@@ -45,8 +45,8 @@ describe("value formatter (tabular mono friendly)", () => {
   });
 
   it("handles zero and small numbers", () => {
-    expect(formatValue(0, "meta.spend")).toBe("$0");
-    expect(formatValue(5.5)).toBe("5.50");
+    expect(formatValue(0, "meta.spend")).toBe("$0.00");
+    expect(formatValue(5.5)).toBe("5.5");
   });
 
   it("produces tabular-nums friendly strings (no extra chars)", () => {
