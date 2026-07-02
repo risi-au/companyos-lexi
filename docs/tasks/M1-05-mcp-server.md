@@ -1,5 +1,5 @@
 # M1-05: MCP server v1 (context + records tools)
-status: todo
+status: done
 module: mcp
 branch: task/M1-05
 
