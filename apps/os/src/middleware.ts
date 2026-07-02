@@ -11,6 +11,7 @@ export function middleware(request: NextRequest) {
   // Allow auth routes and next internals
   if (
     pathname.startsWith("/api/auth") ||
+    pathname.startsWith("/api/v1") ||   // agent API: bearer-token auth in route handlers
     pathname.startsWith("/sign-in") ||
     pathname.startsWith("/sign-up") ||
     pathname.startsWith("/_next") ||

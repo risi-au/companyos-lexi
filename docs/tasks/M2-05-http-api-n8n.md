@@ -1,5 +1,5 @@
 # M2-05: HTTP agent API + n8n + Plane webhook ingestion
-status: todo
+status: done
 module: web (apps/os) + infra
 branch: task/M2-05
 

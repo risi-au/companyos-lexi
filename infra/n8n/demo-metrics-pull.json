@@ -17,7 +17,10 @@
       "name": "Schedule Trigger",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [240, 300]
+      "position": [
+        240,
+        300
+      ]
     },
     {
       "parameters": {
@@ -27,7 +30,10 @@
       "name": "Generate Demo Points",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [460, 300]
+      "position": [
+        460,
+        300
+      ]
     },
     {
       "parameters": {
@@ -46,10 +52,13 @@
       "name": "POST to CompanyOS /metrics/write",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [680, 300],
+      "position": [
+        680,
+        300
+      ],
       "credentials": {
         "httpHeaderAuth": {
-          "id": "cos-agent-token",
+          "id": "cosdevtoken00001",
           "name": "CompanyOS Agent Token"
         }
       }
@@ -85,5 +94,6 @@
   "versionId": "m2-05-demo-1",
   "meta": {
     "templateCredsSetupCompleted": true
-  }
+  },
+  "id": "49f881b876c54cc0"
 }
