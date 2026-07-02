@@ -9,6 +9,7 @@ import {
   bigserial,
   index,
   uniqueIndex,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 
@@ -20,10 +21,9 @@ export const principalStatusEnum = pgEnum("principal_status", ["active", "disabl
 export const grantRoleEnum = pgEnum("grant_role", ["owner", "admin", "editor", "viewer", "agent"]);
 
 // scopes
-/* eslint-disable @typescript-eslint/no-explicit-any */
-export const scopes: any = pgTable("scopes", {
+export const scopes = pgTable("scopes", {
   id: uuid("id").primaryKey().defaultRandom(),
-  parentId: uuid("parent_id").references(() => scopes.id, { onDelete: "cascade" }),
+  parentId: uuid("parent_id").references((): AnyPgColumn => scopes.id, { onDelete: "cascade" }),
   slug: text("slug").notNull(),
   path: text("path").notNull().unique(),
   name: text("name").notNull(),

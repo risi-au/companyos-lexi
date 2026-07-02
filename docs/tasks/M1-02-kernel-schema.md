@@ -1,5 +1,5 @@
 # M1-02: Kernel schema + migrations
-status: todo
+status: done
 module: kernel
 branch: task/M1-02
 
