@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { eq } from "drizzle-orm";
-import { taskLinks } from "@companyos/db";
+import { taskLinks, scopes } from "@companyos/db";
 import type { TaskLink } from "@companyos/db";
 import {
   emitEvent,
@@ -349,4 +349,59 @@ export async function listTasks(
       dueDate: due,
     };
   });
+}
+
+export interface PlaneLinkLookupResult {
+  scopePath: string;
+  scopeId: string;
+  planeProjectId: string;
+  planeLabelId: string | null;
+}
+
+/**
+ * Reverse lookup for Plane webhook ingestion.
+ * Finds the most specific scope linked to a Plane project (and optional label).
+ * If label present on link, prefers exact match when label provided in webhook.
+ */
+export async function findScopeByPlaneProject(
+  db: DB,
+  planeProjectId: string,
+  planeLabelId?: string | null
+): Promise<PlaneLinkLookupResult | null> {
+  if (!planeProjectId) return null;
+
+  const rows = (await db
+    .select()
+    .from(taskLinks)
+    .where(eq(taskLinks.planeProjectId, planeProjectId))) as any[];
+
+  if (!rows || rows.length === 0) return null;
+
+  // Prefer exact label match if provided
+  let pick: any = null;
+  if (planeLabelId) {
+    pick = rows.find((r: any) => r.planeLabelId === planeLabelId);
+  }
+  if (!pick) {
+    // fallback to first with label or any (project-level link)
+    pick = rows.find((r: any) => r.planeLabelId) || rows[0];
+  }
+  if (!pick) return null;
+
+  // resolve path
+  const [scopeRow] = (await db
+    .select({ path: scopes.path })
+    .from(scopes)
+    .where(eq(scopes.id, pick.scopeId))
+    .limit(1)) as { path: string | null }[];
+
+  const path = scopeRow?.path;
+  if (!path) return null;
+
+  return {
+    scopePath: path,
+    scopeId: pick.scopeId,
+    planeProjectId: pick.planeProjectId,
+    planeLabelId: pick.planeLabelId,
+  };
 }

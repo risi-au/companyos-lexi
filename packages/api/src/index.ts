@@ -18,6 +18,9 @@ export * from "./modules/dashboards/service";
 export * from "./modules/tasks/service";
 export { PlaneClient, type PlaneConfig, type FetchLike } from "./modules/tasks/plane-client";
 
+// Agent HTTP / n8n support (M2-05)
+export * from "./agent";
+
 // Errors (typed)
 export * from "./errors";
 

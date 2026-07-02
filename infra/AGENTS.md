@@ -19,6 +19,7 @@ Purpose: Development (and later prod-parity) Docker Compose bundle for the share
 - (root) `package.json` scripts: `infra:up`, `infra:down`, `db:migrate`, `db:seed`.
 - `.env.example` — all referenced vars with placeholders.
 - `packages/db/` scripts updated to execute drizzle-kit for migrate (delegated).
+- n8n (M2-05+): `docker-compose.dev.yml` adds n8nio/n8n (basic-auth, sqlite, port 5678, own volume). Demo workflow + README in `infra/n8n/`.
 
 ## Ports (host)
 - 5432: postgres
@@ -35,7 +36,7 @@ Purpose: Development (and later prod-parity) Docker Compose bundle for the share
 ## Do not
 - Do not run `docker` or `docker compose` commands in environments where Docker is absent.
 - Do not inline full Plane compose (use official setup.sh + external DB config).
-- Do not touch docs/, apps/, packages/api, packages/mcp, root README/AGENTS, legacy/.
+- Do not touch docs/, root README/AGENTS, legacy/.
 - Never commit real keys.
 
 ## Related
