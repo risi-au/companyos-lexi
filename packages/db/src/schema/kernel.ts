@@ -40,6 +40,7 @@ export const principals = pgTable("principals", {
   kind: principalKindEnum("kind").notNull(),
   name: text("name").notNull(),
   email: text("email"),
+  authUserId: text("auth_user_id").unique(),
   status: principalStatusEnum("status").notNull().default("active"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -138,6 +139,7 @@ export interface Principal {
   kind: "human" | "agent";
   name: string;
   email: string | null;
+  authUserId: string | null;
   status: "active" | "disabled";
   createdAt: Date;
 }
