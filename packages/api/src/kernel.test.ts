@@ -102,9 +102,9 @@ describe("kernel services (PGlite + migrations)", () => {
 
     it("createScope rejects duplicate path", async () => {
       const unique = "dup-" + Date.now();
-      await createScope(db, { slug: unique, name: "D1", type: "root" }, rootPrincipalId);
+      await createScope(db, { slug: unique, name: "D1", type: "client" }, rootPrincipalId);
       await expect(
-        createScope(db, { slug: unique, name: "D2", type: "root" }, rootPrincipalId)
+        createScope(db, { slug: unique, name: "D2", type: "client" }, rootPrincipalId)
       ).rejects.toThrow(DuplicatePathError);
     });
 
@@ -116,7 +116,7 @@ describe("kernel services (PGlite + migrations)", () => {
 
     it("getScope, getChildren, getSubtree work", async () => {
       const base = "tree-" + Date.now();
-      const rootS = await createScope(db, { slug: base, name: "RootT", type: "root" }, rootPrincipalId);
+      const rootS = await createScope(db, { slug: base, name: "RootT", type: "client" }, rootPrincipalId);
       await createScope(db, { parentPath: base, slug: "c1", name: "C1", type: "project" }, rootPrincipalId);
       await createScope(db, { parentPath: `${base}/c1`, slug: "c2", name: "C2", type: "area" }, rootPrincipalId);
 
@@ -181,7 +181,7 @@ describe("kernel services (PGlite + migrations)", () => {
 
     it("role precedence: owner > admin > editor > viewer", async () => {
       const prec = "prec-" + Date.now();
-      await createScope(db, { slug: prec, name: "P", type: "root" }, rootPrincipalId);
+      await createScope(db, { slug: prec, name: "P", type: "client" }, rootPrincipalId);
       await createScope(db, { parentPath: prec, slug: "c", name: "C", type: "project" }, rootPrincipalId);
 
       // viewer on root, admin on child => should resolve admin on child
@@ -299,7 +299,7 @@ describe("kernel services (PGlite + migrations)", () => {
 
     it("listEvents filters by scopePath and type", async () => {
       const lp = "listp-" + Date.now();
-      await createScope(db, { slug: lp, name: "L", type: "root" }, rootPrincipalId);
+      await createScope(db, { slug: lp, name: "L", type: "client" }, rootPrincipalId);
       await createScope(db, { parentPath: lp, slug: "c", name: "Lc", type: "project" }, rootPrincipalId);
 
       const scopeEvents = await listEvents(db, { scopePath: lp, limit: 50 });
