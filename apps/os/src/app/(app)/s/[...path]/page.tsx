@@ -1,0 +1,149 @@
+import { notFound } from "next/navigation";
+import { api, getCurrentActorPrincipalId } from "@/lib/api";
+
+interface ScopePageProps {
+  params: Promise<{ path: string[] }>;
+}
+
+export default async function ScopePage({ params }: ScopePageProps) {
+  const { path: segments } = await params;
+  const scopePath = segments?.join("/") || "root";
+
+  const actor = await getCurrentActorPrincipalId();
+  if (!actor) {
+    // protected by layout/middleware
+    return null;
+  }
+
+  const scope = await api.getScope(scopePath);
+  if (!scope) {
+    notFound();
+  }
+
+  // Enforce viewer at least (will throw in services if no grant)
+  const access = await api.resolveAccess(actor, scopePath);
+  if (!access) {
+    // In practice middleware + bootstrap gives owner on root
+    notFound();
+  }
+
+  // Data for Overview
+  const records = await api.listRecords({ scopePath, limit: 8 }, actor);
+  const tasks = await api.listTasks({ scopePath, state: "open", limit: 8 }, actor);
+
+  // Activity
+  const events = await api.listEvents({ scopePath, limit: 12 });
+
+  return (
+    <div className="space-y-[var(--space-6)]">
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="flex items-center gap-[var(--space-2)]">
+            <h1 className="text-[var(--font-size-2xl)] font-semibold tracking-[-0.01em]">{scope.name}</h1>
+            <span className="inline-block rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
+              {scope.type}
+            </span>
+            <span className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">· {scope.status}</span>
+          </div>
+          {/* Breadcrumb segments */}
+          <div className="mt-[var(--space-1)] flex items-center gap-[var(--space-1)] text-[var(--font-size-sm)] text-[var(--muted-foreground)] font-mono">
+            {scope.path.split("/").map((seg: string, i: number, arr: string[]) => (
+              <span key={i}>
+                {seg}
+                {i < arr.length - 1 ? <span className="mx-[var(--space-1)] text-[var(--border)]">/</span> : null}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Role: {access}</div>
+      </div>
+
+      {/* Tabs (unconditional per brief) */}
+      <div className="border-b border-[var(--border)]">
+        <div className="-mb-px flex gap-[var(--space-6)] text-[var(--font-size-sm)]">
+          <div className="border-b-2 border-[var(--primary)] pb-[var(--space-2)] font-medium text-[var(--primary)]">Overview</div>
+          <div className="pb-[var(--space-2)] text-[var(--muted-foreground)]">Activity</div>
+        </div>
+      </div>
+
+      {/* Overview */}
+      <div className="grid grid-cols-1 gap-[var(--space-4)] lg:grid-cols-2">
+        {/* Records card */}
+        <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
+          <div className="mb-[var(--space-3)] flex items-center justify-between">
+            <div className="text-[var(--font-size-sm)] font-medium">Recent records</div>
+            <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">read-only</div>
+          </div>
+          {records.length === 0 ? (
+            <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No records yet.</div>
+          ) : (
+            <ul className="space-y-[var(--space-2)]">
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+          {records.map((r: any) => (
+                <li key={r.id} className="flex items-center justify-between rounded border border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)]">
+                  <div>
+                    <span className="mr-2 inline text-[var(--font-size-xs)] rounded bg-[var(--muted)] px-[var(--space-1)] py-px text-[var(--muted-foreground)]">{r.kind}</span>
+                    <span className="font-medium">{r.title}</span>
+                  </div>
+                  <span className="text-[var(--font-size-xs)] text-[var(--muted-foreground)] tabular-nums">
+                    {new Date(String(r.createdAt)).toLocaleDateString()}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* Open tasks card */}
+        <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
+          <div className="mb-[var(--space-3)] flex items-center justify-between">
+            <div className="text-[var(--font-size-sm)] font-medium">Open tasks</div>
+            <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">via Plane</div>
+          </div>
+          {tasks.length === 0 ? (
+            <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
+              {process.env.PLANE_API_TOKEN ? "No open tasks." : "Plane not configured — tasks hidden."}
+            </div>
+          ) : (
+            <ul className="space-y-[var(--space-2)]">
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+          {tasks.map((t: any, idx: number) => (
+                <li key={t.id || idx} className="rounded border border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)]">
+                  <div className="font-medium">{t.title || t.name}</div>
+                  {t.url && <a href={t.url} target="_blank" className="text-[var(--font-size-xs)] text-[var(--primary)]">open ↗</a>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      {/* Activity (always shown) */}
+      <div>
+        <div className="mb-[var(--space-2)] text-[var(--font-size-sm)] font-medium">Activity</div>
+        {events.length === 0 ? (
+          <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No events.</div>
+        ) : (
+          <ol className="space-y-[var(--space-3)] border-l border-[var(--border)] pl-[var(--space-4)] text-[var(--font-size-sm)]">
+            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+            {events.map((ev: any) => (
+              <li key={ev.id} className="relative">
+                <div className="absolute -left-[5px] top-1.5 h-2 w-2 rounded-full bg-[var(--muted-foreground)]" />
+                <div className="text-[var(--muted-foreground)] tabular-nums">
+                  {new Date(ev.createdAt).toISOString().slice(0, 16).replace("T", " ")}
+                </div>
+                <div>
+                  <span className="font-mono text-[var(--font-size-xs)]">{ev.type}</span>
+                  {ev.payload && Object.keys(ev.payload).length > 0 && (
+                    <span className="ml-2 text-[var(--muted-foreground)]">{JSON.stringify(ev.payload)}</span>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+    </div>
+  );
+}
