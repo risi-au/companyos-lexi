@@ -60,3 +60,12 @@ export class TokenNotFoundError extends KernelError {
     this.name = "TokenNotFoundError";
   }
 }
+
+export class RecordNotFoundError extends KernelError {
+  public readonly id: string;
+  constructor(id: string) {
+    super(`Record not found: ${id}`);
+    this.name = "RecordNotFoundError";
+    this.id = id;
+  }
+}
