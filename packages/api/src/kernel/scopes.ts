@@ -51,6 +51,8 @@ export async function createScope(
     throw new DuplicatePathError(path);
   }
 
+  // Top-level scopes attach to the root scope when one exists, so grants on
+  // root cover the whole tree; paths stay clean (no "root/" prefix).
   let parentId: string | null = null;
   if (parentPath) {
     const [parent] = await db
@@ -62,6 +64,13 @@ export async function createScope(
       throw new ParentNotFoundError(parentPath);
     }
     parentId = parent.id;
+  } else if (type !== "root") {
+    const [root] = await db
+      .select({ id: scopes.id })
+      .from(scopes)
+      .where(eq(scopes.type, "root"))
+      .limit(1);
+    if (root) parentId = root.id;
   }
 
   const [created] = (await db
@@ -118,6 +127,13 @@ export async function getChildren(db: DB, path: string): Promise<Scope[]> {
 export async function getSubtree(db: DB, path: string): Promise<Scope[]> {
   const target = await getScope(db, path);
   if (!target) return [];
+
+  // The root scope's children carry no "root/" path prefix — its subtree is
+  // every scope.
+  if (target.type === "root") {
+    const all = await db.select().from(scopes).orderBy(scopes.path);
+    return all as Scope[];
+  }
 
   // Self + any path starting with path/
   const subtree = await db

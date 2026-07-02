@@ -91,27 +91,24 @@ export async function grantRole(
 }
 
 export async function resolveAccess(db: DB, principalId: string, scopePath: string): Promise<Grant["role"] | null> {
-  // Path-based ancestor walk (self to root). Grant on ancestor confers to subtree.
+  // Ancestor walk via parent_id chain (self → ... → root). Grants on any
+  // ancestor confer on the subtree. Path strings can't be used here: the
+  // root scope is the parent of top-level scopes but absent from their paths.
   const target = await getScope(db, scopePath);
   if (!target) return null;
 
-  // Build ancestor paths: self + parents
-  const ancestorPaths: string[] = [];
-  let p: string | null = scopePath;
-  while (p) {
-    ancestorPaths.push(p);
-    const idx = p.lastIndexOf("/");
-    p = idx > 0 ? p.slice(0, idx) : null;
+  const ancestorIds: string[] = [target.id];
+  let parentId: string | null = target.parentId;
+  while (parentId) {
+    const [parent] = (await db
+      .select({ id: scopes.id, parentId: scopes.parentId })
+      .from(scopes)
+      .where(eq(scopes.id, parentId))
+      .limit(1)) as { id: string; parentId: string | null }[];
+    if (!parent) break;
+    ancestorIds.push(parent.id);
+    parentId = parent.parentId;
   }
-
-  // Scope ids for exactly the ancestor paths (self → root)
-  const ancestorScopes = await db
-    .select({ id: scopes.id, path: scopes.path })
-    .from(scopes)
-    .where(inArray(scopes.path, ancestorPaths));
-
-  const ancestorIds = (ancestorScopes as { id: string; path: string }[]).map((s) => s.id);
-  if (ancestorIds.length === 0) return null;
 
   const principalGrants = (await db
     .select()

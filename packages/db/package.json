@@ -12,10 +12,11 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx src/scripts/migrate.ts",
+    "db:migrate": "drizzle-kit migrate",
     "db:seed": "tsx src/scripts/seed.ts"
   },
   "dependencies": {
+    "dotenv": "^17.4.2",
     "drizzle-orm": "^0.44.2",
     "postgres": "^3.4.7"
   },

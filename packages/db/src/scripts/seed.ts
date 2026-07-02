@@ -1,3 +1,5 @@
+import { config as loadEnv } from "dotenv";
+loadEnv({ path: ["../../.env", ".env"], quiet: true });
 import { createDb } from "../index";
 import { scopes, principals, grants } from "../schema";
 import { eq, and } from "drizzle-orm";

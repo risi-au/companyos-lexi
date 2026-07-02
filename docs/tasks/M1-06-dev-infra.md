@@ -1,5 +1,5 @@
 # M1-06: Dev infrastructure bundle (Compose: Postgres, Plane, LiteLLM)
-status: todo
+status: done
 module: infra
 branch: task/M1-06
 
