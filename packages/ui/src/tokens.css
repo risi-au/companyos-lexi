@@ -1,0 +1,118 @@
+/* CompanyOS design tokens — primitive + semantic layers (DESIGN-SYSTEM.md) */
+
+:root {
+  /* Primitives */
+  --primitive-white: #ffffff;
+  --primitive-slate-50: #f8fafc;
+  --primitive-slate-100: #f1f5f9;
+  --primitive-slate-200: #e2e8f0;
+  --primitive-slate-400: #94a3b8;
+  --primitive-slate-500: #64748b;
+  --primitive-slate-800: #1e293b;
+  --primitive-slate-900: #0f172a;
+  --primitive-slate-950: #0b1220;
+  --primitive-blue-700: #1e40af;
+  --primitive-blue-500: #3b82f6;
+  --primitive-amber-600: #d97706;
+  --primitive-amber-500: #f59e0b;
+  --primitive-red-600: #dc2626;
+  --primitive-red-400: #f87171;
+  --primitive-green-600: #16a34a;
+  --primitive-green-400: #4ade80;
+  --primitive-yellow-500: #fbbf24;
+  --primitive-teal-500: #14b8a6;
+  --primitive-violet-500: #8b5cf6;
+  --primitive-rose-500: #f43f5e;
+
+  /* Spacing (4px base grid) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Shape */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  /* Typography scale */
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-base: 14px;
+  --font-size-md: 16px;
+  --font-size-lg: 18px;
+  --font-size-xl: 24px;
+  --font-size-2xl: 30px;
+  --font-size-3xl: 36px;
+
+  /* Semantic — light (default) */
+  --background: var(--primitive-slate-50);
+  --surface: var(--primitive-white);
+  --foreground: var(--primitive-slate-900);
+  --muted: #e9eef6;
+  --muted-foreground: var(--primitive-slate-500);
+  --border: var(--primitive-slate-200);
+  --primary: var(--primitive-blue-700);
+  --primary-foreground: var(--primitive-white);
+  --accent: var(--primitive-amber-600);
+  --destructive: var(--primitive-red-600);
+  --ring: var(--primary);
+
+  /* Status */
+  --status-ok: var(--primitive-green-600);
+  --status-warn: var(--primitive-amber-600);
+  --status-error: var(--primitive-red-600);
+  --status-neutral: var(--muted-foreground);
+
+  /* Chart palette */
+  --chart-1: var(--primitive-blue-700);
+  --chart-2: var(--primitive-teal-500);
+  --chart-3: var(--primitive-amber-600);
+  --chart-4: var(--primitive-violet-500);
+  --chart-5: var(--primitive-rose-500);
+  --chart-6: var(--primitive-slate-500);
+
+  /* Elevation */
+  --shadow-sm: 0 1px 2px rgb(15 23 42 / 0.06);
+  --shadow-md: 0 4px 12px rgb(15 23 42 / 0.1);
+
+  /* Fonts (set by app layout via next/font) */
+  --font-sans: var(--font-inter, "Inter", system-ui, sans-serif);
+  --font-mono: var(--font-jetbrains-mono, "JetBrains Mono", ui-monospace, monospace);
+}
+
+.dark {
+  --background: var(--primitive-slate-950);
+  --surface: #111a2e;
+  --foreground: #e2e8f0;
+  --muted: #1b2740;
+  --muted-foreground: #8fa3c0;
+  --border: #243352;
+  --primary: var(--primitive-blue-500);
+  --primary-foreground: var(--primitive-slate-950);
+  --accent: var(--primitive-amber-500);
+  --destructive: var(--primitive-red-400);
+  --ring: var(--primary);
+
+  --status-ok: var(--primitive-green-400);
+  --status-warn: var(--primitive-yellow-500);
+  --status-error: var(--primitive-red-400);
+  --status-neutral: var(--muted-foreground);
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.2);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 0.3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

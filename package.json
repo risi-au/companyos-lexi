@@ -1,0 +1,28 @@
+{
+  "name": "companyos",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "eslint . --ignore-pattern \"**/*.fixture.ts\" && turbo lint",
+    "test": "vitest run",
+    "typecheck": "turbo typecheck"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.28.0",
+    "@types/node": "^22.15.21",
+    "eslint": "^9.28.0",
+    "eslint-import-resolver-typescript": "^4.4.1",
+    "eslint-plugin-boundaries": "^5.0.1",
+    "globals": "^16.2.0",
+    "turbo": "^2.5.4",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.33.1",
+    "vitest": "^3.2.1"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=22"
+  }
+}

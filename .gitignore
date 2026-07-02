@@ -1,25 +1,36 @@
-# COS - Company Operating System
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build
+dist/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+
+# env
 .env
 .env.local
 .env.*.local
 
-# Logs and caches
+# logs
 *.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS
 .DS_Store
+Thumbs.db
 
-# Python
-__pycache__/
-*.py[cod]
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
 
-# Node
-node_modules/
+# test
+coverage/
 
-# Agent-generated (optional - can commit if desired)
-.cos/context.md
-agent-context-*.md
-
-# Local Docker volumes
-postgres_data/
-affine_data/
-n8n_data/
-hermes_data/
+# drizzle
+packages/db/drizzle/
