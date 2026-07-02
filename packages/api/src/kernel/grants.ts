@@ -1,19 +1,18 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { grants, scopes } from "@companyos/db";
 import type { Grant } from "@companyos/db";
 import { emitEvent, type DB } from "./events";
 import { getScope } from "./scopes";
 import { AccessDeniedError, ScopeNotFoundError } from "../errors";
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
-
+// `agent` ranks with editor: an agent grant confers read+write within its
+// subtree (DESIGN.md §5), but never admin/owner actions.
 const ROLE_RANK: Record<Grant["role"], number> = {
   owner: 5,
   admin: 4,
   editor: 3,
+  agent: 3,
   viewer: 2,
-  agent: 1,
 };
 
 function getHighestRole(roles: Grant["role"][]): Grant["role"] | null {
@@ -105,33 +104,23 @@ export async function resolveAccess(db: DB, principalId: string, scopePath: stri
     p = idx > 0 ? p.slice(0, idx) : null;
   }
 
-  // Get scope ids for ancestors
+  // Scope ids for exactly the ancestor paths (self → root)
   const ancestorScopes = await db
     .select({ id: scopes.id, path: scopes.path })
     .from(scopes)
-    .where(
-      // use in list
-      // since small, select all candidates and filter
-    );
+    .where(inArray(scopes.path, ancestorPaths));
 
-  // Efficient: query grants for this principal then match ancestor scope ids
-  const principalGrants = await db
+  const ancestorIds = (ancestorScopes as { id: string; path: string }[]).map((s) => s.id);
+  if (ancestorIds.length === 0) return null;
+
+  const principalGrants = (await db
     .select()
     .from(grants)
-    .where(eq(grants.principalId, principalId));
+    .where(
+      and(eq(grants.principalId, principalId), inArray(grants.scopeId, ancestorIds))
+    )) as Grant[];
 
-  const grantsForPrincipal = principalGrants as Grant[];
-
-  // Now for each ancestor path, find if has grant
-  const foundRoles: Grant["role"][] = [];
-  for (const ap of ancestorPaths) {
-    const matchScope = (ancestorScopes as any[]).find((s: any) => s.path === ap) || null;
-    if (!matchScope) continue;
-    const matchGrant = grantsForPrincipal.find((g) => g.scopeId === matchScope.id);
-    if (matchGrant) {
-      foundRoles.push(matchGrant.role);
-    }
-  }
+  const foundRoles: Grant["role"][] = principalGrants.map((g) => g.role);
 
   if (foundRoles.length === 0) return null;
   return getHighestRole(foundRoles);

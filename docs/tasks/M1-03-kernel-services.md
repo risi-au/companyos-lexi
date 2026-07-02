@@ -1,5 +1,5 @@
 # M1-03: Kernel service layer
-status: todo
+status: done
 module: kernel
 branch: task/M1-03
 

@@ -220,6 +220,12 @@ describe("kernel services (PGlite + migrations)", () => {
 
       expect(await resolveAccess(db, agentPid, `${ag}/sub`)).toBe("agent");
       expect(await resolveAccess(db, agentPid, ag + "-sib")).toBeNull();
+
+      // agent role = read+write within subtree (editor-equivalent), never admin
+      await expect(requireAccess(db, agentPid, `${ag}/sub`, "editor")).resolves.not.toThrow();
+      await expect(requireAccess(db, agentPid, `${ag}/sub`, "viewer")).resolves.not.toThrow();
+      await expect(requireAccess(db, agentPid, `${ag}/sub`, "admin")).rejects.toThrow(AccessDeniedError);
+      await expect(requireAccess(db, agentPid, ag + "-sib", "viewer")).rejects.toThrow(AccessDeniedError);
     });
   });
 
