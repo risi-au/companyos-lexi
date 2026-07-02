@@ -32,8 +32,7 @@ Thumbs.db
 # test
 coverage/
 
-# drizzle
-packages/db/drizzle/
+# drizzle migrations are committed (required by kernel schema task)
 # agent session artifacts
 mcps/
 terminals/
