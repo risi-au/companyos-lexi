@@ -1,5 +1,5 @@
 # M1-01: Monorepo scaffold
-status: todo
+status: done
 module: infra
 branch: task/M1-01
 
