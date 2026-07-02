@@ -10,3 +10,6 @@ export * from "./modules/records/service";
 
 // Errors (typed)
 export * from "./errors";
+
+// DB handle type for clients like MCP
+export type { DB } from "./kernel/events";

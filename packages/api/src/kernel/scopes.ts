@@ -1,10 +1,11 @@
-import { eq, like, or, desc } from "drizzle-orm";
-import { scopes } from "@companyos/db";
+import { eq, like, or, desc, asc } from "drizzle-orm";
+import { scopes, moduleInstances } from "@companyos/db";
 import type { Scope } from "@companyos/db";
 import {
   emitEvent,
   type DB,
 } from "./events";
+import { requireAccess } from "./grants";
 import {
   ScopeNotFoundError,
   ParentNotFoundError,
@@ -169,4 +170,33 @@ export async function archiveScope(
   });
 
   return updated;
+}
+
+export interface ModuleInstanceInfo {
+  moduleType: string;
+  config: Record<string, unknown>;
+  position: number;
+}
+
+export async function listModules(
+  db: DB,
+  scopePath: string,
+  actorPrincipalId: string
+): Promise<ModuleInstanceInfo[]> {
+  await requireAccess(db, actorPrincipalId, scopePath, "viewer");
+
+  const scope = await getScope(db, scopePath);
+  if (!scope) return [];
+
+  const rows = await db
+    .select({
+      moduleType: moduleInstances.moduleType,
+      config: moduleInstances.config,
+      position: moduleInstances.position,
+    })
+    .from(moduleInstances)
+    .where(eq(moduleInstances.scopeId, scope.id))
+    .orderBy(asc(moduleInstances.position), desc(moduleInstances.createdAt));
+
+  return rows as ModuleInstanceInfo[];
 }
