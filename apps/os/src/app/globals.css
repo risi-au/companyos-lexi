@@ -1,5 +1,8 @@
 @import "@companyos/ui/globals.css";
 
+/* Ensure Tailwind scans @blocknote/shadcn for its utility classes (shadcn BlockNote setup) */
+@source "../../node_modules/@blocknote/shadcn";
+
 /* Dashboard grid per DESIGN-SYSTEM + M2-04: 12-col, skeletons, token colors only */
 .dashboard-grid {
   display: grid;
@@ -17,4 +20,54 @@
 }
 .dashboard-widget {
   min-height: 80px; /* reserve space */
+}
+
+/* BlockNote theming: inherit CompanyOS tokens (DESIGN-SYSTEM.md + M3-02) for light + dark.
+   Map editor/menu/selection/border to surface/foreground/muted/border/primary. */
+.bn-root,
+.bn-root[data-color-scheme="light"] {
+  --bn-colors-editor-text: var(--foreground);
+  --bn-colors-editor-background: var(--surface);
+  --bn-colors-menu-text: var(--foreground);
+  --bn-colors-menu-background: var(--surface);
+  --bn-colors-tooltip-text: var(--muted-foreground);
+  --bn-colors-tooltip-background: var(--muted);
+  --bn-colors-hovered-text: var(--foreground);
+  --bn-colors-hovered-background: var(--muted);
+  --bn-colors-selected-text: var(--primary-foreground);
+  --bn-colors-selected-background: var(--primary);
+  --bn-colors-disabled-text: var(--muted-foreground);
+  --bn-colors-disabled-background: var(--muted);
+  --bn-colors-shadow: var(--border);
+  --bn-colors-border: var(--border);
+  --bn-colors-side-menu: var(--muted-foreground);
+  --bn-border-radius: var(--radius-sm);
+  --bn-font-family: var(--font-sans);
+}
+
+.dark .bn-root,
+.bn-root[data-color-scheme="dark"] {
+  --bn-colors-editor-text: var(--foreground);
+  --bn-colors-editor-background: var(--surface);
+  --bn-colors-menu-text: var(--foreground);
+  --bn-colors-menu-background: var(--surface);
+  --bn-colors-tooltip-text: var(--muted-foreground);
+  --bn-colors-tooltip-background: var(--muted);
+  --bn-colors-hovered-text: var(--foreground);
+  --bn-colors-hovered-background: var(--muted);
+  --bn-colors-selected-text: var(--primary-foreground);
+  --bn-colors-selected-background: var(--primary);
+  --bn-colors-disabled-text: var(--muted-foreground);
+  --bn-colors-disabled-background: var(--muted);
+  --bn-colors-shadow: var(--border);
+  --bn-colors-border: var(--border);
+  --bn-colors-side-menu: var(--muted-foreground);
+  --bn-border-radius: var(--radius-sm);
+  --bn-font-family: var(--font-sans);
+}
+
+/* Editor container tweaks for density and scroll */
+.bn-container .bn-editor {
+  min-height: 380px;
+  font-size: var(--font-size-base);
 }

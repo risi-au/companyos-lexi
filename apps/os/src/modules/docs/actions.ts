@@ -1,0 +1,65 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { api, getCurrentActorPrincipalId } from "@/lib/api";
+
+/**
+ * Server actions for Docs tab (M3-02). All call through api wrappers into packages/api services.
+ * Access enforced in service layer via requireAccess + principal.
+ */
+
+export async function listDocsAction(scopePath: string) {
+  const actor = await getCurrentActorPrincipalId();
+  if (!actor) throw new Error("Not authenticated");
+  return api.listDocs({ scopePath }, actor);
+}
+
+export async function getDocAction(scopePath: string, slug: string) {
+  const actor = await getCurrentActorPrincipalId();
+  if (!actor) throw new Error("Not authenticated");
+  return api.getDoc({ scopePath, slug }, actor);
+}
+
+export async function saveDocAction(input: { scopePath: string; slug?: string; title: string; bodyMd?: string }) {
+  const actor = await getCurrentActorPrincipalId();
+  if (!actor) throw new Error("Not authenticated");
+  const saved = await api.saveDoc(input, actor);
+  revalidatePath(`/s/${input.scopePath}?tab=docs`);
+  return saved;
+}
+
+export async function renameDocAction(input: { scopePath: string; slug: string; newTitle?: string; newSlug?: string }) {
+  const actor = await getCurrentActorPrincipalId();
+  if (!actor) throw new Error("Not authenticated");
+  const updated = await api.renameDoc(input, actor);
+  revalidatePath(`/s/${input.scopePath}?tab=docs`);
+  return updated;
+}
+
+export async function archiveDocAction(scopePath: string, slug: string) {
+  const actor = await getCurrentActorPrincipalId();
+  if (!actor) throw new Error("Not authenticated");
+  const archived = await api.archiveDoc({ scopePath, slug }, actor);
+  revalidatePath(`/s/${scopePath}?tab=docs`);
+  return archived;
+}
+
+export async function listRevisionsAction(scopePath: string, slug: string, limit = 10) {
+  const actor = await getCurrentActorPrincipalId();
+  if (!actor) throw new Error("Not authenticated");
+  return api.listDocRevisions({ scopePath, slug, limit }, actor);
+}
+
+export async function revertDocAction(scopePath: string, slug: string, revisionId: string) {
+  const actor = await getCurrentActorPrincipalId();
+  if (!actor) throw new Error("Not authenticated");
+  const restored = await api.revertDoc({ scopePath, slug, revisionId }, actor);
+  revalidatePath(`/s/${scopePath}?tab=docs`);
+  return restored;
+}
+
+export async function getAccessAction(scopePath: string) {
+  const actor = await getCurrentActorPrincipalId();
+  if (!actor) return null;
+  return api.resolveAccess(actor, scopePath);
+}

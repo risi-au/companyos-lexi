@@ -10,6 +10,8 @@ export default defineConfig({
         test: {
           name: "os-web",
           include: ["apps/os/src/**/*.test.ts"],
+          environment: "jsdom",
+          // globals etc handled by root if needed; jsdom for BlockNote md parse in tests (M3-02)
         },
       },
       {

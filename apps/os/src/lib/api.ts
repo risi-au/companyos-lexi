@@ -20,6 +20,13 @@ import {
   getDashboard,
   queryMetrics,
   PlaneClient,
+  saveDoc,
+  getDoc,
+  listDocs,
+  renameDoc,
+  archiveDoc,
+  listDocRevisions,
+  revertDoc,
 } from "@companyos/api";
 
 // Singleton DB for the lifetime of the server process (dev/prod)
@@ -73,6 +80,22 @@ export const api = {
     getDashboard(db, input, actorPrincipalId),
   queryMetrics: (input: Parameters<typeof queryMetrics>[1], actorPrincipalId: string) =>
     queryMetrics(db, input, actorPrincipalId),
+
+  // Docs KB (M3-02) - server-only wrappers; all access checks in service layer
+  saveDoc: (input: Parameters<typeof saveDoc>[1], actorPrincipalId: string) =>
+    saveDoc(db, input, actorPrincipalId),
+  getDoc: (input: Parameters<typeof getDoc>[1], actorPrincipalId: string) =>
+    getDoc(db, input, actorPrincipalId),
+  listDocs: (input: Parameters<typeof listDocs>[1], actorPrincipalId: string) =>
+    listDocs(db, input, actorPrincipalId),
+  renameDoc: (input: Parameters<typeof renameDoc>[1], actorPrincipalId: string) =>
+    renameDoc(db, input, actorPrincipalId),
+  archiveDoc: (input: Parameters<typeof archiveDoc>[1], actorPrincipalId: string) =>
+    archiveDoc(db, input, actorPrincipalId),
+  listDocRevisions: (input: Parameters<typeof listDocRevisions>[1], actorPrincipalId: string) =>
+    listDocRevisions(db, input, actorPrincipalId),
+  revertDoc: (input: Parameters<typeof revertDoc>[1], actorPrincipalId: string) =>
+    revertDoc(db, input, actorPrincipalId),
 
   // Modules (for tab context, though tabs unconditional in M2-03)
   listModules: async (scopePath: string, actorPrincipalId: string) => {

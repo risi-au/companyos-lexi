@@ -40,7 +40,6 @@ export async function DashboardRenderer({ spec, scopePath, actor, rangeKey }: Da
     if (["metric-card", "timeseries", "bar", "table"].includes(w.type) && w.query) {
       try {
         const q = w.query;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const seriesCurr = await api.queryMetrics(
           {
             scopePath,
@@ -54,7 +53,6 @@ export async function DashboardRenderer({ spec, scopePath, actor, rangeKey }: Da
           },
           actor
         );
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let seriesPrev: any[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
         if (q.compare === "prev_period") {
           seriesPrev = await api.queryMetrics(

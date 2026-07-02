@@ -1,5 +1,5 @@
 # M3-02: KB editor UI (BlockNote, Docs tab)
-status: todo
+status: done
 module: web (apps/os)
 branch: task/M3-02
 
