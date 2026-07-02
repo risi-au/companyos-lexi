@@ -111,7 +111,17 @@ importers:
         version: 5.9.3
 
   packages/api:
+    dependencies:
+      '@companyos/db':
+        specifier: workspace:*
+        version: link:../db
+      drizzle-orm:
+        specifier: ^0.44.2
+        version: 0.44.7(@electric-sql/pglite@0.2.5)(postgres@3.4.9)
     devDependencies:
+      '@electric-sql/pglite':
+        specifier: 0.2.5
+        version: 0.2.5
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
