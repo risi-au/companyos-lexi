@@ -1,5 +1,5 @@
 # M2-02: Dashboard module (spec storage, validation, MCP tools)
-status: todo
+status: done
 module: dashboards
 branch: task/M2-02
 

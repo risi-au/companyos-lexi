@@ -16,11 +16,17 @@ import {
   writeMetrics,
   queryMetrics,
   listMetricNames,
+  saveDashboard,
+  getDashboard,
+  listDashboards,
+  revertDashboard,
+  getWidgetVocabulary,
   PlaneClient,
   type DB,
   AccessDeniedError,
   ScopeNotFoundError,
   RecordNotFoundError,
+  DashboardValidationError,
 } from "@companyos/api";
 
 export interface CreateServerOptions {
@@ -38,6 +44,9 @@ function formatError(e: unknown): string {
   }
   if (e instanceof RecordNotFoundError) {
     return `Record not found: ${e.id}`;
+  }
+  if (e instanceof DashboardValidationError) {
+    return `Dashboard validation failed: ${e.errors.map((er: { path?: (string | number)[]; message: string }) => `${(er.path || []).join(".")}: ${er.message}`).join("; ")}`;
   }
   if (e instanceof Error) {
     return e.message;
@@ -716,6 +725,145 @@ ${JSON.stringify(rec.data || {}, null, 2)}
         const lines = names.map((n: { metric?: string; firstDate?: string | null; lastDate?: string | null }) => `${n.metric || ""}\t${n.firstDate || ""}\t${n.lastDate || ""}`);
         return {
           content: [{ type: "text", text: "metric\tfirst\tlast\n" + (lines.join("\n") || "(none)") }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // save_dashboard
+  server.registerTool(
+    "save_dashboard",
+    {
+      title: "Save Dashboard",
+      description: "Save or update a dashboard spec for a scope (name defaults to 'main'). Spec must be valid per v1 contract (see list_widget_types). Requires editor/agent. Appends revision (prunes to last 50). Returns saved id.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+        name: z.string().optional().describe("Dashboard name, default 'main'"),
+        spec: z.record(z.any()).describe("Dashboard spec object: {version:1, title, range:{default:'7d'|'30d'|'90d'}, widgets: [...] }"),
+      }),
+    },
+    async ({ scope, name, spec }) => {
+      try {
+        const actor = ensurePrincipal();
+        const saved = await saveDashboard(db, { scopePath: scope, name, spec }, actor);
+        return {
+          content: [{ type: "text", text: `Saved dashboard ${saved.id} (name: ${saved.name}) under ${scope}` }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // get_dashboard
+  server.registerTool(
+    "get_dashboard",
+    {
+      title: "Get Dashboard",
+      description: "Fetch current dashboard spec by scope + optional name (default 'main'). Viewer access.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+        name: z.string().optional().describe("Dashboard name, default 'main'"),
+      }),
+    },
+    async ({ scope, name }) => {
+      try {
+        const actor = ensurePrincipal();
+        const dash = await getDashboard(db, { scopePath: scope, name }, actor);
+        if (!dash) {
+          return {
+            content: [{ type: "text", text: `Dashboard not found for ${scope} ${name || "main"}` }],
+            isError: true,
+          };
+        }
+        return {
+          content: [{ type: "text", text: JSON.stringify({ id: dash.id, name: dash.name, spec: dash.spec, updatedAt: dash.updatedAt }, null, 2) }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // list_dashboards
+  server.registerTool(
+    "list_dashboards",
+    {
+      title: "List Dashboards",
+      description: "List all dashboards for a scope. Viewer.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+      }),
+    },
+    async ({ scope }) => {
+      try {
+        const actor = ensurePrincipal();
+        const list = await listDashboards(db, { scopePath: scope }, actor);
+        const lines = list.map((d: { id: string; name: string; updatedAt?: Date | string | null }) => `${d.id}\t${d.name}\t${d.updatedAt ? new Date(d.updatedAt).toISOString() : ""}`);
+        return {
+          content: [{ type: "text", text: "id\tname\tupdated\n" + (lines.join("\n") || "(none)") }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // list_widget_types
+  server.registerTool(
+    "list_widget_types",
+    {
+      title: "List Widget Types",
+      description: "Return the widget vocabulary: types, required fields, constraints, and example widgets for each. Use before authoring specs for save_dashboard. No auth required (discovery).",
+      inputSchema: z.object({}),
+    },
+    async () => {
+      try {
+        const vocab = getWidgetVocabulary();
+        return {
+          content: [{ type: "text", text: JSON.stringify(vocab, null, 2) }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // revert_dashboard
+  server.registerTool(
+    "revert_dashboard",
+    {
+      title: "Revert Dashboard",
+      description: "Revert dashboard to a previous revision id (from list_revisions or prior saves). Requires editor/agent. Creates new head + revision entry, emits reverted.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+        name: z.string().optional().describe("Dashboard name, default 'main'"),
+        revision_id: z.string().min(1).describe("Revision uuid to restore as current spec"),
+      }),
+    },
+    async ({ scope, name, revision_id }) => {
+      try {
+        const actor = ensurePrincipal();
+        const restored = await revertDashboard(db, { scopePath: scope, name, revisionId: revision_id }, actor);
+        return {
+          content: [{ type: "text", text: `Reverted dashboard ${restored.id} (name: ${restored.name}) to revision ${revision_id}` }],
         };
       } catch (e) {
         return {
