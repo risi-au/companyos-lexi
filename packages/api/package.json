@@ -12,7 +12,12 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
+  "dependencies": {
+    "@companyos/db": "workspace:*",
+    "drizzle-orm": "^0.44.2"
+  },
   "devDependencies": {
+    "@electric-sql/pglite": "0.2.5",
     "typescript": "^5.8.3",
     "vitest": "^3.2.1"
   }
