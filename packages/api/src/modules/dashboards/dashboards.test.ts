@@ -26,12 +26,15 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-let migrationsFolder = path.resolve(__dirname, "../../../../packages/db/drizzle");
+let migrationsFolder = path.resolve(process.cwd(), "packages/db/drizzle");
 if (!fs.existsSync(path.join(migrationsFolder, "meta", "_journal.json"))) {
-  migrationsFolder = path.resolve(process.cwd(), "packages/db/drizzle");
+  migrationsFolder = path.resolve(__dirname, "../../../../packages/db/drizzle");
 }
 if (!fs.existsSync(path.join(migrationsFolder, "meta", "_journal.json"))) {
   migrationsFolder = path.resolve("packages/db/drizzle");
+}
+if (!fs.existsSync(path.join(migrationsFolder, "meta", "_journal.json"))) {
+  migrationsFolder = "C:/dev/companyos/packages/db/drizzle";
 }
 console.log("[dashboards.test] using migrationsFolder:", migrationsFolder);
 

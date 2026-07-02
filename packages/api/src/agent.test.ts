@@ -19,13 +19,20 @@ import {
 } from "./index";
 import { eq } from "drizzle-orm";
 import { createHmac } from "crypto";
+import { fileURLToPath } from "url";
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const migrationsFolderCandidates = [
-  path.resolve(__dirname, "../../../../packages/db/drizzle"),
   path.resolve(process.cwd(), "packages/db/drizzle"),
+  path.resolve(__dirname, "../../../../packages/db/drizzle"),
   path.resolve("packages/db/drizzle"),
+  "C:/dev/companyos/packages/db/drizzle",
 ];
-const migrationsFolder = (migrationsFolderCandidates.find((p) => fs.existsSync(path.join(p, "meta", "_journal.json"))) || migrationsFolderCandidates[0]) as string;
+let migrationsFolder = (migrationsFolderCandidates.find((p) => fs.existsSync(path.join(p, "meta", "_journal.json"))) || migrationsFolderCandidates[0]) as string;
+if (!fs.existsSync(path.join(migrationsFolder, "meta", "_journal.json"))) {
+  migrationsFolder = "C:/dev/companyos/packages/db/drizzle";
+}
 
 describe("agent HTTP support (M2-05: context, report, plane lookup)", () => {
   let client: PGlite;

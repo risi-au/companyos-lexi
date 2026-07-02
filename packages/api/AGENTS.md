@@ -33,6 +33,7 @@ Implements the kernel: scope tree ops, grants/authz, token issuance+auth, event 
 - listModules(scopePath, actor): requires viewer; returns attached moduleTypes + config for the scope (used by get_context).
 - (M2-05) Agent HTTP helpers: getContextBundle (same md as MCP), reportCapabilityRun (emits capability.run_reported), findScopeByPlaneProject (reverse task link lookup for webhooks). Re-exported; used by thin routes only.
 - (M3-03) Canvas: saveCanvas/getCanvas/listCanvases/archiveCanvas + size cap + events; exported for MCP/HTTP/UI.
+- (M3-04) Resident agent: runTurn (tool loop over LiteLLM + services), listConversations, getConversationMessages; agent_conversations + agent_messages tables. Injected LLM config; mocked in tests. Events: agent.turn_completed.
 
 ## How to test
 From repo root:

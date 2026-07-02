@@ -31,6 +31,11 @@ import {
   getCanvas,
   listCanvases,
   archiveCanvas,
+  runTurn,
+  listConversations,
+  getConversationMessages,
+  type LLMConfig,
+  type RunTurnInput,
 } from "@companyos/api";
 
 // Singleton DB for the lifetime of the server process (dev/prod)
@@ -116,6 +121,15 @@ export const api = {
     const { listModules } = await import("@companyos/api");
     return listModules(db, scopePath, actorPrincipalId);
   },
+
+  // Resident agent (M3-04) — env at boundary only; tests pass mocked LLMConfig directly to service
+  runTurn: (input: RunTurnInput, actorPrincipalId: string, llm: LLMConfig, planeClient?: unknown) =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    runTurn(db, input, actorPrincipalId, llm, planeClient as any),
+  listConversations: (input: Parameters<typeof listConversations>[1], actorPrincipalId: string) =>
+    listConversations(db, input, actorPrincipalId),
+  getConversationMessages: (input: Parameters<typeof getConversationMessages>[1], actorPrincipalId: string) =>
+    getConversationMessages(db, input, actorPrincipalId),
 };
 
 export { db }; // only for auth wiring internally
