@@ -29,6 +29,13 @@
       "when": 1782991971428,
       "tag": "0003_flawless_maestro",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1782993273696,
+      "tag": "0004_mean_energizer",
+      "breakpoints": true
     }
   ]
 }

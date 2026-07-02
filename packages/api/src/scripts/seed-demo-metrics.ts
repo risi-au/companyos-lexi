@@ -47,8 +47,8 @@ export async function generateDemoMetrics(options: GenerateDemoOptions): Promise
   } = options;
 
   // dynamic to avoid package cycle between db and api for scripts/tests
-  // @ts-expect-error - resolved at runtime via pnpm workspace when executed with tsx or in api context
-  const { writeMetrics } = await import("../modules/metrics/service");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { writeMetrics } = (await import("../modules/metrics/service")) as any;
 
   let actorPrincipalId = providedPrincipal;
 
@@ -121,7 +121,7 @@ export async function generateDemoMetrics(options: GenerateDemoOptions): Promise
 
   // build 90 days ending endDate
   const end = new Date(Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate()));
-  const points: Array<{ metric: string; date: string; value: number | string; dims?: Record<string, unknown> }> = [];
+  const points: Array<{ metric: string; date: string; value: number | string; dims?: Record<string, string | number | boolean | null> }> = [];
 
   const campaigns = ["prospecting", "retargeting"];
   const countries = ["AU", "NZ"];
@@ -140,15 +140,15 @@ export async function generateDemoMetrics(options: GenerateDemoOptions): Promise
         // spend ~ 80-180 base * factors
         let spend = 120 * (0.7 + seededRandom(baseSeed + "-spend") * 0.8) * weekFactor * trend;
         if (dow === 0 || dow === 6) spend *= 0.6;
-        points.push({ metric: "meta.spend", date: ds, value: Math.round(spend * 100) / 100, dims: { campaign: camp, country: ctry } });
+        points.push({ metric: "meta.spend", date: ds, value: Math.round(spend * 100) / 100, dims: { campaign: camp, country: ctry } as Record<string, string | number | boolean | null> });
 
         let impr = 8000 * (0.6 + seededRandom(baseSeed + "-impr") * 0.9) * weekFactor * trend;
         if (dow === 0 || dow === 6) impr *= 0.55;
-        points.push({ metric: "meta.impressions", date: ds, value: Math.round(impr), dims: { campaign: camp, country: ctry } });
+        points.push({ metric: "meta.impressions", date: ds, value: Math.round(impr), dims: { campaign: camp, country: ctry } as Record<string, string | number | boolean | null> });
 
         let clicks = impr * (0.015 + seededRandom(baseSeed + "-click") * 0.02);
         if (dow === 0 || dow === 6) clicks *= 0.7;
-        points.push({ metric: "meta.clicks", date: ds, value: Math.round(clicks), dims: { campaign: camp, country: ctry } });
+        points.push({ metric: "meta.clicks", date: ds, value: Math.round(clicks), dims: { campaign: camp, country: ctry } as Record<string, string | number | boolean | null> });
       }
     }
 
@@ -156,30 +156,31 @@ export async function generateDemoMetrics(options: GenerateDemoOptions): Promise
     const gSeed = `${ds}-google`;
     let gSpend = 60 * (0.6 + seededRandom(gSeed) * 1.0) * weekFactor * trend;
     if (dow === 0 || dow === 6) gSpend *= 0.65;
-    points.push({ metric: "google.spend", date: ds, value: Math.round(gSpend * 100) / 100, dims: {} });
+    points.push({ metric: "google.spend", date: ds, value: Math.round(gSpend * 100) / 100, dims: {} as Record<string, string | number | boolean | null> });
 
     // ga4 sessions
     const gaSeed = `${ds}-ga4`;
     let sessions = 420 * (0.75 + seededRandom(gaSeed) * 0.7) * weekFactor * trend;
     if (dow === 0 || dow === 6) sessions *= 0.6;
-    points.push({ metric: "ga4.sessions", date: ds, value: Math.round(sessions), dims: {} });
+    points.push({ metric: "ga4.sessions", date: ds, value: Math.round(sessions), dims: {} as Record<string, string | number | boolean | null> });
 
     // woo
     const wSeed = `${ds}-woo`;
     let revenue = 1850 * (0.5 + seededRandom(wSeed + "rev") * 1.2) * weekFactor * trend;
     if (dow === 0 || dow === 6) revenue *= 0.75;
-    points.push({ metric: "woo.revenue", date: ds, value: Math.round(revenue * 100) / 100, dims: {} });
+    points.push({ metric: "woo.revenue", date: ds, value: Math.round(revenue * 100) / 100, dims: {} as Record<string, string | number | boolean | null> });
 
     let orders = Math.max(3, Math.round(revenue / 95 * (0.85 + seededRandom(wSeed + "ord") * 0.3)));
     if (dow === 0 || dow === 6) orders = Math.max(1, Math.floor(orders * 0.6));
-    points.push({ metric: "woo.orders", date: ds, value: orders, dims: {} });
+    points.push({ metric: "woo.orders", date: ds, value: orders, dims: {} as Record<string, string | number | boolean | null> });
   }
 
   // writeMetrics caps at 1000 points per call — write in chunks
   let written = 0;
   for (let i = 0; i < points.length; i += 1000) {
     const chunk = points.slice(i, i + 1000);
-    await writeMetrics(db, { scopePath, points: chunk }, actorPrincipalId);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await writeMetrics(db, { scopePath, points: chunk as any[] }, actorPrincipalId);
     written += chunk.length;
   }
   return { written };

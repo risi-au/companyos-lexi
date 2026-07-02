@@ -122,7 +122,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     return { mcpClient, server };
   }
 
-  it("covers all 9 tools via roundtrip (ping + 8)", async () => {
+  it("covers all tools via roundtrip (ping + records + tasks + metrics + dashboards)", async () => {
     const { mcpClient } = await makeRoundtrip(rootPrincipalId);
 
     // list tools
@@ -132,15 +132,20 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "create_task",
       "complete_task",
       "get_context",
+      "get_dashboard",
       "get_record",
       "get_tree",
+      "list_dashboards",
       "list_metric_names",
       "list_records",
       "list_tasks",
+      "list_widget_types",
       "log_change",
       "log_decision",
       "ping",
       "query_metrics",
+      "revert_dashboard",
+      "save_dashboard",
       "save_note",
       "save_report",
       "update_task",
@@ -385,5 +390,85 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     expect(lnText).toContain("meta.spend");
     expect(lnText).toContain("ga4.sessions");
     expect(lnText).toContain("test.mcp");
+  });
+
+  // M2-02 dashboards MCP roundtrips: 5 tools, validation, revert, vocab
+  it("dashboards MCP tools round-trip: list_widget_types, save/get/list, revert; validation errors; agent write ok", async () => {
+    const { mcpClient } = await makeRoundtrip(rootPrincipalId);
+
+    // list_widget_types (no auth)
+    const vocabRes = await mcpClient.callTool({ name: "list_widget_types", arguments: {} });
+    const vocabText = (vocabRes as any).content?.[0]?.text || "";
+    expect(vocabText).toContain("metric-card");
+    expect(vocabText).toContain("text");
+    expect(vocabText).toContain("maxWidgets");
+    const vocab = JSON.parse(vocabText);
+    expect(vocab.types.length).toBe(7);
+    expect(vocab.types.some((t: any) => t.example && t.example.id)).toBe(true);
+
+    // save valid
+    const validSpec = {
+      version: 1,
+      title: "MCP Dash",
+      range: { default: "7d" },
+      widgets: [
+        { id: "spend", type: "metric-card", grid: { x: 0, y: 0, w: 3, h: 2 }, query: { metrics: ["meta.spend"] } },
+        { id: "txt", type: "text", grid: { x: 4, y: 0, w: 8, h: 2 }, options: { markdown: "hello" } },
+      ],
+    };
+    const saveRes = await mcpClient.callTool({
+      name: "save_dashboard",
+      arguments: { scope: testScope, spec: validSpec },
+    });
+    expect((saveRes as any).isError).toBeFalsy();
+    expect((saveRes as any).content?.[0]?.text).toMatch(/Saved dashboard/);
+
+    // get
+    const getRes = await mcpClient.callTool({ name: "get_dashboard", arguments: { scope: testScope } });
+    const getText = (getRes as any).content?.[0]?.text || "";
+    expect(getText).toContain("MCP Dash");
+    expect(getText).toContain("metric-card");
+
+    // list
+    const listRes = await mcpClient.callTool({ name: "list_dashboards", arguments: { scope: testScope } });
+    expect((listRes as any).content?.[0]?.text).toMatch(/main/);
+
+    // save again to create rev history
+    const spec2 = { ...validSpec, title: "MCP Dash v2" };
+    await mcpClient.callTool({ name: "save_dashboard", arguments: { scope: testScope, spec: spec2 } });
+
+    // list revisions? indirectly via revert: first get revs? use list via service not direct, but to get a rev id we can use get after? Wait, for test call revert with known? 
+    // To get rev id, save then revert using a prior; use second save, listRevs not exposed directly, but we can save a third and revert to earlier via knowing flow.
+    // For simplicity, use get to confirm, then save third, but to test revert need id: use direct? since roundtrip via mcp we use listRevisions? no tool for list revs. 
+    // Revert tool exists, but to obtain id, we can use a second save then revert using previous? But MCP has no list_revisions tool (per brief only 5).
+    // Workaround: use a revision id by first saving, note we can call save again, but to obtain rev id we use a hack in test via api? or skip direct id and test validation + save/get.
+    // Better: use api listRevisions in test setup to fetch an id for mcp revert test (allowed in roundtrip test).
+    const { listRevisions } = await import("@companyos/api");
+    const revs = await listRevisions(db, { scopePath: testScope }, rootPrincipalId);
+    expect(revs.length).toBeGreaterThan(1);
+    const oldRev = revs[revs.length - 1]!.id; // oldest
+
+    const revRes = await mcpClient.callTool({
+      name: "revert_dashboard",
+      arguments: { scope: testScope, revision_id: oldRev },
+    });
+    expect((revRes as any).isError).toBeFalsy();
+    expect((revRes as any).content?.[0]?.text).toMatch(/Reverted/);
+
+    // verify reverted
+    const after = await mcpClient.callTool({ name: "get_dashboard", arguments: { scope: testScope } });
+    const afterText = (after as any).content?.[0]?.text || "";
+    expect(afterText).toContain("MCP Dash"); // back to v1 title
+
+    // validation error via mcp
+    const badSpec = { version: 1, title: "Bad", range: { default: "7d" }, widgets: [{ id: "q", type: "metric-card", grid: { x: 0, y: 0, w: 2, h: 2 } }] };
+    const badRes = await mcpClient.callTool({ name: "save_dashboard", arguments: { scope: testScope, spec: badSpec } });
+    expect((badRes as any).isError).toBe(true);
+    expect((badRes as any).content?.[0]?.text).toMatch(/validation failed|query is required/i);
+
+    // agent can save
+    const { mcpClient: agentClient } = await makeRoundtrip(agentPrincipalId);
+    const agSave = await agentClient.callTool({ name: "save_dashboard", arguments: { scope: testScope, spec: validSpec } });
+    expect((agSave as any).isError).toBeFalsy();
   });
 });

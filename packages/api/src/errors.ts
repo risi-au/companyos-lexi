@@ -69,3 +69,18 @@ export class RecordNotFoundError extends KernelError {
     this.id = id;
   }
 }
+
+export interface DashboardSpecValidationErrorDetail {
+  path: (string | number)[];
+  message: string;
+}
+
+export class DashboardValidationError extends KernelError {
+  public readonly errors: DashboardSpecValidationErrorDetail[];
+  constructor(errors: DashboardSpecValidationErrorDetail[]) {
+    const msg = errors.map((e) => `${e.path.join(".") || "spec"}: ${e.message}`).join("; ");
+    super(`Dashboard spec invalid: ${msg}`);
+    this.name = "DashboardValidationError";
+    this.errors = errors;
+  }
+}
