@@ -17,6 +17,7 @@ import {
   grantRole,
   createRecord,
   listRecords,
+  writeMetrics,
 } from "@companyos/api";
 import { createServer, ping } from "./index";
 
@@ -98,6 +99,14 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     await createRecord(db, { scopePath: testScope, kind: "decision", title: "Choose Postgres", bodyMd: "We picked Postgres for durability." }, rootPrincipalId);
     await createRecord(db, { scopePath: testScope, kind: "note", title: "Side note", bodyMd: "Not in context primary." }, rootPrincipalId);
     await createRecord(db, { scopePath: subScope, kind: "changelog", title: "Sub change", bodyMd: "Did sub work." }, agentPrincipalId);
+
+    // seed metrics for query/list roundtrips (M2-01)
+    await writeMetrics(db, { scopePath: testScope, points: [
+      { metric: "meta.spend", date: "2026-06-01", value: 111, dims: { campaign: "prospecting", country: "AU" } },
+      { metric: "meta.spend", date: "2026-06-01", value: 22, dims: { campaign: "retargeting", country: "AU" } },
+      { metric: "meta.spend", date: "2026-06-02", value: 333, dims: { campaign: "prospecting", country: "AU" } },
+      { metric: "ga4.sessions", date: "2026-06-01", value: 500 },
+    ] }, rootPrincipalId);
   });
 
   async function makeRoundtrip(principalIdForServer: string | null, planeClient: any = null) {
@@ -125,14 +134,17 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "get_context",
       "get_record",
       "get_tree",
+      "list_metric_names",
       "list_records",
       "list_tasks",
       "log_change",
       "log_decision",
       "ping",
+      "query_metrics",
       "save_note",
       "save_report",
       "update_task",
+      "write_metrics",
     ].sort());
 
     // ping
@@ -317,5 +329,61 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     const lres = await mcpClient.callTool({ name: "list_tasks", arguments: { scope: taskScope } });
     expect(lres.isError).toBe(true);
     expect((lres as any).content?.[0]?.text).toMatch(/tasks engine not configured/);
+  });
+
+  // M2-01 metrics MCP roundtrips: groupBy date and dim key asserted
+  it("query_metrics via MCP roundtrips groupBy=date and groupBy dim key; write + list_metric_names work", async () => {
+    const { mcpClient } = await makeRoundtrip(rootPrincipalId);
+
+    // write via mcp (idempotent)
+    const w = await mcpClient.callTool({
+      name: "write_metrics",
+      arguments: {
+        scope: testScope,
+        points: [
+          { metric: "test.mcp", date: "2026-07-01", value: 42, dims: { v: "x" } },
+        ],
+      },
+    });
+    expect((w as any).isError).toBeFalsy();
+    expect((w as any).content?.[0]?.text || "").toMatch(/Wrote 1/);
+
+    // groupBy date
+    const qDate = await mcpClient.callTool({
+      name: "query_metrics",
+      arguments: {
+        scope: testScope,
+        metrics: ["meta.spend"],
+        from: "2026-06-01",
+        to: "2026-06-02",
+        groupBy: "date",
+      },
+    });
+    const dateText = (qDate as any).content?.[0]?.text || "";
+    expect(dateText).toContain("meta.spend:");
+    expect(dateText).toContain("2026-06-01=133"); // 111+22
+    expect(dateText).toContain("2026-06-02=333");
+
+    // groupBy dim key
+    const qDim = await mcpClient.callTool({
+      name: "query_metrics",
+      arguments: {
+        scope: testScope,
+        metrics: ["meta.spend"],
+        from: "2026-06-01",
+        to: "2026-06-02",
+        groupBy: "campaign",
+      },
+    });
+    const dimText = (qDim as any).content?.[0]?.text || "";
+    expect(dimText).toContain("campaign=prospecting");
+    expect(dimText).toContain("campaign=retargeting");
+
+    // list_metric_names
+    const ln = await mcpClient.callTool({ name: "list_metric_names", arguments: { scope: testScope } });
+    const lnText = (ln as any).content?.[0]?.text || "";
+    expect(lnText).toContain("meta.spend");
+    expect(lnText).toContain("ga4.sessions");
+    expect(lnText).toContain("test.mcp");
   });
 });

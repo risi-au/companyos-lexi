@@ -1,5 +1,5 @@
 # M2-01: Metrics module (store + MCP tools + synthetic seeder)
-status: todo
+status: done
 module: metrics
 branch: task/M2-01
 

@@ -12,7 +12,8 @@
     "infra:up": "docker compose -f infra/docker-compose.dev.yml --env-file .env up -d",
     "infra:down": "docker compose -f infra/docker-compose.dev.yml --env-file .env down -v",
     "db:migrate": "pnpm --filter @companyos/db db:migrate",
-    "db:seed": "pnpm --filter @companyos/db db:seed"
+    "db:seed": "pnpm --filter @companyos/db db:seed",
+    "db:seed-demo": "pnpm --filter @companyos/api seed-demo"
   },
   "devDependencies": {
     "@eslint/js": "^9.28.0",

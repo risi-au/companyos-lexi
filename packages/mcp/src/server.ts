@@ -13,6 +13,9 @@ import {
   completeTask,
   updateTask,
   listTasks,
+  writeMetrics,
+  queryMetrics,
+  listMetricNames,
   PlaneClient,
   type DB,
   AccessDeniedError,
@@ -605,6 +608,114 @@ ${JSON.stringify(rec.data || {}, null, 2)}
         const lines = items.map((t: { id: string; sequenceId: string | number; title: string; state?: string; dueDate?: string | null }) => `${t.id}\t${t.sequenceId}\t${t.title}\t${t.state || ""}\t${t.dueDate || ""}`);
         return {
           content: [{ type: "text", text: header + (lines.join("\n") || "(no tasks)") }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // write_metrics
+  server.registerTool(
+    "write_metrics",
+    {
+      title: "Write Metrics",
+      description: "Batch write (upsert) metric points for a scope. points: array of {metric, date(YYYY-MM-DD), value, dims?}. Max 1000. Editor/agent required. Idempotent on (scope,metric,date,dims).",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+        points: z.array(
+          z.object({
+            metric: z.string().min(1),
+            date: z.string().min(1).describe("YYYY-MM-DD"),
+            value: z.union([z.number(), z.string()]),
+            dims: z.record(z.any()).optional(),
+          })
+        ).min(1).max(1000),
+      }),
+    },
+    async ({ scope, points }) => {
+      try {
+        const actor = ensurePrincipal();
+        const res = await writeMetrics(db, { scopePath: scope, points: points as any }, actor); // eslint-disable-line @typescript-eslint/no-explicit-any
+        return {
+          content: [{ type: "text", text: `Wrote ${res.written} points for metrics: ${res.metrics.join(", ")}` }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // query_metrics
+  server.registerTool(
+    "query_metrics",
+    {
+      title: "Query Metrics",
+      description: "Query metric series. Returns compact [{metric, dim?, points: [[date, val]]}]. groupBy=date|metric|<dimKey>. filters: dims exact match. agg=sum|avg|min|max default sum. Viewer.",
+      inputSchema: z.object({
+        scope: z.string().min(1),
+        metrics: z.array(z.string().min(1)).min(1),
+        from: z.string().min(1).describe("YYYY-MM-DD inclusive"),
+        to: z.string().min(1).describe("YYYY-MM-DD inclusive"),
+        groupBy: z.string().optional().describe("date | metric | dimKey e.g. campaign"),
+        filters: z.record(z.string()).optional(),
+        agg: z.enum(["sum", "avg", "min", "max"]).optional(),
+      }),
+    },
+    async ({ scope, metrics: mNames, from, to, groupBy, filters, agg }) => {
+      try {
+        const actor = ensurePrincipal();
+        const series = await queryMetrics(db, {
+          scopePath: scope,
+          metrics: mNames,
+          from,
+          to,
+          groupBy,
+          filters,
+          agg,
+        }, actor);
+        // compact text output for agent consumption
+        const lines: string[] = [];
+        for (const s of series) {
+          const dimStr = s.dim ? ` (${s.dim})` : "";
+          const pts = s.points.map((p) => `${p[0]}=${p[1]}`).join(" ");
+          lines.push(`${s.metric}${dimStr}: ${pts}`);
+        }
+        return {
+          content: [{ type: "text", text: lines.join("\n") || "(no data)" }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // list_metric_names
+  server.registerTool(
+    "list_metric_names",
+    {
+      title: "List Metric Names",
+      description: "List distinct metric names for scope with first/last observed dates. Viewer.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+      }),
+    },
+    async ({ scope }) => {
+      try {
+        const actor = ensurePrincipal();
+        const names = await listMetricNames(db, { scopePath: scope }, actor);
+        const lines = names.map((n: { metric?: string; firstDate?: string | null; lastDate?: string | null }) => `${n.metric || ""}\t${n.firstDate || ""}\t${n.lastDate || ""}`);
+        return {
+          content: [{ type: "text", text: "metric\tfirst\tlast\n" + (lines.join("\n") || "(none)") }],
         };
       } catch (e) {
         return {
