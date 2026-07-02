@@ -16,7 +16,7 @@ Implements the kernel: scope tree ops, grants/authz, token issuance+auth, event 
 - `src/errors.ts` — AccessDeniedError, ScopeNotFoundError, DuplicatePathError, InvalidSlugError, ParentNotFoundError, TokenNotFoundError, KernelError
 - `src/kernel/`
   - `events.ts` — emitEvent, listEvents
-  - `scopes.ts` — createScope, getScope, getChildren, getSubtree, archiveScope
+  - `scopes.ts` — createScope, getScope, getChildren, getSubtree, archiveScope, listModules (for MCP context)
   - `grants.ts` — grantRole, resolveAccess, requireAccess
   - `tokens.ts` — issueToken (returns plaintext once), authenticateToken (updates lastUsedAt), revokeToken
   - `index.ts` — barrel
@@ -30,6 +30,7 @@ Implements the kernel: scope tree ops, grants/authz, token issuance+auth, event 
 - Tokens: only hash stored (sha256 hex); plaintext `cos_` + base64url(32 bytes). Revoked/expired never auth.
 - Every mutating service calls emitEvent (scope.created, scope.archived, grant.created, token.issued, token.revoked).
 - listEvents supports scopePath (resolved to id), type, since, limit. Desc createdAt.
+- listModules(scopePath, actor): requires viewer; returns attached moduleTypes + config for the scope (used by get_context).
 
 ## How to test
 From repo root:

@@ -7,7 +7,8 @@
     "build": "turbo build",
     "lint": "eslint . --ignore-pattern \"**/*.fixture.ts\" && turbo lint",
     "test": "vitest run",
-    "typecheck": "turbo typecheck"
+    "typecheck": "turbo typecheck",
+    "mcp": "node packages/mcp/dist/stdio.js"
   },
   "devDependencies": {
     "@eslint/js": "^9.28.0",
