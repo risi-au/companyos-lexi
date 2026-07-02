@@ -8,7 +8,11 @@
     "lint": "eslint . --ignore-pattern \"**/*.fixture.ts\" && turbo lint",
     "test": "vitest run",
     "typecheck": "turbo typecheck",
-    "mcp": "node packages/mcp/dist/stdio.js"
+    "mcp": "node packages/mcp/dist/stdio.js",
+    "infra:up": "docker compose -f infra/docker-compose.dev.yml up -d",
+    "infra:down": "docker compose -f infra/docker-compose.dev.yml down -v",
+    "db:migrate": "pnpm --filter @companyos/db db:migrate",
+    "db:seed": "pnpm --filter @companyos/db db:seed"
   },
   "devDependencies": {
     "@eslint/js": "^9.28.0",
