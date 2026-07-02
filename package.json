@@ -9,8 +9,8 @@
     "test": "vitest run",
     "typecheck": "turbo typecheck",
     "mcp": "node packages/mcp/dist/stdio.js",
-    "infra:up": "docker compose -f infra/docker-compose.dev.yml up -d",
-    "infra:down": "docker compose -f infra/docker-compose.dev.yml down -v",
+    "infra:up": "docker compose -f infra/docker-compose.dev.yml --env-file .env up -d",
+    "infra:down": "docker compose -f infra/docker-compose.dev.yml --env-file .env down -v",
     "db:migrate": "pnpm --filter @companyos/db db:migrate",
     "db:seed": "pnpm --filter @companyos/db db:seed"
   },

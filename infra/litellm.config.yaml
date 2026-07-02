@@ -2,20 +2,32 @@
 # LiteLLM proxy config for CompanyOS dev/prod parity.
 # Role aliases only — never reference raw models in code/workflows.
 # Keys loaded via os.environ (no secrets committed).
+#
+# Current routing (2026-07): Moonshot/Kimi is the only provider with a live
+# key. When Anthropic/DeepSeek keys arrive, re-point aliases here — nothing
+# else in the system changes.
 
 model_list:
   - model_name: cheap
     litellm_params:
-      model: deepseek/deepseek-chat
-      api_key: os.environ/DEEPSEEK_API_KEY
+      model: moonshot/kimi-k2.5
+      api_key: os.environ/MOONSHOT_API_KEY
+      api_base: https://api.moonshot.ai/v1
   - model_name: analysis
     litellm_params:
-      model: anthropic/claude-sonnet-5
-      api_key: os.environ/ANTHROPIC_API_KEY
+      model: moonshot/kimi-k2.6
+      api_key: os.environ/MOONSHOT_API_KEY
+      api_base: https://api.moonshot.ai/v1
   - model_name: reasoning
     litellm_params:
-      model: anthropic/claude-opus-4-8
-      api_key: os.environ/ANTHROPIC_API_KEY
+      model: moonshot/kimi-k2.6
+      api_key: os.environ/MOONSHOT_API_KEY
+      api_base: https://api.moonshot.ai/v1
+  - model_name: code
+    litellm_params:
+      model: moonshot/kimi-k2.7-code
+      api_key: os.environ/MOONSHOT_API_KEY
+      api_base: https://api.moonshot.ai/v1
 
 litellm_settings:
   set_verbose: false
