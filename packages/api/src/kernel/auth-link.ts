@@ -61,20 +61,31 @@ export async function linkAuthUser(
     }
   }
 
-  // 3. Create new human principal if still no match
+  // 3. Create new human principal if still no match. Concurrent renders can
+  // race here (unique auth_user_id) — loser re-reads instead of throwing.
   if (!principal) {
-    const [created] = (await db
-      .insert(principals)
-      .values({
-        kind: "human",
-        name,
-        email: email ?? null,
-        authUserId,
-        status: "active",
-      })
-      .returning()) as { id: string }[];
-    if (!created) throw new Error("Failed to create principal for auth user");
-    principal = created;
+    try {
+      const [created] = (await db
+        .insert(principals)
+        .values({
+          kind: "human",
+          name,
+          email: email ?? null,
+          authUserId,
+          status: "active",
+        })
+        .returning()) as { id: string }[];
+      if (!created) throw new Error("Failed to create principal for auth user");
+      principal = created;
+    } catch {
+      const [existing] = await db
+        .select()
+        .from(principals)
+        .where(eq(principals.authUserId, authUserId))
+        .limit(1);
+      if (!existing) throw new Error("Failed to create or find principal for auth user");
+      principal = existing;
+    }
   }
 
   // 4. Bootstrap check: is there ANY principal WITH authUserId (linked) that has owner grant on root?
