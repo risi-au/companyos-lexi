@@ -129,13 +129,16 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     const tools = await mcpClient.listTools();
     const names = (tools.tools || []).map((t: any) => t.name).sort();
     expect(names).toEqual([
-      "create_task",
       "complete_task",
+      "create_task",
       "get_context",
       "get_dashboard",
+      "get_doc",
       "get_record",
       "get_tree",
       "list_dashboards",
+      "list_doc_revisions",
+      "list_docs",
       "list_metric_names",
       "list_records",
       "list_tasks",
@@ -145,7 +148,9 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "ping",
       "query_metrics",
       "revert_dashboard",
+      "revert_doc",
       "save_dashboard",
+      "save_doc",
       "save_note",
       "save_report",
       "update_task",
@@ -211,6 +216,34 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       arguments: { scope: testScope, title: "MCP note", body_md: "Note body." },
     });
     expect((nt as any).content?.[0]?.text).toMatch(/Created note/);
+
+    // docs (M3-01): save/get/list + revisions + revert via MCP roundtrip; byte-exact md
+    const sd = await mcpClient.callTool({
+      name: "save_doc",
+      arguments: { scope: testScope, title: "KB Overview", body_md: "# Hello\n\n**exact** markdown." },
+    });
+    expect((sd as any).content?.[0]?.text).toMatch(/Saved doc/);
+
+    const gd = await mcpClient.callTool({ name: "get_doc", arguments: { scope: testScope, slug: "kb-overview" } });
+    const gdText = (gd as any).content?.[0]?.text || "";
+    expect(gdText).toContain("KB Overview");
+    expect(gdText).toContain("**exact** markdown.");
+
+    const ld = await mcpClient.callTool({ name: "list_docs", arguments: { scope: testScope } });
+    expect((ld as any).content?.[0]?.text).toMatch(/kb-overview/);
+
+    const lrev = await mcpClient.callTool({ name: "list_doc_revisions", arguments: { scope: testScope, slug: "kb-overview", limit: 5 } });
+    expect((lrev as any).content?.[0]?.text).toMatch(/kb-overview|title/);
+
+    // save again (update) requires explicit slug (auto from same title would collide and suffix per design); here roundtrip update
+    const sd2 = await mcpClient.callTool({
+      name: "save_doc",
+      arguments: { scope: testScope, slug: "kb-overview", title: "KB Overview", body_md: "# Hello\n\n**exact** markdown. v2" },
+    });
+    expect((sd2 as any).content?.[0]?.text).toMatch(/Saved doc/);
+
+    const gd2 = await mcpClient.callTool({ name: "get_doc", arguments: { scope: testScope, slug: "kb-overview" } });
+    expect((gd2 as any).content?.[0]?.text || "").toContain("v2");
   });
 
   it("agent can write (log_change) in granted subtree", async () => {

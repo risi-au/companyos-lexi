@@ -70,6 +70,17 @@ export class RecordNotFoundError extends KernelError {
   }
 }
 
+export class DocumentNotFoundError extends KernelError {
+  public readonly scopePath: string;
+  public readonly slug: string;
+  constructor(scopePath: string, slug: string) {
+    super(`Document not found: ${slug} in scope ${scopePath}`);
+    this.name = "DocumentNotFoundError";
+    this.scopePath = scopePath;
+    this.slug = slug;
+  }
+}
+
 export interface DashboardSpecValidationErrorDetail {
   path: (string | number)[];
   message: string;

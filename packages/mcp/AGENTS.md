@@ -27,6 +27,11 @@ Provides tools over MCP (stdio transport). Auth via `COS_TOKEN` env (cos_ prefix
 - `list_dashboards({scope})` — list dashboards for scope. Viewer.
 - `list_widget_types()` — full widget vocabulary (types + examples + constraints) for agents to author specs. Public discovery.
 - `revert_dashboard({scope, name?, revision_id})` — restore a prior revision as head. Editor/agent. Emits reverted.
+- `save_doc({scope, slug?, title, body_md})` — save/upsert KB document (markdown canonical). Auto-slug + -2 collision suffix. Editor/agent. Emits saved + revision.
+- `get_doc({scope, slug})` — fetch full doc (title + body_md). Viewer.
+- `list_docs({scope, include_archived?})` — tab-delimited list id/slug/title/updated (excludes archived default). Viewer.
+- `list_doc_revisions({scope, slug, limit?})` — list prior revisions for doc. Viewer.
+- `revert_doc({scope, slug, revision_id})` — restore prior revision. Editor/agent. Emits reverted.
 
 All protected tools: unauth → clear error. AccessDenied surfaced as "Access denied: requires editor on <path>".
 
