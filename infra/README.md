@@ -20,7 +20,7 @@ All config via env (12-factor). Same compose shape will be used (plus Caddy + ap
 1. Copy `.env.example` to `.env` (gitignored) and fill real keys for providers you use.
    - At minimum: `DATABASE_URL`, `LITELLM_MASTER_KEY`, one of `ANTHROPIC_API_KEY` or `DEEPSEEK_API_KEY`.
 
-2. Start the core infra:
+2. Start the core infra (compose auto-loads `.env` for variable interpolation):
    ```
    pnpm infra:up
    ```
@@ -32,12 +32,19 @@ All config via env (12-factor). Same compose shape will be used (plus Caddy + ap
    ```
    Postgres health + litellm /health.
 
-4. Run migrations (applies committed Drizzle migrations):
+4. Load `.env` for Node/pnpm (docker compose does not propagate to host `pnpm` processes) then run migrations:
    ```
+   # bash/zsh
+   set -a; source .env; set +a
+   pnpm db:migrate
+   ```
+   ```
+   # PowerShell (Windows)
+   Get-Content .env | ForEach-Object { if ($_ -match '^([^#=]+)=(.*)$') { [Environment]::SetEnvironmentVariable($matches[1], $matches[2]) } }
    pnpm db:migrate
    ```
 
-5. Seed (idempotent root scope + principal + grant):
+5. Same env load, then seed (idempotent root scope + principal + grant):
    ```
    pnpm db:seed
    ```
