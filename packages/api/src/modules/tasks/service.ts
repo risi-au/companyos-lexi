@@ -52,9 +52,18 @@ export async function ensureTaskTarget(
   if (topLink) {
     projectId = topLink.planeProjectId;
   } else {
-    // create project lazily in Plane
+    // create project lazily in Plane; adopt an existing project on name
+    // conflict (409) — happens when task_links is missing but Plane has it
     const projName = topScope?.name || topPath;
-    const proj = await plane.createProject(projName, topPath.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 5) || "TASK");
+    let proj;
+    try {
+      proj = await plane.createProject(projName, topPath.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 5) || "TASK");
+    } catch {
+      const existing = await plane.getProjects();
+      const list = Array.isArray(existing) ? existing : (existing as any)?.results || [];
+      proj = list.find((pr: any) => pr.name === projName);
+      if (!proj) throw new Error(`Plane project create failed and no existing project named ${projName}`);
+    }
     projectId = proj.id || proj.uuid || proj.project_id || (typeof proj === "string" ? proj : "");
     if (!projectId) {
       // fallback if response shape different
