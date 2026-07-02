@@ -1,5 +1,5 @@
 # M1-04: Records module
-status: todo
+status: done
 module: records
 branch: task/M1-04
 

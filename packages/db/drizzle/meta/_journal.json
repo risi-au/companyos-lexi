@@ -8,6 +8,13 @@
       "when": 1782977129513,
       "tag": "0000_heavy_sharon_carter",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1782979421311,
+      "tag": "0001_fluffy_tarantula",
+      "breakpoints": true
     }
   ]
 }
