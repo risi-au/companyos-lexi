@@ -41,6 +41,7 @@ Notes (as of codex-cli 0.142.5, 2026-07-03):
 - **Limit alerting**: include in the prompt: on rate/usage limits print a line starting `LIMIT-ALERT:` and commit WIP. Additionally arm a log monitor for limit signals — grep the log with `-a` (codex output contains control chars that make grep call it binary) and avoid bare patterns like `429` (matches git hashes) or words echoed from your own prompt. **Anchor the alert pattern to line start (`^LIMIT-ALERT:`)** — codex echoes the dispatch prompt into its log and also prints this very file when it reads it, so an unanchored grep false-alarms immediately (bitten during M4-05).
 - Defaults come from `~/.codex/config.toml`: currently `model = "gpt-5.5"`, `model_reasoning_effort = "high"`. Override per-run with `-c model_reasoning_effort=medium` for routine briefs to save tokens.
 - The repo must be in codex's trusted projects list (`c:\dev\companyos` already is) or the sandbox will prompt/fail.
+- **Out-of-credits mode** (discovered M5-01): `ERROR: Your workspace is out of credits` — exits 1 within seconds, before any work. Credits reset/refill on the owner's plan, so retry codex once before falling back to grok, and tell the owner so he can refill. Add `out of credits` to the log-monitor pattern alongside `^LIMIT-ALERT:`.
 
 ## Post-run verification checklist (orchestrator must do all of these)
 
