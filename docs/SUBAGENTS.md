@@ -36,6 +36,9 @@ Notes (as of codex-cli 0.142.5, 2026-07-03):
 
 - **`< /dev/null` is mandatory headless** — without it the run hangs forever on stdin (see golden rule 2).
 - `--full-auto` is deprecated; use `--sandbox workspace-write`.
+- **Codex cannot commit on Windows**: the workspace-write sandbox denies writes to `.git` (`Unable to create .git/index.lock: Permission denied`, discovered M4-04). It leaves completed work in the tree; the architect commits after review. Don't count this as a failure.
+- Codex has no `pnpm` in its sandbox PATH and restricted network (Corepack fetch fails) — it verifies with `tsc -b` / `eslint` / `vitest` directly; the orchestrator's own root `pnpm typecheck/lint/test` run (checklist step 4) is the real gate, as always.
+- **Limit alerting**: include in the prompt: on rate/usage limits print a line starting `LIMIT-ALERT:` and commit WIP. Additionally arm a log monitor for limit signals — grep the log with `-a` (codex output contains control chars that make grep call it binary) and avoid bare patterns like `429` (matches git hashes) or words echoed from your own prompt.
 - Defaults come from `~/.codex/config.toml`: currently `model = "gpt-5.5"`, `model_reasoning_effort = "high"`. Override per-run with `-c model_reasoning_effort=medium` for routine briefs to save tokens.
 - The repo must be in codex's trusted projects list (`c:\dev\companyos` already is) or the sandbox will prompt/fail.
 
@@ -52,3 +55,5 @@ Notes (as of codex-cli 0.142.5, 2026-07-03):
 1. grok (default implementer)
 2. codex (grok no-ops/fails twice, or the task is genuinely hard)
 3. architect takeover (after 2 failed review-fix cycles, per ORCHESTRATION.md)
+
+Owner override (2026-07-03): prefer codex directly while owner has ample codex quota — grok no-opped again on M4-04 (exit 0 after "Creating the schema..." with nothing written); codex delivered M4-04 in one run.
