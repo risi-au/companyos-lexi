@@ -141,6 +141,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "get_tree",
       "list_canvases",
       "list_capabilities",
+      "list_alerts",
       "list_capability_runs",
       "list_dashboards",
       "list_doc_revisions",
@@ -494,6 +495,55 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     const runsJson = JSON.parse((runs as any).content?.[0]?.text || "[]");
     expect(runsJson.length).toBe(1);
     expect(runsJson[0].summary).toBe("completed");
+
+    const alertReport = await mcpClient.callTool({
+      name: "report_run",
+      arguments: {
+        scopePath: testScope,
+        name: "nightly-sync",
+        status: "error",
+        runRef: "mcp-run-alert",
+        summary: "threshold crossed",
+        alert: {
+          severity: "warning",
+          message: "Spend crossed threshold",
+          metric: "meta.spend",
+          value: 75,
+          threshold: 50,
+        },
+      },
+    });
+    expect((alertReport as any).isError).toBeFalsy();
+
+    const alerts = await mcpClient.callTool({
+      name: "list_alerts",
+      arguments: { scope: testScope, severity: "warning", limit: 10 },
+    });
+    expect((alerts as any).isError).toBeFalsy();
+    const alertsJson = JSON.parse((alerts as any).content?.[0]?.text || "[]");
+    expect(alertsJson.length).toBe(1);
+    expect(alertsJson[0]).toMatchObject({
+      capability: "nightly-sync",
+      severity: "warning",
+      message: "Spend crossed threshold",
+      metric: "meta.spend",
+      value: 75,
+      threshold: 50,
+      runRef: "mcp-run-alert",
+    });
+
+    const badAlert = await mcpClient.callTool({
+      name: "report_run",
+      arguments: {
+        scopePath: testScope,
+        name: "nightly-sync",
+        status: "success",
+        runRef: "mcp-bad-alert",
+        alert: { severity: "info", message: "   " },
+      },
+    });
+    expect((badAlert as any).isError).toBe(true);
+    expect((badAlert as any).content?.[0]?.text).toMatch(/Alert validation failed/);
   });
 
   it("skills MCP tools roundtrip: list_skills and get_skill", async () => {

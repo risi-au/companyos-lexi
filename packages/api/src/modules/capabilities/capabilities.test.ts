@@ -12,9 +12,11 @@ const schema: any = (dbMod as any).schema ?? dbMod;
 
 import {
   AccessDeniedError,
+  AlertValidationError,
   CapabilityNotFoundError,
   createScope,
   grantRole,
+  listAlerts,
   listCapabilities,
   listCapabilityRuns,
   listEvents,
@@ -178,6 +180,188 @@ describe("capabilities module", () => {
 
     const events = await listEvents(db, { scopePath, type: "capability.run_reported", limit: 10 });
     expect(events.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("stores alert payloads and emits alert.fired alongside capability.run_reported", async () => {
+    await registerCapability(db, { scopePath, name: "watch-spend", engine: "n8n" }, adminPrincipalId);
+
+    const result = await reportRun(db, {
+      scopePath,
+      name: "watch-spend",
+      status: "error",
+      runRef: "alert-run-1",
+      summary: "spend exceeded",
+      payload: { checked: true },
+      alert: {
+        severity: "critical",
+        message: "Daily spend exceeded threshold",
+        metric: "meta.spend",
+        value: 150,
+        threshold: 100,
+      },
+    }, agentPrincipalId);
+
+    expect(result.run.payload).toMatchObject({
+      checked: true,
+      alert: {
+        severity: "critical",
+        message: "Daily spend exceeded threshold",
+        metric: "meta.spend",
+        value: 150,
+        threshold: 100,
+      },
+    });
+
+    const runEvents = await listEvents(db, { scopePath, type: "capability.run_reported", limit: 5 });
+    expect(runEvents[0]?.payload).toMatchObject({
+      name: "watch-spend",
+      status: "error",
+      runRef: "alert-run-1",
+    });
+
+    const alertEvents = await listEvents(db, { scopePath, type: "alert.fired", limit: 5 });
+    expect(alertEvents.length).toBe(1);
+    expect(alertEvents[0]?.payload).toEqual({
+      capability: "watch-spend",
+      severity: "critical",
+      message: "Daily spend exceeded threshold",
+      metric: "meta.spend",
+      value: 150,
+      threshold: 100,
+      runRef: "alert-run-1",
+      runId: result.run.id,
+    });
+  });
+
+  it("does not emit alert.fired for reports without alert", async () => {
+    await registerCapability(db, { scopePath, name: "plain-runner", engine: "custom" }, adminPrincipalId);
+
+    await reportRun(db, {
+      scopePath,
+      name: "plain-runner",
+      status: "success",
+      runRef: "plain-run-1",
+      payload: { alert: { severity: "critical", message: "payload-only is not alerting" } },
+    }, agentPrincipalId);
+
+    const alertEvents = await listEvents(db, { scopePath, type: "alert.fired", limit: 5 });
+    expect(alertEvents.length).toBe(0);
+  });
+
+  it("rejects invalid alerts without writing a fresh run row", async () => {
+    await registerCapability(db, { scopePath, name: "validator", engine: "custom" }, adminPrincipalId);
+
+    await expect(reportRun(db, {
+      scopePath,
+      name: "validator",
+      status: "success",
+      runRef: "bad-severity",
+      alert: { severity: "urgent", message: "bad" } as any,
+    }, agentPrincipalId)).rejects.toThrow(AlertValidationError);
+
+    await expect(reportRun(db, {
+      scopePath,
+      name: "validator",
+      status: "success",
+      runRef: "empty-message",
+      alert: { severity: "warning", message: "   " },
+    }, agentPrincipalId)).rejects.toThrow(AlertValidationError);
+
+    const rows = await db.select().from(schema.capabilityRuns);
+    expect(rows.some((row: any) => row.runRef === "bad-severity" || row.runRef === "empty-message")).toBe(false);
+
+    const alertEvents = await listEvents(db, { scopePath, type: "alert.fired", limit: 5 });
+    expect(alertEvents.length).toBe(0);
+  });
+
+  it("lets explicit alert input override payload.alert", async () => {
+    await registerCapability(db, { scopePath, name: "override-alert", engine: "custom" }, adminPrincipalId);
+
+    const result = await reportRun(db, {
+      scopePath,
+      name: "override-alert",
+      status: "success",
+      runRef: "override-run-1",
+      payload: {
+        alert: { severity: "info", message: "payload alert loses" },
+      },
+      alert: { severity: "warning", message: "explicit alert wins" },
+    }, agentPrincipalId);
+
+    expect((result.run.payload as any).alert).toEqual({
+      severity: "warning",
+      message: "explicit alert wins",
+    });
+  });
+
+  it("lists alerts with viewer gating, severity, ordering, limit cap, and since", async () => {
+    await expect(listAlerts(db, { scopePath }, editorPrincipalId)).resolves.toEqual([]);
+
+    const [outsider] = await db.insert(schema.principals).values({ kind: "human", name: "Outsider" }).returning();
+    await expect(listAlerts(db, { scopePath }, outsider.id)).rejects.toThrow(AccessDeniedError);
+
+    const [scope] = await db.select({ id: schema.scopes.id }).from(schema.scopes).where(eq(schema.scopes.path, scopePath)).limit(1);
+    const base = new Date("2026-07-03T00:00:00.000Z");
+    await db.insert(schema.events).values([
+      {
+        type: "alert.fired",
+        scopeId: scope.id,
+        principalId: agentPrincipalId,
+        payload: { capability: "watcher", severity: "info", message: "old", runRef: "old" },
+        createdAt: base,
+      },
+      {
+        type: "alert.fired",
+        scopeId: scope.id,
+        principalId: agentPrincipalId,
+        payload: { capability: "watcher", severity: "warning", message: "middle", metric: "m", value: 2, threshold: 1, runRef: "middle" },
+        createdAt: new Date("2026-07-03T01:00:00.000Z"),
+      },
+      {
+        type: "alert.fired",
+        scopeId: scope.id,
+        principalId: agentPrincipalId,
+        payload: { capability: "watcher", severity: "critical", message: "new", runRef: "new" },
+        createdAt: new Date("2026-07-03T02:00:00.000Z"),
+      },
+    ]);
+
+    const recent = await listAlerts(db, {
+      scopePath,
+      since: "2026-07-03T01:00:00.000Z",
+    }, viewerPrincipalId);
+    expect(recent.map((alert) => alert.message)).toEqual(["new", "middle"]);
+
+    const warning = await listAlerts(db, {
+      scopePath,
+      severity: "warning",
+    }, viewerPrincipalId);
+    expect(warning).toEqual([{
+      firedAt: new Date("2026-07-03T01:00:00.000Z"),
+      capability: "watcher",
+      severity: "warning",
+      message: "middle",
+      metric: "m",
+      value: 2,
+      threshold: 1,
+      runRef: "middle",
+    }]);
+
+    const limited = await listAlerts(db, { scopePath, limit: 2 }, viewerPrincipalId);
+    expect(limited.map((alert) => alert.message)).toEqual(["new", "middle"]);
+
+    const bulk = Array.from({ length: 105 }, (_, i) => ({
+      type: "alert.fired",
+      scopeId: scope.id,
+      principalId: agentPrincipalId,
+      payload: { capability: "bulk", severity: "info", message: `bulk-${i}` },
+      createdAt: new Date(Date.UTC(2026, 6, 4, 0, 0, i)),
+    }));
+    await db.insert(schema.events).values(bulk);
+
+    const capped = await listAlerts(db, { scopePath, limit: 500 }, viewerPrincipalId);
+    expect(capped.length).toBe(100);
+    expect(capped[0]?.message).toBe("bulk-104");
   });
 
   it("throws CapabilityNotFoundError for unknown capability reports and run lists", async () => {

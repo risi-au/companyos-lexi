@@ -23,7 +23,8 @@ Provides tools over MCP (stdio transport). Auth via `COS_TOKEN` env (cos_ prefix
 - `query_metrics({scope, metrics, from, to, groupBy?, filters?, agg?})` — query series with optional grouping (date/metric/dim), filters, agg. Viewer.
 - `list_metric_names({scope})` — list distinct metric names + observed first/last dates for scope. Viewer.
 - `register_capability({scopePath, name, engine, engineRef?, tokenId?, description?, status?})` — register/update a scoped capability. Admin.
-- `report_run({scopePath, name, status, runRef?, summary?, startedAt?, finishedAt?, durationMs?, payload?})` — persist a registered capability run. Editor/agent.
+- `report_run({scopePath, name, status, runRef?, summary?, startedAt?, finishedAt?, durationMs?, payload?, alert?})` — persist a registered capability run. Optional alert `{severity,message,metric?,value?,threshold?}` stores `payload.alert` and emits `alert.fired`. Editor/agent.
+- `list_alerts({scope, severity?, since?, limit?})` — list exact-scope `alert.fired` events, newest first. Viewer.
 - `list_capabilities({scope})` — list scoped capabilities with latest run. Viewer.
 - `list_capability_runs({scope, name, since?, limit?})` — list newest runs for one capability. Viewer.
 - `sync_skills({})` — refresh cached skills from `SKILLS_REPO` using GitHub config. Root admin.
@@ -75,7 +76,7 @@ All protected tools: unauth → clear error. AccessDenied surfaced as "Access de
 Acceptance (M1-05 + M2-01 + M2-02):
 - typecheck + lint + test pass
 - write_metrics / query_metrics / list_metric_names covered in MCP roundtrips; groupBy date and dim key roundtrip via MCP asserted
-- register_capability / report_run / list_capabilities / list_capability_runs covered in MCP roundtrips
+- register_capability / report_run / list_alerts / list_capabilities / list_capability_runs covered in MCP roundtrips
 - list_skills / get_skill covered in MCP roundtrips
 - save_dashboard / get_dashboard / list_dashboards / list_widget_types / revert_dashboard roundtrips and validation errors in MCP tests
 - auth cases (agent write ok in subtree / denied out; viewer no write; null principal auth error)

@@ -1,6 +1,6 @@
 # M4-07: Alert pattern (alert-carrying run reports + alert.fired events + list_alerts)
 
-status: todo
+status: done
 module: capabilities (packages/api) + mcp + http route
 branch: task/M4-07
 
