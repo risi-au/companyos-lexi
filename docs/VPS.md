@@ -9,7 +9,7 @@ process. Maintained by the architect; update whenever an environment or step cha
 | | local (dev) | **staging** (`aios`) | live (future) |
 |---|---|---|---|
 | Where | dev machine, Docker Desktop | VPS `159.13.38.87`, user `aios`, rootless Docker/Podman | same VPS, separate user (TBD — will move off-box later) |
-| URL | http://localhost:3000 | **https://cos.risi.au** (Cloudflare tunnel → `127.0.0.1:3000`) | TBD |
+| URL | http://localhost:3000 | **https://cos-staging.risi.au** (tunnel → `127.0.0.1:3000`) | **https://cos.risi.au** (reserved) |
 | Compose | `infra/docker-compose.dev.yml` | `infra/docker-compose.prod.yml` @ `~/app` | `infra/docker-compose.prod.yml` @ `~/app` |
 | Runs | `main` / task branches | **tagged releases only** | tagged releases only, after staging sign-off |
 | Data | seed/test data | throwaway test data (playground) | real tenant data |
@@ -70,7 +70,7 @@ local dev  ──merge──▶  main  ──tag v*──▶  GHCR images  ─�
    docker compose --env-file .env -f docker-compose.prod.yml logs migrate   # must end successfully
    ```
 4. **Staging smoke test** (minimum before any promotion):
-   - `https://cos.risi.au` loads and login works
+   - `https://cos-staging.risi.au` loads and login works
    - migrations completed (`logs migrate`), app healthy (`docker compose ps`)
    - one end-to-end flow of whatever the release changed (e.g. new MCP tool roundtrip)
    - no error spam in `docker compose logs os --since 10m`
@@ -87,8 +87,10 @@ Images are private. `docker login ghcr.io` once per VPS user with a GitHub PAT t
 
 ## Current state
 
-- **Staging deployed**: v0.5.1 pending first deploy (see session log 2026-07-03).
-- n8n on staging expects hostname `n8n-cos.risi.au` — tunnel route not added yet (optional
-  until n8n is used on staging; add a public hostname → `http://localhost:5678`).
+- **Staging**: first deploy pending v0.5.2 multi-arch images (2026-07-03).
+- Hostname convention: staging = `*-cos-staging.risi.au` flat names (Cloudflare free-tier
+  certs don't cover multi-level subdomains); clean `cos.risi.au` names reserved for live.
+- n8n on staging expects hostname `n8n-cos-staging.risi.au` — tunnel route + compose port
+  publish (`127.0.0.1:5678`) not added yet; do both when n8n is first needed.
 - Plane CE: not deployed on staging.
 - Live user: not created yet.
