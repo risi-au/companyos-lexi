@@ -19,6 +19,11 @@ export interface GitHubFile {
   contentUtf8: string;
 }
 
+export interface GitHubTreeFile {
+  path: string;
+  sha: string;
+}
+
 export class OrgNotFoundError extends Error {
   constructor(public readonly org: string) {
     super(`GitHub org not found: ${org}`);
@@ -101,6 +106,15 @@ export class GitHubClient {
       throw new Error(`GitHub API POST ${path} failed: ${res.status} ${text}`);
     }
     return (await res.json()) as GitHubRepo;
+  }
+
+  async listFiles(repo: string, options: { ref?: string } = {}): Promise<GitHubTreeFile[]> {
+    const ref = options.ref || "HEAD";
+    const path = `/repos/${encodeURIComponent(this.org)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(ref)}?recursive=1`;
+    const { data } = await this.request<{ tree?: { path?: string; sha?: string; type?: string }[] }>(path);
+    return (data.tree || [])
+      .filter((entry) => entry.type === "blob" && !!entry.path && !!entry.sha)
+      .map((entry) => ({ path: entry.path!, sha: entry.sha! }));
   }
 
   async getFile(repo: string, path: string): Promise<GitHubFile | null> {

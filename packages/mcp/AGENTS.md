@@ -7,7 +7,7 @@ Provides tools over MCP (stdio transport). Auth via `COS_TOKEN` env (cos_ prefix
 
 ## Tools (Context + Records + Tasks + Metrics)
 - `ping` — no auth, returns "pong". For connectivity.
-- `get_context({scope})` — markdown: identity (name/path/type/status), modules list, children paths, last 10 changelog+decision (title+preview+date). Viewer.
+- `get_context({scope})` — markdown: identity (name/path/type/status), modules list, children paths, matching skills, last 10 changelog+decision (title+preview+date). Viewer.
 - `get_tree({scope?})` — indented paths of subtree (default root). Viewer.
 - `log_change({scope, title, body_md, data?})` — create changelog. Editor/agent.
 - `log_decision({scope, title, body_md, data?})` — create decision. Editor/agent.
@@ -26,6 +26,9 @@ Provides tools over MCP (stdio transport). Auth via `COS_TOKEN` env (cos_ prefix
 - `report_run({scopePath, name, status, runRef?, summary?, startedAt?, finishedAt?, durationMs?, payload?})` — persist a registered capability run. Editor/agent.
 - `list_capabilities({scope})` — list scoped capabilities with latest run. Viewer.
 - `list_capability_runs({scope, name, since?, limit?})` — list newest runs for one capability. Viewer.
+- `sync_skills({})` — refresh cached skills from `SKILLS_REPO` using GitHub config. Root admin.
+- `list_skills({scope, domain?})` — list matching cached skills for a scope; no body. Viewer.
+- `get_skill({name})` — fetch one cached skill including full `SKILL.md` body. Any valid principal.
 - `save_dashboard({scope, name?, spec})` — save/upsert validated dashboard spec (v1 contract). Editor/agent. Emits saved, creates revision.
 - `get_dashboard({scope, name?})` — fetch current spec. Viewer.
 - `list_dashboards({scope})` — list dashboards for scope. Viewer.
@@ -73,6 +76,7 @@ Acceptance (M1-05 + M2-01 + M2-02):
 - typecheck + lint + test pass
 - write_metrics / query_metrics / list_metric_names covered in MCP roundtrips; groupBy date and dim key roundtrip via MCP asserted
 - register_capability / report_run / list_capabilities / list_capability_runs covered in MCP roundtrips
+- list_skills / get_skill covered in MCP roundtrips
 - save_dashboard / get_dashboard / list_dashboards / list_widget_types / revert_dashboard roundtrips and validation errors in MCP tests
 - auth cases (agent write ok in subtree / denied out; viewer no write; null principal auth error)
 - Handlers: pure arg parse + service call + format (no logic)

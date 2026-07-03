@@ -137,6 +137,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "get_dashboard",
       "get_doc",
       "get_record",
+      "get_skill",
       "get_tree",
       "list_canvases",
       "list_capabilities",
@@ -146,6 +147,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "list_docs",
       "list_metric_names",
       "list_records",
+      "list_skills",
       "list_tasks",
       "list_widget_types",
       "log_change",
@@ -162,6 +164,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "save_doc",
       "save_note",
       "save_report",
+      "sync_skills",
       "update_task",
       "write_metrics",
     ].sort());
@@ -491,6 +494,38 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     const runsJson = JSON.parse((runs as any).content?.[0]?.text || "[]");
     expect(runsJson.length).toBe(1);
     expect(runsJson[0].summary).toBe("completed");
+  });
+
+  it("skills MCP tools roundtrip: list_skills and get_skill", async () => {
+    await db.insert(schema.skillsIndex).values({
+      name: `mcp-skill-${Date.now()}`,
+      scopePattern: testScope,
+      domains: ["ops"],
+      path: "ops/SKILL.md",
+      description: "MCP skill",
+      body: "---\nname: mcp-skill\n---\n# MCP Skill\n",
+      sha: "sha-mcp",
+      syncedAt: new Date(),
+    });
+
+    const { mcpClient } = await makeRoundtrip(viewerPrincipalId);
+    const listed = await mcpClient.callTool({
+      name: "list_skills",
+      arguments: { scope: testScope, domain: "ops" },
+    });
+    expect((listed as any).isError).toBeFalsy();
+    const listedJson = JSON.parse((listed as any).content?.[0]?.text || "[]");
+    const listedSkill = listedJson.find((skill: any) => skill.description === "MCP skill");
+    expect(listedSkill).toBeTruthy();
+    expect(Object.prototype.hasOwnProperty.call(listedSkill, "body")).toBe(false);
+
+    const got = await mcpClient.callTool({
+      name: "get_skill",
+      arguments: { name: listedSkill.name },
+    });
+    expect((got as any).isError).toBeFalsy();
+    const gotJson = JSON.parse((got as any).content?.[0]?.text || "{}");
+    expect(gotJson.body).toContain("# MCP Skill");
   });
 
   // M2-01 metrics MCP roundtrips: groupBy date and dim key asserted

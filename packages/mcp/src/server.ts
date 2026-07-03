@@ -36,10 +36,15 @@ import {
   reportRun,
   listCapabilities,
   listCapabilityRuns,
+  syncSkills,
+  listSkills,
+  getSkill,
+  skillsContextSection,
   type DB,
   AccessDeniedError,
   ScopeNotFoundError,
   CapabilityNotFoundError,
+  SkillNotFoundError,
   RecordNotFoundError,
   DashboardValidationError,
   DocumentNotFoundError,
@@ -63,6 +68,9 @@ function formatError(e: unknown): string {
   }
   if (e instanceof CapabilityNotFoundError) {
     return `Capability not found: ${e.capabilityName} in ${e.scopePath}`;
+  }
+  if (e instanceof SkillNotFoundError) {
+    return `Skill not found: ${e.skillName}`;
   }
   if (e instanceof RecordNotFoundError) {
     return `Record not found: ${e.id}`;
@@ -140,7 +148,7 @@ export function createServer(options: CreateServerOptions) {
     {
       title: "Get Context",
       description:
-        "Return a markdown-formatted context bundle for a scope. Includes scope identity (name/path/type/status), attached modules, child paths, and the last 10 changelog + decision records (title + first 200 chars + date). Points to list_records/get_record for more. Requires viewer grant on the scope (or ancestor).",
+        "Return a markdown-formatted context bundle for a scope. Includes scope identity (name/path/type/status), attached modules, child paths, matching skills, and the last 10 changelog + decision records (title + first 200 chars + date). Points to list_records/get_record and get_skill for more. Requires viewer grant on the scope (or ancestor).",
       inputSchema: z.object({
         scope: z.string().min(1).describe("Scope path, e.g. 'airbuddy' or 'airbuddy/marketing'"),
       }),
@@ -175,6 +183,7 @@ export function createServer(options: CreateServerOptions) {
           recordsMd += `- [${r.kind}] ${r.title} (${date})\n  ${bodyStart}${ (r.bodyMd || "").length > 200 ? "..." : "" }\n`;
         }
         if (!recordsMd) recordsMd = "(no recent changelog/decision records)\n";
+        const skillsMd = await skillsContextSection(db, scope);
 
         const moduleList = mods.length
           ? mods.map((m) => `- ${m.moduleType}`).join("\n")
@@ -197,6 +206,8 @@ ${childPaths || "(none)"}
 **Recent changelog/decision records (last 10)**
 ${recordsMd}
 Use list_records / get_record for full history and other kinds.
+
+${skillsMd}
 `;
 
         return { content: [{ type: "text", text: md }] };
@@ -843,6 +854,91 @@ ${JSON.stringify(rec.data || {}, null, 2)}
       try {
         const actor = ensurePrincipal();
         const result = await listCapabilityRuns(db, { scopePath: scope, name, since, limit }, actor);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // sync_skills
+  server.registerTool(
+    "sync_skills",
+    {
+      title: "Sync Skills",
+      description:
+        "Refresh the cached skills index from the central GitHub skills repo. Requires admin on the root scope. Uses SKILLS_REPO plus GitHub env configuration.",
+      inputSchema: z.object({}),
+    },
+    async () => {
+      try {
+        const actor = ensurePrincipal();
+        const repo = process.env.SKILLS_REPO;
+        if (!repo) {
+          throw new Error("SKILLS_REPO environment variable is required for sync_skills");
+        }
+        if (!githubClient) {
+          throw new Error("GitHub client not configured: set GITHUB_TOKEN and GITHUB_ORG");
+        }
+        const result = await syncSkills(db, githubClient, { repo }, actor);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // list_skills
+  server.registerTool(
+    "list_skills",
+    {
+      title: "List Skills",
+      description: "List matching cached skills for a scope. Optional domain filter. Viewer required on the scope.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+        domain: z.string().optional().describe("Optional informational domain tag filter"),
+      }),
+    },
+    async ({ scope, domain }) => {
+      try {
+        const actor = ensurePrincipal();
+        const result = await listSkills(db, { scope, domain }, actor);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // get_skill
+  server.registerTool(
+    "get_skill",
+    {
+      title: "Get Skill",
+      description: "Fetch one cached skill by name, including the full SKILL.md body. Requires any valid principal.",
+      inputSchema: z.object({
+        name: z.string().min(1).describe("Skill name"),
+      }),
+    },
+    async ({ name }) => {
+      try {
+        const actor = ensurePrincipal();
+        const result = await getSkill(db, { name }, actor);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };

@@ -7,6 +7,7 @@ import {
   type DB,
 } from "./index";
 import { ScopeNotFoundError } from "./errors";
+import { skillsContextSection } from "./modules/skills/service";
 import { createHmac, timingSafeEqual } from "crypto";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -49,6 +50,7 @@ export async function getContextBundle(
     recordsMd += `- [${r.kind}] ${r.title} (${date})\n  ${bodyStart}${ (r.bodyMd || "").length > 200 ? "..." : "" }\n`;
   }
   if (!recordsMd) recordsMd = "(no recent changelog/decision records)\n";
+  const skillsMd = await skillsContextSection(db, scopePath);
 
   const moduleList = mods.length
     ? mods.map((m: any) => `- ${m.moduleType}`).join("\n")
@@ -71,6 +73,8 @@ ${childPaths || "(none)"}
 **Recent changelog/decision records (last 10)**
 ${recordsMd}
 Use list_records / get_record for full history and other kinds.
+
+${skillsMd}
 `;
 
   return md;
