@@ -1,11 +1,11 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Plus } from "lucide-react";
 import type { Scope } from "@companyos/db";
-import { setSelectedProject } from "./actions";
+import { setSelectedProject, createNewScope } from "./actions";
 
 interface SidebarProps {
   tree: Scope[];
@@ -17,6 +17,7 @@ interface SidebarProps {
 export function Sidebar({ tree, selected, taskManagerUrl, instanceName = "CompanyOS" }: SidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const [showNew, setShowNew] = useState(false);
 
   const currentPath = pathname?.startsWith("/s/") ? pathname.replace("/s/", "").split("?")[0] : "";
   const currentTab = searchParams?.get("tab") || "";
@@ -59,7 +60,17 @@ export function Sidebar({ tree, selected, taskManagerUrl, instanceName = "Compan
     <div className="flex-1 overflow-auto p-[var(--space-2)] text-[var(--foreground)] text-[var(--font-size-sm)]">
       {/* Project switcher (top of sidebar, under instance name) */}
       <div className="mb-[var(--space-3)] px-[var(--space-1)]">
-        <div className="text-[var(--font-size-xs)] uppercase tracking-[0.5px] text-[var(--muted-foreground)] mb-[var(--space-1)]">Project</div>
+        <div className="mb-[var(--space-1)] flex items-center justify-between text-[var(--font-size-xs)] uppercase tracking-[0.5px] text-[var(--muted-foreground)]">
+          <span>Project</span>
+          <button
+            onClick={() => setShowNew(true)}
+            className="inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-[var(--muted)]"
+            title="New scope"
+            aria-label="Create new scope"
+          >
+            <Plus size={14} />
+          </button>
+        </div>
         <form action={setSelectedProject}>
           <select
             name="path"
@@ -150,6 +161,83 @@ export function Sidebar({ tree, selected, taskManagerUrl, instanceName = "Compan
           </div>
         );
       })}
+
+      {showNew && (
+        <NewScopeDialog
+          tree={tree}
+          defaultParent={selected && selected !== "root" ? selected : ""}
+          onClose={() => setShowNew(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Minimal inline dialog using the createNewScope server action */
+function NewScopeDialog({ tree, defaultParent, onClose }: { tree: Scope[]; defaultParent: string; onClose: () => void }) {
+  const [pending, setPending] = useState(false);
+  const [parent, setParent] = useState(defaultParent);
+
+  // Any visible project/subproject can be a parent; empty = top level
+  const parentOptions: Scope[] = tree
+    .filter((s: Scope) => s.type === "project" || s.type === "subproject")
+    .sort((a: Scope, b: Scope) => a.path.localeCompare(b.path));
+
+  async function handleSubmit(formData: FormData) {
+    setPending(true);
+    try {
+      const res = await createNewScope(formData);
+      if (res?.error) {
+        alert(res.error);
+      } else if (res?.path) {
+        onClose();
+        window.location.href = `/s/${res.path}`;
+      }
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Create scope failed");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--muted)]/60" onClick={onClose}>
+      <div
+        className="w-[320px] rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-3 text-[var(--font-size-md)] font-medium">New scope</div>
+        <form action={handleSubmit} className="space-y-[var(--space-3)]">
+          <input
+            name="name"
+            className="w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--background)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)]"
+            placeholder="Name"
+            required
+          />
+          <input
+            name="slug"
+            className="w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--background)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)]"
+            placeholder="slug (optional)"
+          />
+          <select
+            name="parentPath"
+            value={parent}
+            onChange={(e) => setParent(e.target.value)}
+            className="w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--background)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)]"
+            aria-label="Parent scope"
+          >
+            <option value="">(top level — new Project / Client)</option>
+            {parentOptions.map((p) => (
+              <option key={p.path} value={p.path}>{p.path}</option>
+            ))}
+          </select>
+          <div className="flex gap-2 pt-1">
+            <button type="button" onClick={onClose} className="flex-1 rounded border border-[var(--border)] py-[var(--space-2)] text-[var(--font-size-sm)]">Cancel</button>
+            <button type="submit" disabled={pending} className="flex-1 rounded bg-[var(--primary)] py-[var(--space-2)] text-[var(--font-size-sm)] text-[var(--primary-foreground)]">{pending ? "Creating..." : "Create"}</button>
+          </div>
+        </form>
+        <p className="mt-[var(--space-2)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Top level creates a Project / Client; picking a parent creates a Sub-project under it.</p>
+      </div>
     </div>
   );
 }

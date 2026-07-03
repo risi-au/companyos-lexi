@@ -8,7 +8,9 @@ import { redirect } from "next/navigation";
 export async function createNewScope(formData: FormData): Promise<{ path?: string; error?: string }> {
   const name = (formData.get("name") as string || "").trim();
   const slug = (formData.get("slug") as string || "").trim() || name.toLowerCase().replace(/[^a-z0-9-]/g, "-");
-  const type = (formData.get("type") as "project" | "subproject") || "project";
+  const parentPath = (formData.get("parentPath") as string || "").trim() || null;
+  // Type follows placement: top level = project, nested = subproject
+  const type: "project" | "subproject" = parentPath ? "subproject" : "project";
 
   if (!name || !slug) {
     return { error: "Name and slug required" };
@@ -17,14 +19,13 @@ export async function createNewScope(formData: FormData): Promise<{ path?: strin
   const actor = await getCurrentActorPrincipalId();
   if (!actor) return { error: "Not authenticated" };
 
-  // Enforce at least admin on root (UI layer + service expectation); note createScope itself does not call requireAccess (kernel limited per task)
-  const canCreate = await api.resolveAccess(actor, "root");
+  // Enforce at least admin on the parent (or root for top-level creates)
+  const canCreate = await api.resolveAccess(actor, parentPath || "root");
   if (!canCreate || !["owner", "admin"].includes(canCreate)) {
     return { error: "Insufficient permissions to create scope" };
   }
 
-  // Determine parent: default to root (dialog lacks live current path context)
-  const created = await api.createScope({ slug, name, type, parentPath: null }, actor);
+  const created = await api.createScope({ slug, name, type, parentPath }, actor);
 
   revalidatePath("/");
   revalidatePath(`/s/${created.path}`);
