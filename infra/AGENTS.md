@@ -1,7 +1,7 @@
 # infra AGENTS.md
 
 Module: infra
-Purpose: Development and production Docker Compose bundles for the shared data/model/automation layer, plus production runbook. Enables local boot of Postgres, LiteLLM, and n8n; prod runs tagged OS images from GHCR with Plane CE side-by-side.
+Purpose: Development and production Docker Compose bundles for the shared data/model/automation layer, plus production runbook. Enables local boot of Postgres, LiteLLM, and n8n; prod runs tagged multi-arch (amd64+arm64) OS images from GHCR with Plane CE side-by-side.
 
 ## Contract / invariants
 - Single `docker compose -f infra/docker-compose.dev.yml up -d` boots postgres + litellm + n8n for dev.
