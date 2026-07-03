@@ -1,5 +1,5 @@
 # M4-01: Structure v2 — type merge, grant-filtered navigation, instance identity, members UI
-status: todo
+status: done
 module: kernel + web
 branch: task/M4-01
 
