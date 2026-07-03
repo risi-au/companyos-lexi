@@ -28,10 +28,13 @@ export { PlaneClient, type PlaneConfig, type FetchLike } from "./modules/tasks/p
 // Provisioning module (M4-04)
 export * from "./modules/provisioning/service";
 export * from "./modules/provisioning/agents-md";
-export { GitHubClient, OrgNotFoundError, type GitHubConfig } from "./modules/provisioning/github-client";
+export { GitHubClient, OrgNotFoundError, type GitHubConfig } from "./lib/github-client";
 
 // Capabilities module (M4-05)
 export * from "./modules/capabilities/service";
+
+// Skills module (M4-06)
+export * from "./modules/skills/service";
 
 // Agent HTTP / n8n support (M2-05)
 export * from "./agent";

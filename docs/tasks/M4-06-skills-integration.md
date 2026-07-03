@@ -1,6 +1,6 @@
 # M4-06: Skills integration (skills_index + list_skills/get_skill/sync_skills)
 
-status: todo
+status: done
 module: skills (new) + db + mcp
 branch: task/M4-06
 

@@ -13,7 +13,7 @@ Manual steps are returned instead of thrown when an external system cannot autom
 Returns `scopePath`, `topLevelScopePath`, `steps`, `manual`, and optional `agentToken` with plaintext token and `storeNow: true`. Never store plaintext server-side.
 
 ## Idempotency
-Running the same spec twice should produce only `existing` or `skipped` outcomes for already-provisioned resources. `GitHubClient.putFile` reads current content first and skips byte-identical writes.
+Running the same spec twice should produce only `existing` or `skipped` outcomes for already-provisioned resources. Shared `GitHubClient.putFile` reads current content first and skips byte-identical writes.
 
 Managed `AGENTS.md` regeneration replaces only the block between `<!-- companyos:managed:start -->` and `<!-- companyos:managed:end -->`. Human content outside those markers must survive byte-for-byte.
 
@@ -23,7 +23,7 @@ Managed `AGENTS.md` regeneration replaces only the block between `<!-- companyos
 - Existing tasks table used: `task_links` for registered Plane workspace lookup.
 
 ## Files
-- `github-client.ts` - injectable GitHub REST v3 client; no callsite builds GitHub URLs.
+- `../../lib/github-client.ts` - shared injectable GitHub REST v3 client; no callsite builds GitHub URLs.
 - `agents-md.ts` - managed block renderer and marker-preserving updater.
 - `service.ts` - orchestration service.
 - `provisioning.test.ts` - PGlite service tests.

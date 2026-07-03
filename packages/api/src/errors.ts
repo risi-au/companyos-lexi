@@ -72,6 +72,15 @@ export class CapabilityNotFoundError extends KernelError {
   }
 }
 
+export class SkillNotFoundError extends KernelError {
+  public readonly skillName: string;
+  constructor(name: string) {
+    super(`Skill not found: ${name}`);
+    this.name = "SkillNotFoundError";
+    this.skillName = name;
+  }
+}
+
 export class RecordNotFoundError extends KernelError {
   public readonly id: string;
   constructor(id: string) {

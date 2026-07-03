@@ -17,7 +17,7 @@ import { ScopeNotFoundError } from "../../errors";
 import { PlaneClient } from "../tasks/plane-client";
 import { setProjectWorkspace } from "../tasks/service";
 import { applyManagedSection, renderManagedSection } from "./agents-md";
-import { GitHubClient, OrgNotFoundError } from "./github-client";
+import { GitHubClient, OrgNotFoundError } from "../../lib/github-client";
 
 export type ProvisionStepStatus = "created" | "existing" | "skipped" | "manual";
 
