@@ -1,4 +1,5 @@
 import { config as loadEnv } from "dotenv";
+import { pathToFileURL } from "url";
 loadEnv({ path: ["../../.env", ".env"], quiet: true });
 import { createDb } from "@companyos/db";
 import { scopes, principals, grants } from "@companyos/db";
@@ -195,7 +196,9 @@ async function main() {
   process.exit(0);
 }
 
-main().catch((error: unknown) => {
-  console.error(error);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error: unknown) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
