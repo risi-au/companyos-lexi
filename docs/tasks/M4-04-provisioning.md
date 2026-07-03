@@ -77,4 +77,4 @@ The deterministic 80% of onboarding (DESIGN.md §2.12) exists as one idempotent 
 - [x] AGENTS.md managed-marker regeneration preserves human-authored content
 - [x] Manual steps are reported (not thrown) for: missing GitHub org, missing Plane workspace, unavailable webhook API, unset GITHUB_TOKEN
 - [x] `provision_scope` MCP tool works end-to-end against mocked deps in tests
-- [ ] Architect live check post-merge: provision a test project against real GitHub org + adopted Plane workspace — **pending owner: create GitHub org (`brissie-digital`) + PAT with repo scope, set GITHUB_TOKEN/GITHUB_ORG in .env**
+- [x] Architect live check post-merge (2026-07-03): provisioned `provision-livetest` against real org `Brissie-Digital-PTY-LTD` — private repo created, root + `alpha/` AGENTS.md synced with managed markers, workbench rows written, Plane workspace correctly reported as a manual step, second run fully idempotent. (Fine-grained PAT needs Administration + Contents read/write, resource owner = the org.)
