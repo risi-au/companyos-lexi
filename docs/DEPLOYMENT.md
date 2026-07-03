@@ -17,9 +17,12 @@ Same images, same env-var contract, same migrations. The only deltas: `.env` val
 ## Promotion flow
 
 1. Develop + test locally. Task branches → architect-reviewed merge to `main`. `main` is always CI-green and deployable.
-2. When a state is tested and wanted live: tag it — `git tag v0.x.y && git push --tags`.
-3. The VPS moves tag-to-tag only. Deploy = (M5: GitHub Actions on tag → build → GHCR → SSH → `docker compose pull && up -d` → run migrations. Until M5: the same steps manually, documented in infra/README.md).
-4. Rollback = redeploy the previous tag (+ `git revert` on main for the fix-forward).
+2. When a state is tested and wanted live: tag it — `git tag v0.x.y && git push --tags`. The Release workflow builds and publishes `ghcr.io/risi-au/companyos-{os,migrate}:<tag>` (gates re-run first; a red gate publishes nothing).
+3. **Staging first (added 2026-07-03):** every tag deploys to the staging environment (VPS user `aios`, https://cos.risi.au) and passes the smoke checklist in docs/VPS.md before it may be promoted.
+4. Live moves tag-to-tag only, and only with tags signed off on staging. Deploy = `docker compose pull && up -d` with the pinned tag (M5-02 automates this; until then manual per infra/README.md + docs/VPS.md).
+5. Rollback = redeploy the previous tag (+ `git revert` on main for the fix-forward).
+
+Environments, credentials, and the step-by-step process live in **docs/VPS.md**.
 
 ## Data rules
 
