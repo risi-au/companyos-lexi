@@ -14,6 +14,7 @@ export interface CapabilityReportRouteInput {
   summary?: string;
   runId?: string;
   durationMs?: number;
+  alert?: unknown;
   [key: string]: unknown;
 }
 
@@ -30,6 +31,12 @@ function payloadFromBody(body: any): Record<string, unknown> {
     return body.payload as Record<string, unknown>;
   }
   return body && typeof body === "object" ? { ...body } : {};
+}
+
+function legacyFallbackInput(input: CapabilityReportRouteInput): CapabilityReportRouteInput {
+  const rest = { ...input };
+  delete rest.alert;
+  return rest;
 }
 
 export function mapCapabilityReportBody(body: any): CapabilityReportRouteInput {
@@ -56,7 +63,7 @@ export async function recordCapabilityReport(
   // Legacy reporters may omit scope or send statuses outside the run enum;
   // the HTTP edge stays lenient and degrades to event-only telemetry.
   if (!input.scopePath || !VALID_RUN_STATUSES.has(String(input.status))) {
-    await reportCapabilityRun(db, input, actorPrincipalId);
+    await reportCapabilityRun(db, legacyFallbackInput(input), actorPrincipalId);
     return { ok: true, reported: input.capability, recorded: "event-only" };
   }
 
@@ -73,6 +80,7 @@ export async function recordCapabilityReport(
         startedAt: input.startedAt as string | Date | undefined,
         finishedAt: input.finishedAt as string | Date | null | undefined,
         payload: payloadFromBody(input),
+        alert: input.alert as any,
       },
       actorPrincipalId
     );
@@ -81,7 +89,7 @@ export async function recordCapabilityReport(
     if (!(error instanceof CapabilityNotFoundError)) {
       throw error;
     }
-    await reportCapabilityRun(db, input, actorPrincipalId);
+    await reportCapabilityRun(db, legacyFallbackInput(input), actorPrincipalId);
     return { ok: true, reported: input.capability, recorded: "event-only" };
   }
 }

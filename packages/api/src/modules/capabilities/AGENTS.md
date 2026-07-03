@@ -27,12 +27,17 @@ Capabilities are first-class objects on a scope. The OS can list which automatio
 - `reportRun` is idempotent by `(capability_id, run_ref)` when `runRef` is provided. Re-reporting the same engine run updates status, terminal fields, summary, duration, and payload in place.
 - Terminal statuses are `success` and `error`; if `finishedAt` is omitted for a terminal report, it defaults to now.
 - Unknown capability reports throw `CapabilityNotFoundError`.
-- The legacy HTTP path falls back to `reportCapabilityRun` for unknown capabilities, scope-less reporters, and statuses outside the run enum (e.g. legacy `"ok"`). That fallback emits only `capability.run_reported` and does not create a run row.
+- `reportRun` accepts an optional top-level `alert` object: `{ severity: "info" | "warning" | "critical", message, metric?, value?, threshold? }`. Severity and non-empty message are validated with `AlertValidationError` before any write.
+- Alert reports store the alert under `payload.alert`. If both `payload.alert` and top-level `alert` are provided, the top-level alert wins.
+- Re-reporting the same `runRef` with an alert emits another `alert.fired`; deduplication is owned by the capability author.
+- `listAlerts` reads `alert.fired` events for the exact scope only, requires viewer, supports severity/since/limit, defaults to 20, and caps at 100. It does not roll up descendant scopes in v1.
+- The legacy HTTP path falls back to `reportCapabilityRun` for unknown capabilities, scope-less reporters, and statuses outside the run enum (e.g. legacy `"ok"`). That fallback emits only `capability.run_reported`, does not create a run row, and ignores `alert`; alerting requires a registered capability.
 
 ## Events
 - `capability.registered`: payload `{ name, engine, created }`
 - `capability.run_reported`: payload `{ name, status, runRef, summary, durationMs }`
+- `alert.fired`: payload `{ capability, severity, message, metric?, value?, threshold?, runRef?, runId }`
 
 ## Tests
-- `capabilities.test.ts` covers registration idempotency, access gates, agent run reporting, runRef updates, unknown capability errors, listing, since filtering, and limit caps.
-- MCP coverage for `register_capability`, `report_run`, `list_capabilities`, and `list_capability_runs` lives in `packages/mcp/src/ping.test.ts`.
+- `capabilities.test.ts` covers registration idempotency, access gates, agent run reporting, runRef updates, alert validation/storage/events, `listAlerts` gating/filtering/ordering/limits, unknown capability errors, listing, since filtering, and limit caps.
+- MCP coverage for `register_capability`, `report_run`, `list_alerts`, `list_capabilities`, and `list_capability_runs` lives in `packages/mcp/src/ping.test.ts`.

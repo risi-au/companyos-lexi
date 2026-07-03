@@ -72,6 +72,15 @@ export class CapabilityNotFoundError extends KernelError {
   }
 }
 
+export class AlertValidationError extends KernelError {
+  public readonly field: string;
+  constructor(field: string, message: string) {
+    super(`Alert validation failed for ${field}: ${message}`);
+    this.name = "AlertValidationError";
+    this.field = field;
+  }
+}
+
 export class SkillNotFoundError extends KernelError {
   public readonly skillName: string;
   constructor(name: string) {

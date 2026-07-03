@@ -36,12 +36,14 @@ import {
   reportRun,
   listCapabilities,
   listCapabilityRuns,
+  listAlerts,
   syncSkills,
   listSkills,
   getSkill,
   skillsContextSection,
   type DB,
   AccessDeniedError,
+  AlertValidationError,
   ScopeNotFoundError,
   CapabilityNotFoundError,
   SkillNotFoundError,
@@ -68,6 +70,9 @@ function formatError(e: unknown): string {
   }
   if (e instanceof CapabilityNotFoundError) {
     return `Capability not found: ${e.capabilityName} in ${e.scopePath}`;
+  }
+  if (e instanceof AlertValidationError) {
+    return e.message;
   }
   if (e instanceof SkillNotFoundError) {
     return `Skill not found: ${e.skillName}`;
@@ -793,12 +798,48 @@ ${JSON.stringify(rec.data || {}, null, 2)}
         finishedAt: z.string().optional(),
         durationMs: z.number().int().optional(),
         payload: z.record(z.any()).optional(),
+        alert: z.object({
+          severity: z.enum(["info", "warning", "critical"]),
+          message: z.string().min(1),
+          metric: z.string().optional(),
+          value: z.number().optional(),
+          threshold: z.number().optional(),
+        }).optional(),
       }),
     },
     async (input) => {
       try {
         const actor = ensurePrincipal();
         const result = await reportRun(db, input, actor);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // list_alerts
+  server.registerTool(
+    "list_alerts",
+    {
+      title: "List Alerts",
+      description: "List alert.fired events for one exact scope, newest first. Viewer required. Limit defaults to 20 and caps at 100.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Exact scope path"),
+        severity: z.enum(["info", "warning", "critical"]).optional(),
+        since: z.string().optional(),
+        limit: z.number().int().min(1).max(100).optional(),
+      }),
+    },
+    async ({ scope, severity, since, limit }) => {
+      try {
+        const actor = ensurePrincipal();
+        const result = await listAlerts(db, { scopePath: scope, severity, since, limit }, actor);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };

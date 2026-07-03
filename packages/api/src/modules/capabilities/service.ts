@@ -7,13 +7,22 @@ import {
   type Capability,
   type CapabilityRun,
 } from "@companyos/db";
-import { emitEvent, type DB } from "../../kernel/events";
+import { emitEvent, listEvents, type DB } from "../../kernel/events";
 import { requireAccess } from "../../kernel/grants";
 import { getScope } from "../../kernel/scopes";
-import { CapabilityNotFoundError, ScopeNotFoundError } from "../../errors";
+import { AlertValidationError, CapabilityNotFoundError, ScopeNotFoundError } from "../../errors";
 
 export type CapabilityStatus = "active" | "disabled";
 export type CapabilityRunStatus = "running" | "success" | "error";
+export type CapabilityAlertSeverity = "info" | "warning" | "critical";
+
+export interface CapabilityAlertInput {
+  severity: CapabilityAlertSeverity;
+  message: string;
+  metric?: string;
+  value?: number;
+  threshold?: number;
+}
 
 export interface RegisterCapabilityInput {
   scopePath: string;
@@ -40,6 +49,7 @@ export interface ReportRunInput {
   finishedAt?: Date | string | null;
   durationMs?: number | null;
   payload?: Record<string, unknown>;
+  alert?: CapabilityAlertInput;
 }
 
 export interface ReportRunResult {
@@ -69,6 +79,24 @@ export interface ListCapabilityRunsInput {
   limit?: number;
 }
 
+export interface ListAlertsInput {
+  scopePath: string;
+  severity?: CapabilityAlertSeverity;
+  since?: Date | string;
+  limit?: number;
+}
+
+export interface ListedAlert {
+  firedAt: Date;
+  capability: string;
+  severity: CapabilityAlertSeverity;
+  message: string;
+  metric?: string;
+  value?: number;
+  threshold?: number;
+  runRef?: string;
+}
+
 function normalizeDate(value: Date | string | null | undefined): Date | null | undefined {
   if (value == null) return value;
   return value instanceof Date ? value : new Date(value);
@@ -78,6 +106,34 @@ function assertRunStatus(status: string): asserts status is CapabilityRunStatus 
   if (!["running", "success", "error"].includes(status)) {
     throw new Error(`Invalid capability run status: ${status}`);
   }
+}
+
+function validateAlert(alert: unknown): CapabilityAlertInput {
+  if (!alert || typeof alert !== "object") {
+    throw new AlertValidationError("alert", "must be an object");
+  }
+  const candidate = alert as CapabilityAlertInput;
+  if (!["info", "warning", "critical"].includes(candidate.severity)) {
+    throw new AlertValidationError("severity", "must be one of info, warning, critical");
+  }
+  if (typeof candidate.message !== "string" || candidate.message.trim().length === 0) {
+    throw new AlertValidationError("message", "must be non-empty");
+  }
+  return candidate;
+}
+
+function alertEventPayload(input: ReportRunInput, run: CapabilityRun, alert: CapabilityAlertInput): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    capability: input.name,
+    severity: alert.severity,
+    message: alert.message,
+    runId: run.id,
+  };
+  if (alert.metric !== undefined) payload.metric = alert.metric;
+  if (alert.value !== undefined) payload.value = alert.value;
+  if (alert.threshold !== undefined) payload.threshold = alert.threshold;
+  if (input.runRef !== undefined && input.runRef !== null) payload.runRef = input.runRef;
+  return payload;
 }
 
 function terminalFinishedAt(status: CapabilityRunStatus, finishedAt: Date | string | null | undefined): Date | null | undefined {
@@ -189,9 +245,12 @@ export async function reportRun(
   if (!capability) {
     throw new CapabilityNotFoundError(input.scopePath, input.name);
   }
+  const alert = Object.prototype.hasOwnProperty.call(input, "alert") && input.alert !== undefined
+    ? validateAlert(input.alert)
+    : undefined;
 
   const finishedAt = terminalFinishedAt(input.status, input.finishedAt);
-  const payload = input.payload ?? {};
+  const payload = alert ? { ...(input.payload ?? {}), alert } : input.payload ?? {};
   let run: CapabilityRun;
   let created = false;
 
@@ -266,6 +325,15 @@ export async function reportRun(
     },
   });
 
+  if (alert) {
+    await emitEvent(db, {
+      type: "alert.fired",
+      scopePath: input.scopePath,
+      principalId: actorPrincipalId,
+      payload: alertEventPayload(input, run, alert),
+    });
+  }
+
   return { run, created };
 }
 
@@ -331,4 +399,40 @@ export async function listCapabilityRuns(
     .where(and(...conditions))
     .orderBy(desc(capabilityRuns.startedAt))
     .limit(limit)) as CapabilityRun[];
+}
+
+export async function listAlerts(
+  db: DB,
+  input: ListAlertsInput,
+  actorPrincipalId: string
+): Promise<ListedAlert[]> {
+  await getRequiredScope(db, input.scopePath);
+  await requireAccess(db, actorPrincipalId, input.scopePath, "viewer");
+
+  const limit = Math.min(Math.max(input.limit ?? 20, 1), 100);
+  const events = await listEvents(db, {
+    scopePath: input.scopePath,
+    type: "alert.fired",
+    since: normalizeDate(input.since) ?? undefined,
+    limit: input.severity ? 1000 : limit,
+  });
+
+  const alerts: ListedAlert[] = [];
+  for (const event of events) {
+    const payload = (event.payload || {}) as Record<string, unknown>;
+    if (input.severity && payload.severity !== input.severity) continue;
+    alerts.push({
+      firedAt: event.createdAt,
+      capability: String(payload.capability ?? ""),
+      severity: payload.severity as CapabilityAlertSeverity,
+      message: String(payload.message ?? ""),
+      ...(payload.metric !== undefined ? { metric: String(payload.metric) } : {}),
+      ...(payload.value !== undefined ? { value: Number(payload.value) } : {}),
+      ...(payload.threshold !== undefined ? { threshold: Number(payload.threshold) } : {}),
+      ...(payload.runRef !== undefined ? { runRef: String(payload.runRef) } : {}),
+    });
+    if (alerts.length >= limit) break;
+  }
+
+  return alerts;
 }
