@@ -1,14 +1,15 @@
-# infra — Dev Infrastructure
+# infra - Dev Infrastructure and Prod Runbook
 
-One-command dev stack for CompanyOS (Postgres + LiteLLM). Plane CE runs side-by-side via its official installer.
+One-command dev stack for CompanyOS (Postgres + LiteLLM + n8n) and the production compose runbook. Plane CE runs side-by-side via its official installer.
 
 ## Stack
 
-- **postgres:17** (shared): logical DBs `companyos`, `plane`, `litellm`. Port 5432.
-- **litellm:main-stable** (ghcr): OpenAI-compatible gateway. Port 4000. Model aliases: `cheap`, `analysis`, `reasoning`.
+- **postgres:17** (shared): logical DBs `companyos`, `plane`, `litellm`. Port 5432 in dev.
+- **litellm:main-stable** (ghcr): OpenAI-compatible gateway. Port 4000 in dev. Model aliases: `cheap`, `analysis`, `reasoning`.
+- **n8n:2.25.3**: automation runner. Port 5678 in dev.
 - **Plane CE**: run via official setup.sh (not inlined here).
 
-All config via env (12-factor). Same compose shape will be used (plus Caddy + apps) on VPS.
+All config is via env (12-factor). Prod uses tagged GHCR images for the OS app and migration runner. TLS/ingress is handled outside this repo by the VPS Cloudflare tunnel or another external proxy.
 
 ## Prerequisites
 
@@ -18,19 +19,19 @@ All config via env (12-factor). Same compose shape will be used (plus Caddy + ap
 ## Bring-up (exact order)
 
 1. Copy `.env.example` to `.env` (gitignored) and fill real keys for providers you use.
-   - At minimum: `DATABASE_URL`, `LITELLM_MASTER_KEY`, one of `ANTHROPIC_API_KEY` or `DEEPSEEK_API_KEY`.
+   - At minimum: `DATABASE_URL`, `LITELLM_MASTER_KEY`, one of `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, or `MOONSHOT_API_KEY`.
 
 2. Start the core infra (compose auto-loads `.env` for variable interpolation):
    ```
    pnpm infra:up
    ```
-   This runs `docker compose -f infra/docker-compose.dev.yml up -d`
+   This runs `docker compose -f infra/docker-compose.dev.yml up -d`.
 
 3. Wait for healthy (or poll):
    ```
    docker compose -f infra/docker-compose.dev.yml ps
    ```
-   Postgres health + litellm /health.
+   Postgres health + LiteLLM `/health`.
 
 4. Load `.env` for Node/pnpm (docker compose does not propagate to host `pnpm` processes) then run migrations:
    ```
@@ -76,17 +77,69 @@ Volumes live in Docker named volume `postgres_data` (inspect with `docker volume
 
 ## Ports
 
-| Service   | Host Port | Container | Notes                          |
-|-----------|-----------|-----------|--------------------------------|
-| postgres  | 5432      | 5432      | Shared; use DB name in URL     |
-| litellm   | 4000      | 4000      | OpenAI-compatible /v1          |
-| Plane     | (see its) | -         | Default 80/443 in its compose  |
+| Service  | Host Port | Container | Notes                         |
+|----------|-----------|-----------|-------------------------------|
+| postgres | 5432      | 5432      | Shared; use DB name in URL    |
+| litellm  | 4000      | 4000      | OpenAI-compatible `/v1`       |
+| n8n      | 5678      | 5678      | Automation UI/webhooks        |
+| Plane    | (see its) | -         | Default 80/443 in its compose |
+
+## Production (VPS)
+
+Production runs tagged releases only. `infra/docker-compose.prod.yml` pulls the OS and migrate images from GHCR, starts Postgres/LiteLLM/n8n, runs migrations once, then starts the OS app. It includes no Caddy, no cloudflared, and no reverse proxy.
+
+### First deploy
+
+1. On the VPS, copy `.env.example` to `.env` and replace every prod placeholder with real values. `COMPANYOS_TAG` is required and has no default.
+
+2. Log in to GHCR with a GitHub token that can read packages:
+   ```
+   docker login ghcr.io
+   ```
+
+3. Start the tagged release:
+   ```
+   COMPANYOS_TAG=v0.x.y docker compose --env-file .env -f infra/docker-compose.prod.yml up -d
+   ```
+
+4. Migrations run in the one-shot `migrate` service after Postgres is healthy and before `os` starts. Check it with:
+   ```
+   docker compose --env-file .env -f infra/docker-compose.prod.yml ps
+   docker compose --env-file .env -f infra/docker-compose.prod.yml logs migrate
+   ```
+
+5. Point the existing Cloudflare tunnel or external proxy at:
+   ```
+   127.0.0.1:${OS_PORT}
+   ```
+
+### Upgrade tag-to-tag
+
+1. Confirm the new `v*` tag has published `ghcr.io/risi-au/companyos-os:<tag>` and `ghcr.io/risi-au/companyos-migrate:<tag>`.
+2. Set `COMPANYOS_TAG` to the new tag in `.env` or pass it inline.
+3. Pull and start:
+   ```
+   COMPANYOS_TAG=v0.x.y docker compose --env-file .env -f infra/docker-compose.prod.yml pull
+   COMPANYOS_TAG=v0.x.y docker compose --env-file .env -f infra/docker-compose.prod.yml up -d
+   ```
+
+### Rollback
+
+1. Set `COMPANYOS_TAG` back to the previous known-good tag.
+2. Pull and start the previous images:
+   ```
+   COMPANYOS_TAG=v0.x.y docker compose --env-file .env -f infra/docker-compose.prod.yml pull
+   COMPANYOS_TAG=v0.x.y docker compose --env-file .env -f infra/docker-compose.prod.yml up -d
+   ```
+3. Migrations are forward-only and must remain compatible with one-version-back rollback.
+
+Plane CE on the VPS remains side-by-side through Plane's official installer. Do not compose Plane here; configure the OS `PLANE_*` env vars to point at the Plane install when task integration is enabled.
 
 ## Plane CE (side-by-side)
 
-Plane ships its own installer and compose. Do not inline.
+Plane ships its own installer and compose. Do not inline it here.
 
-1. In a sibling folder (e.g. `../plane-selfhost`):
+1. In a sibling folder (for example `../plane-selfhost`):
    ```
    mkdir plane-selfhost && cd plane-selfhost
    curl -fsSL -o setup.sh https://github.com/makeplane/plane/releases/latest/download/setup.sh
@@ -95,7 +148,7 @@ Plane ships its own installer and compose. Do not inline.
    # choose Install (arm64/x86)
    ```
 
-2. After it creates `plane-app/` (or preview), edit `plane.env` (or the generated) for external postgres (our shared one):
+2. After it creates `plane-app/` (or preview), edit `plane.env` (or the generated env) for external postgres:
    ```
    # Example overrides (adjust user/pass to match .env)
    POSTGRES_HOST=localhost
@@ -104,9 +157,8 @@ Plane ships its own installer and compose. Do not inline.
    POSTGRES_PASSWORD=devpassword123
    POSTGRES_DB=plane
    DATABASE_URL=postgresql://companyos:devpassword123@localhost:5432/plane
-   # web
    WEB_URL=http://localhost:8080
-   LISTEN_HTTP_PORT=8080   # avoid conflict with other
+   LISTEN_HTTP_PORT=8080
    CORS_ALLOWED_ORIGINS=http://localhost:8080
    ```
 
@@ -116,23 +168,23 @@ Plane ships its own installer and compose. Do not inline.
    # select 2) Start
    ```
 
-Plane UI at the WEB_URL you set. Use Plane for tasks; OS maps via task_links later.
-
-On VPS later: same compose files + Caddy for TLS/reverse proxy in front of os + plane + litellm.
+Plane UI is at the `WEB_URL` you set. Use Plane for tasks; OS maps via `task_links`.
 
 ## .env vars referenced
 
-See root `.env.example`. All referenced by compose/config/scripts are listed there. No secrets in repo.
+See root `.env.example`. All vars referenced by compose/config/scripts are listed there. No secrets in repo.
 
 ## Health / debugging
 
 - Postgres: `psql $DATABASE_URL -c '\l'`
 - LiteLLM: `curl http://localhost:4000/health` ; `curl http://localhost:4000/models`
 - Compose logs: `docker compose -f infra/docker-compose.dev.yml logs -f litellm postgres`
+- Prod OS logs: `docker compose --env-file .env -f infra/docker-compose.prod.yml logs -f os`
 
 ## Notes
 
-- Images pinned (postgres:17, ghcr.io/berriai/litellm:main-stable).
-- Healthchecks + depends_on ensure order.
-- No n8n/Flowise/Caddy in this task (later milestones).
-- Do not run docker on machines without it (this dev env).
+- Images pinned: `postgres:17`, `ghcr.io/berriai/litellm:main-stable`, `n8nio/n8n:2.25.3`.
+- Healthchecks + `depends_on` ensure startup order.
+- Prod migrations run through `ghcr.io/risi-au/companyos-migrate:${COMPANYOS_TAG}`.
+- No Caddy, cloudflared, or reverse proxy is composed here.
+- Do not run Docker on machines without it.

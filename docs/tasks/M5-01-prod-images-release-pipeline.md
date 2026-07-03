@@ -1,6 +1,6 @@
 # M5-01: Production images + prod compose + tag-triggered release pipeline
 
-status: todo
+status: done
 module: infra + apps/os + .github
 branch: task/M5-01
 

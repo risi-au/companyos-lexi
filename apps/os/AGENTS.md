@@ -1,5 +1,10 @@
 # apps/os — AGENTS.md
 
+## Production image (M5-01)
+- `next.config.ts` sets `output: "standalone"` so the prod OS image can run the traced Next server; `next dev` behavior is unchanged.
+- `Dockerfile` has two final targets: `os` for the non-root Next standalone runtime on port 3000, and `migrate` for the delegated `@companyos/db` Drizzle migration runner.
+- Keep the Dockerfile as deployment packaging only. Do not move business logic or direct DB access into `apps/os`.
+
 Next.js (app router) tenant UI + thin HTTP API surface for agents/engines (n8n, etc).
 
 ## Purpose
