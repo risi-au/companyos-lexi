@@ -1,5 +1,5 @@
 # M4-03: Plane adapter v2 — workspace per project
-status: todo
+status: done
 module: tasks (packages/api)
 branch: task/M4-03
 
@@ -29,9 +29,9 @@ Plane CE's public API (`/api/v1`) has **no workspace endpoints** — `GET/POST /
 - Never call Plane's internal session-auth APIs.
 
 ## Acceptance criteria
-- [ ] `pnpm typecheck`, `pnpm lint`, `pnpm test` pass from root
-- [ ] All pre-existing tasks tests pass unmodified in legacy-fallback mode
-- [ ] setProjectWorkspace validates reachability and rejects non-top-level scopes
-- [ ] With a registered workspace: subproject tasks land in their own Plane project, top-level tasks in "General", deep scopes get labels
-- [ ] getPlaneUrl returns workspace-correct URLs for all three states (registered / legacy / none)
-- [ ] Architect live check: register a manually-created workspace and create a task through it end-to-end
+- [x] `pnpm typecheck`, `pnpm lint`, `pnpm test` pass from root
+- [x] All pre-existing tasks tests pass unmodified in legacy-fallback mode
+- [x] setProjectWorkspace validates reachability and rejects non-top-level scopes
+- [x] With a registered workspace: subproject tasks land in their own Plane project, top-level tasks in "General", deep scopes get labels
+- [x] getPlaneUrl returns workspace-correct URLs for all three states (registered / legacy / none)
+- [x] Architect live check: register a manually-created workspace and create a task through it end-to-end
