@@ -18,6 +18,8 @@ export const taskLinks = pgTable(
       .references(() => scopes.id, { onDelete: "cascade" }),
     planeProjectId: text("plane_project_id").notNull(),
     planeLabelId: text("plane_label_id"),
+    // M4-03 workspace-per-project: null = env-default workspace (legacy v1 mapping)
+    planeWorkspaceSlug: text("plane_workspace_slug"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
@@ -31,7 +33,8 @@ export interface TaskLink {
   scopeId: string;
   planeProjectId: string;
   planeLabelId: string | null;
+  planeWorkspaceSlug: string | null;
   createdAt: Date;
 }
 export type NewTaskLink = Pick<TaskLink, "scopeId" | "planeProjectId"> &
-  Partial<Pick<TaskLink, "planeLabelId">>;
+  Partial<Pick<TaskLink, "planeLabelId" | "planeWorkspaceSlug">>;

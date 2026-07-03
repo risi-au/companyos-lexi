@@ -71,6 +71,13 @@
       "when": 1783200000000,
       "tag": "0009_structure_v2_enum",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1783041970401,
+      "tag": "0010_plane-workspace-slug",
+      "breakpoints": true
     }
   ]
 }

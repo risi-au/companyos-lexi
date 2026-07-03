@@ -23,6 +23,21 @@ export class PlaneClient {
     }
   }
 
+  /** The workspace this client is bound to (config default unless rebound via forWorkspace). */
+  get workspaceSlug(): string {
+    return this.config.workspaceSlug;
+  }
+
+  get baseUrl(): string {
+    return this.config.baseUrl;
+  }
+
+  /** Same token/base/fetch, bound to another workspace. All workspace routing goes through here. */
+  forWorkspace(slug: string): PlaneClient {
+    if (!slug || slug === this.config.workspaceSlug) return this;
+    return new PlaneClient({ ...this.config, workspaceSlug: slug }, this.fetchImpl);
+  }
+
   private get headers() {
     return {
       "X-API-Key": this.config.apiToken,
