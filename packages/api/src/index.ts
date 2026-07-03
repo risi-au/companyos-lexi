@@ -25,6 +25,11 @@ export * from "./modules/tasks/service";
 export { setProjectWorkspace } from "./modules/tasks/service";
 export { PlaneClient, type PlaneConfig, type FetchLike } from "./modules/tasks/plane-client";
 
+// Provisioning module (M4-04)
+export * from "./modules/provisioning/service";
+export * from "./modules/provisioning/agents-md";
+export { GitHubClient, OrgNotFoundError, type GitHubConfig } from "./modules/provisioning/github-client";
+
 // Agent HTTP / n8n support (M2-05)
 export * from "./agent";
 

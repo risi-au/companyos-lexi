@@ -18,6 +18,7 @@ import {
   createRecord,
   listRecords,
   writeMetrics,
+  GitHubClient,
 } from "@companyos/api";
 import { createServer, ping } from "./index";
 
@@ -109,10 +110,10 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     ] }, rootPrincipalId);
   });
 
-  async function makeRoundtrip(principalIdForServer: string | null, planeClient: any = null) {
+  async function makeRoundtrip(principalIdForServer: string | null, planeClient: any = null, githubClient: any = undefined) {
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const mcpClient = new Client({ name: "test-client", version: "0.0.0" });
-    const server = createServer({ db, principalId: principalIdForServer, planeClient });
+    const server = createServer({ db, principalId: principalIdForServer, planeClient, githubClient });
 
     await Promise.all([
       mcpClient.connect(clientTransport),
@@ -148,6 +149,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "log_change",
       "log_decision",
       "ping",
+      "provision_scope",
       "query_metrics",
       "revert_dashboard",
       "revert_doc",
@@ -370,6 +372,71 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     const lres = await mcpClient.callTool({ name: "list_tasks", arguments: { scope: taskScope } });
     expect(lres.isError).toBe(true);
     expect((lres as any).content?.[0]?.text).toMatch(/tasks engine not configured/);
+  });
+
+  it("provision_scope roundtrips with mocked Plane and GitHub deps", async () => {
+    await grantRole(db, { principalId: rootPrincipalId, scopePath: testScope, role: "admin" }, rootPrincipalId);
+
+    const repos = new Map<string, { files: Map<string, string> }>();
+    const fetch = async (input: string, init?: any): Promise<Response> => {
+      const url = new URL(input);
+      const method = init?.method || "GET";
+      const segments = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+      if (method === "GET" && segments[0] === "repos" && segments.length === 3) {
+        return repos.has(segments[2]!)
+          ? new Response(JSON.stringify({ name: segments[2] }), { status: 200 })
+          : new Response(JSON.stringify({ message: "not found" }), { status: 404 });
+      }
+      if (method === "POST" && segments[0] === "orgs" && segments[2] === "repos") {
+        const body = JSON.parse(init?.body || "{}");
+        repos.set(body.name, { files: new Map() });
+        return new Response(JSON.stringify({ name: body.name }), { status: 201 });
+      }
+      if (segments[0] === "repos" && segments[3] === "contents") {
+        const repo = repos.get(segments[2]!);
+        if (!repo) return new Response(JSON.stringify({ message: "not found" }), { status: 404 });
+        const filePath = segments.slice(4).join("/");
+        if (method === "GET") {
+          const content = repo.files.get(filePath);
+          if (content === undefined) return new Response(JSON.stringify({ message: "not found" }), { status: 404 });
+          return new Response(JSON.stringify({
+            type: "file",
+            sha: "sha",
+            encoding: "base64",
+            content: Buffer.from(content, "utf8").toString("base64"),
+          }), { status: 200 });
+        }
+        if (method === "PUT") {
+          const body = JSON.parse(init?.body || "{}");
+          repo.files.set(filePath, Buffer.from(body.content, "base64").toString("utf8"));
+          return new Response(JSON.stringify({ content: { sha: "sha2" } }), { status: 200 });
+        }
+      }
+      return new Response(JSON.stringify({ message: "unhandled" }), { status: 500 });
+    };
+
+    const github = new GitHubClient({ token: "gh_test", org: "test-org", baseUrl: "https://api.github.test", fetch });
+    const plane = {
+      forWorkspace: () => plane,
+      getProjects: async () => [],
+      listWebhooks: async () => [],
+      createWebhook: async () => ({}),
+    };
+    const { mcpClient } = await makeRoundtrip(rootPrincipalId, plane, github);
+    const res = await mcpClient.callTool({
+      name: "provision_scope",
+      arguments: {
+        scopePath: `${testScope}/provisioned`,
+        modules: ["records"],
+        workbench: {},
+      },
+    });
+
+    expect((res as any).isError).toBeFalsy();
+    const parsed = JSON.parse((res as any).content?.[0]?.text || "{}");
+    expect(parsed.scopePath).toBe(`${testScope}/provisioned`);
+    expect(parsed.steps.some((s: any) => s.key === "github.repo" && s.status === "created")).toBe(true);
+    expect(repos.get(testScope)?.files.get("provisioned/AGENTS.md")).toContain("companyos:managed:start");
   });
 
   // M2-01 metrics MCP roundtrips: groupBy date and dim key asserted

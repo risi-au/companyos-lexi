@@ -1,5 +1,5 @@
 # M4-04: Provisioning automation (provision_scope v1)
-status: todo
+status: done
 module: provisioning (packages/api) + workbenches schema (packages/db)
 branch: task/M4-04
 
@@ -72,9 +72,9 @@ The deterministic 80% of onboarding (DESIGN.md §2.12) exists as one idempotent 
 - Never store the plaintext agent token anywhere server-side; it appears once in the ProvisionResult.
 
 ## Acceptance criteria
-- [ ] `pnpm typecheck`, `pnpm lint`, `pnpm test` pass from root; migration 0011 applies via `pnpm --filter @companyos/db db:migrate` with no journal edits
-- [ ] Running the same ProvisionSpec twice is a no-op the second time (asserted in tests, including zero GitHub file writes)
-- [ ] AGENTS.md managed-marker regeneration preserves human-authored content
-- [ ] Manual steps are reported (not thrown) for: missing GitHub org, missing Plane workspace, unavailable webhook API, unset GITHUB_TOKEN
-- [ ] `provision_scope` MCP tool works end-to-end against mocked deps in tests
-- [ ] Architect live check post-merge: provision a test project against real GitHub org + adopted Plane workspace (requires GITHUB_TOKEN/GITHUB_ORG in .env; owner to supply if absent)
+- [x] `pnpm typecheck`, `pnpm lint`, `pnpm test` pass from root; migration 0011 applies via `pnpm --filter @companyos/db db:migrate` with no journal edits (verified by architect, journal root fix 0bb9849 proven live)
+- [x] Running the same ProvisionSpec twice is a no-op the second time (asserted in tests, including zero GitHub file writes)
+- [x] AGENTS.md managed-marker regeneration preserves human-authored content
+- [x] Manual steps are reported (not thrown) for: missing GitHub org, missing Plane workspace, unavailable webhook API, unset GITHUB_TOKEN
+- [x] `provision_scope` MCP tool works end-to-end against mocked deps in tests
+- [ ] Architect live check post-merge: provision a test project against real GitHub org + adopted Plane workspace — **pending owner: create GitHub org (`brissie-digital`) + PAT with repo scope, set GITHUB_TOKEN/GITHUB_ORG in .env**

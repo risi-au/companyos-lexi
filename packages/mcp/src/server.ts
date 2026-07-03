@@ -30,6 +30,8 @@ import {
   getCanvas,
   listCanvases,
   PlaneClient,
+  GitHubClient,
+  provisionScope,
   type DB,
   AccessDeniedError,
   ScopeNotFoundError,
@@ -44,6 +46,7 @@ export interface CreateServerOptions {
   db: DB;
   principalId: string | null;
   planeClient?: PlaneClient | null;
+  githubClient?: GitHubClient | null;
 }
 
 function formatError(e: unknown): string {
@@ -82,6 +85,9 @@ function formatDate(d: Date | string | null | undefined): string {
 
 export function createServer(options: CreateServerOptions) {
   const { db, principalId, planeClient = null } = options;
+  const githubClient = options.githubClient === undefined
+    ? createGitHubClientFromEnv()
+    : options.githubClient;
 
   const server = new McpServer({
     name: "companyos",
@@ -107,6 +113,17 @@ export function createServer(options: CreateServerOptions) {
       throw new Error("Unauthenticated: provide a valid COS_TOKEN (cos_...)");
     }
     return principalId;
+  }
+
+  function createGitHubClientFromEnv(): GitHubClient | null {
+    const token = process.env.GITHUB_TOKEN;
+    const org = process.env.GITHUB_ORG;
+    if (!token || !org) return null;
+    return new GitHubClient({
+      token,
+      org,
+      baseUrl: process.env.GITHUB_API_URL || undefined,
+    });
   }
 
   // get_context
@@ -637,6 +654,66 @@ ${JSON.stringify(rec.data || {}, null, 2)}
         const lines = items.map((t: { id: string; sequenceId: string | number; title: string; state?: string; dueDate?: string | null }) => `${t.id}\t${t.sequenceId}\t${t.title}\t${t.state || ""}\t${t.dueDate || ""}`);
         return {
           content: [{ type: "text", text: header + (lines.join("\n") || "(no tasks)") }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // provision_scope
+  server.registerTool(
+    "provision_scope",
+    {
+      title: "Provision Scope",
+      description:
+        "Admin-gated deterministic onboarding. Ensures scopes, module instances, optional agent token, Plane workspace adoption/webhook, and optional GitHub workbench skeleton. Returns JSON with step statuses and manual actions.",
+      inputSchema: z.object({
+        scopePath: z.string().min(1).describe("Target scope path, e.g. indya or indya/marketing/seo"),
+        name: z.string().optional(),
+        subprojects: z.array(z.object({
+          slug: z.string().min(1),
+          name: z.string().min(1),
+        })).optional(),
+        modules: z.array(z.string().min(1)).optional(),
+        agent: z.object({
+          name: z.string().min(1),
+          tokenName: z.string().optional(),
+        }).optional(),
+        planeWorkspaceSlug: z.string().optional(),
+        workbench: z.object({
+          repo: z.string().optional(),
+        }).optional(),
+      }),
+    },
+    async (input) => {
+      try {
+        const actor = ensurePrincipal();
+        if (!planeClient) {
+          return {
+            content: [{ type: "text", text: "tasks engine not configured" }],
+            isError: true,
+          };
+        }
+        const result = await provisionScope(
+          db,
+          { plane: planeClient, github: githubClient },
+          {
+            scopePath: input.scopePath,
+            name: input.name,
+            subprojects: input.subprojects,
+            modules: input.modules,
+            agent: input.agent,
+            planeWorkspaceSlug: input.planeWorkspaceSlug,
+            workbench: input.workbench,
+          },
+          actor
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
       } catch (e) {
         return {

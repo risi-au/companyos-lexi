@@ -173,4 +173,21 @@ export class PlaneClient {
     const data: any = await this.request(q);
     return Array.isArray(data) ? data : (data.results || []);
   }
+
+  // GET /webhooks/
+  async listWebhooks(): Promise<any[]> {
+    const data: any = await this.request(`/webhooks/`);
+    return Array.isArray(data) ? data : (data.results || []);
+  }
+
+  // POST /webhooks/
+  async createWebhook(data: { url: string; secret: string }): Promise<any> {
+    return this.request(`/webhooks/`, {
+      method: "POST",
+      body: JSON.stringify({
+        url: data.url,
+        secret: data.secret,
+      }),
+    });
+  }
 }
