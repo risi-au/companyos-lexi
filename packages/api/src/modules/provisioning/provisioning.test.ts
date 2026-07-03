@@ -1,0 +1,351 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { PGlite } from "@electric-sql/pglite";
+import { drizzle } from "drizzle-orm/pglite";
+import { migrate } from "drizzle-orm/pglite/migrator";
+import path from "path";
+import { fileURLToPath } from "url";
+import fs from "fs";
+import { eq } from "drizzle-orm";
+import * as dbMod from "@companyos/db";
+const schema: any = (dbMod as any).schema ?? dbMod;
+
+import {
+  createScope,
+  getScope,
+  grantRole,
+  provisionScope,
+  GitHubClient,
+  AccessDeniedError,
+} from "../../index";
+import { MANAGED_END, MANAGED_START } from "./agents-md";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+let migrationsFolder = path.resolve(process.cwd(), "packages/db/drizzle");
+if (!fs.existsSync(path.join(migrationsFolder, "meta", "_journal.json"))) {
+  migrationsFolder = path.resolve(__dirname, "../../../../../packages/db/drizzle");
+}
+if (!fs.existsSync(path.join(migrationsFolder, "meta", "_journal.json"))) {
+  migrationsFolder = path.resolve("packages/db/drizzle");
+}
+
+function jsonResponse(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+function makeMockGitHub(options: { orgMissing?: boolean } = {}) {
+  const repos = new Map<string, { private: boolean; files: Map<string, { content: string; sha: string }> }>();
+  let shaCounter = 0;
+  let writeCount = 0;
+
+  const fetch = async (input: string, init?: any): Promise<Response> => {
+    const url = new URL(input);
+    const method = init?.method || "GET";
+    const segments = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+
+    if (method === "GET" && segments[0] === "repos" && segments.length === 3) {
+      const repo = repos.get(segments[2]!);
+      return repo ? jsonResponse({ name: segments[2], private: repo.private }) : jsonResponse({ message: "not found" }, 404);
+    }
+
+    if (method === "POST" && segments[0] === "orgs" && segments[2] === "repos") {
+      if (options.orgMissing) return jsonResponse({ message: "org not found" }, 404);
+      const body = JSON.parse(init?.body || "{}");
+      repos.set(body.name, { private: !!body.private, files: new Map() });
+      return jsonResponse({ name: body.name, private: !!body.private }, 201);
+    }
+
+    if (segments[0] === "repos" && segments[3] === "contents") {
+      const repo = repos.get(segments[2]!);
+      if (!repo) return jsonResponse({ message: "not found" }, 404);
+      const filePath = segments.slice(4).join("/");
+      if (method === "GET") {
+        const file = repo.files.get(filePath);
+        if (!file) return jsonResponse({ message: "not found" }, 404);
+        return jsonResponse({
+          type: "file",
+          sha: file.sha,
+          encoding: "base64",
+          content: Buffer.from(file.content, "utf8").toString("base64"),
+        });
+      }
+      if (method === "PUT") {
+        const body = JSON.parse(init?.body || "{}");
+        const content = Buffer.from(body.content, "base64").toString("utf8");
+        const sha = `sha_${++shaCounter}`;
+        repo.files.set(filePath, { content, sha });
+        writeCount += 1;
+        return jsonResponse({ content: { sha } });
+      }
+    }
+
+    return jsonResponse({ message: `unhandled ${method} ${url.pathname}` }, 500);
+  };
+
+  return {
+    client: new GitHubClient({ token: "gh_test", org: "test-org", baseUrl: "https://api.github.test", fetch }),
+    repos,
+    get writeCount() {
+      return writeCount;
+    },
+    resetWriteCount() {
+      writeCount = 0;
+    },
+    setFile(repo: string, filePath: string, content: string) {
+      const found = repos.get(repo);
+      if (!found) throw new Error(`repo missing: ${repo}`);
+      found.files.set(filePath, { content, sha: `sha_${++shaCounter}` });
+    },
+    getFile(repo: string, filePath: string): string | null {
+      return repos.get(repo)?.files.get(filePath)?.content ?? null;
+    },
+  };
+}
+
+function makeMockPlane(options: { workspaces?: string[]; webhookUnavailable?: boolean } = {}) {
+  const workspaces = new Set(options.workspaces || ["companyos"]);
+  const webhooks: Record<string, any[]> = {};
+  const calls: any[] = [];
+
+  const bind = (workspace: string): any => ({
+    get workspaceSlug() {
+      return workspace;
+    },
+    get baseUrl() {
+      return "https://plane.test";
+    },
+    forWorkspace: (slug: string) => bind(slug || workspace),
+    getProjects: async () => {
+      calls.push({ fn: "getProjects", workspace });
+      if (!workspaces.has(workspace)) {
+        throw new Error(`Plane API GET /projects/ failed: 404 workspace ${workspace}`);
+      }
+      return [];
+    },
+    listWebhooks: async () => {
+      calls.push({ fn: "listWebhooks", workspace });
+      if (options.webhookUnavailable) {
+        throw new Error("Plane API GET /webhooks/ failed: 404 not found");
+      }
+      webhooks[workspace] = webhooks[workspace] || [];
+      return webhooks[workspace]!.slice();
+    },
+    createWebhook: async (data: { url: string; secret: string }) => {
+      calls.push({ fn: "createWebhook", workspace, data });
+      webhooks[workspace] = webhooks[workspace] || [];
+      const hook = { id: `hook_${webhooks[workspace]!.length + 1}`, url: data.url };
+      webhooks[workspace]!.push(hook);
+      return hook;
+    },
+    _calls: calls,
+    _webhooks: webhooks,
+  });
+
+  return bind("companyos");
+}
+
+describe("provisioning module", () => {
+  let client: PGlite;
+  let db: any;
+  let rootPrincipalId: string;
+
+  beforeAll(async () => {
+    client = new PGlite();
+    db = drizzle(client, { schema });
+    await migrate(db, { migrationsFolder });
+    if (!await getScope(db, "root")) {
+      await createScope(db, { slug: "root", name: "Root", type: "root" }, null);
+    }
+  });
+
+  afterAll(async () => {
+    if (client && typeof client.close === "function") {
+      await client.close();
+    }
+  });
+
+  beforeEach(async () => {
+    process.env.COMPANYOS_URL = "https://companyos.test";
+    process.env.PLANE_WEBHOOK_URL = "https://companyos.test/api/v1/webhooks/plane";
+    process.env.PLANE_WEBHOOK_SECRET = "whsec_test";
+
+    const [principal] = await db
+      .insert(schema.principals)
+      .values({ kind: "human", name: `Root Admin ${Date.now()}`, status: "active" })
+      .returning();
+    rootPrincipalId = principal.id;
+    await grantRole(db, { principalId: rootPrincipalId, scopePath: "root", role: "admin" }, rootPrincipalId);
+  });
+
+  async function countRows(table: any, where?: any): Promise<number> {
+    const q = db.select().from(table);
+    const rows = where ? await q.where(where) : await q;
+    return rows.length;
+  }
+
+  it("fresh provision creates scopes, modules, agent, Plane workspace, webhook, repo, workbenches, and AGENTS files; second run is a no-op", async () => {
+    const slug = `prov-fresh-${Date.now()}`;
+    const plane = makeMockPlane({ workspaces: ["companyos", `${slug}-ws`] });
+    const github = makeMockGitHub();
+    const spec = {
+      scopePath: slug,
+      name: "Provision Fresh",
+      subprojects: [
+        { slug: "seo", name: "SEO" },
+        { slug: "content", name: "Content" },
+      ],
+      modules: ["tasks", "records"],
+      agent: { name: `${slug} Agent`, tokenName: "Workbench token" },
+      planeWorkspaceSlug: `${slug}-ws`,
+      workbench: {},
+    };
+
+    const first = await provisionScope(db, { plane, github: github.client }, spec, rootPrincipalId);
+    expect(first.manual).toEqual([]);
+    expect(first.agentToken?.plaintext).toMatch(/^cos_/);
+    expect(first.agentToken?.storeNow).toBe(true);
+    expect(first.steps.some((s) => s.status === "created")).toBe(true);
+
+    const rootAgents = github.getFile(slug, "AGENTS.md") || "";
+    const seoAgents = github.getFile(slug, "seo/AGENTS.md") || "";
+    expect(rootAgents).toContain(MANAGED_START);
+    expect(rootAgents).toContain("`seo/` ->");
+    expect(seoAgents).toContain(`Scope path: \`${slug}/seo\``);
+    expect(seoAgents).toContain(MANAGED_END);
+
+    github.resetWriteCount();
+    const second = await provisionScope(db, { plane, github: github.client }, spec, rootPrincipalId);
+    expect(second.manual).toEqual([]);
+    expect(second.agentToken).toBeUndefined();
+    expect(second.steps.every((s) => s.status === "existing" || s.status === "skipped")).toBe(true);
+    expect(github.writeCount).toBe(0);
+
+    const [target] = await db.select().from(schema.scopes).where(eq(schema.scopes.path, slug)).limit(1);
+    const moduleCount = await countRows(schema.moduleInstances, eq(schema.moduleInstances.scopeId, target.id));
+    expect(moduleCount).toBe(2);
+
+    const [agent] = await db.select().from(schema.principals).where(eq(schema.principals.name, `${slug} Agent`)).limit(1);
+    expect(await countRows(schema.tokens, eq(schema.tokens.principalId, agent.id))).toBe(1);
+    expect(await countRows(schema.grants, eq(schema.grants.principalId, agent.id))).toBe(1);
+  });
+
+  it("AGENTS.md regeneration preserves human content outside managed markers", async () => {
+    const slug = `prov-human-${Date.now()}`;
+    const plane = makeMockPlane();
+    const github = makeMockGitHub();
+    await provisionScope(db, { plane, github: github.client }, {
+      scopePath: slug,
+      workbench: {},
+    }, rootPrincipalId);
+
+    const humanContent = `# Local Notes\n\nKeep this intro.\n\n${MANAGED_START}\nold\n${MANAGED_END}\n\nKeep this footer.\n`;
+    github.setFile(slug, "AGENTS.md", humanContent);
+
+    await provisionScope(db, { plane, github: github.client }, {
+      scopePath: slug,
+      workbench: {},
+    }, rootPrincipalId);
+    const updated = github.getFile(slug, "AGENTS.md") || "";
+    expect(updated.startsWith("# Local Notes\n\nKeep this intro.\n\n")).toBe(true);
+    expect(updated.endsWith("\n\nKeep this footer.\n")).toBe(true);
+    expect(updated).toContain(`Scope path: \`${slug}\``);
+    expect(updated).not.toContain("\nold\n");
+  });
+
+  it("nested add-on under existing project creates only the missing chain and requires project admin, not root admin", async () => {
+    const top = `indya-nested-${Date.now()}`;
+    await createScope(db, { slug: top, name: "Indya", type: "project" }, rootPrincipalId);
+
+    const [projectAdmin] = await db
+      .insert(schema.principals)
+      .values({ kind: "human", name: `Project Admin ${Date.now()}`, status: "active" })
+      .returning();
+    await grantRole(db, { principalId: projectAdmin.id, scopePath: top, role: "admin" }, rootPrincipalId);
+
+    const result = await provisionScope(db, { plane: makeMockPlane(), github: null }, {
+      scopePath: `${top}/marketing/seo`,
+      name: "SEO",
+      modules: ["tasks"],
+    }, projectAdmin.id);
+
+    expect(result.steps.find((s) => s.key === `scope:${top}`)?.status).toBe("existing");
+    expect(result.steps.find((s) => s.key === `scope:${top}/marketing`)?.status).toBe("created");
+    expect(result.steps.find((s) => s.key === `scope:${top}/marketing/seo`)?.status).toBe("created");
+    expect(await getScope(db, `${top}/marketing/seo`)).toBeTruthy();
+  });
+
+  it("rejects non-admin actors and rejects planeWorkspaceSlug on nested targets before mutation", async () => {
+    const top = `prov-reject-${Date.now()}`;
+    await createScope(db, { slug: top, name: "Reject", type: "project" }, rootPrincipalId);
+
+    const [viewer] = await db
+      .insert(schema.principals)
+      .values({ kind: "human", name: `Viewer ${Date.now()}`, status: "active" })
+      .returning();
+    await grantRole(db, { principalId: viewer.id, scopePath: top, role: "viewer" }, rootPrincipalId);
+
+    await expect(provisionScope(db, { plane: makeMockPlane(), github: null }, {
+      scopePath: `${top}/seo`,
+    }, viewer.id)).rejects.toThrow(AccessDeniedError);
+
+    await expect(provisionScope(db, { plane: makeMockPlane({ workspaces: ["companyos", "nested-ws"] }), github: null }, {
+      scopePath: `${top}/nested-will-not-exist`,
+      planeWorkspaceSlug: "nested-ws",
+    }, rootPrincipalId)).rejects.toThrow(/top-level project/);
+    expect(await getScope(db, `${top}/nested-will-not-exist`)).toBeNull();
+  });
+
+  it("reports manual steps for missing GitHub org, unavailable webhook API, and null GitHub dependency", async () => {
+    const orgMissing = `prov-org-${Date.now()}`;
+    const orgResult = await provisionScope(db, {
+      plane: makeMockPlane(),
+      github: makeMockGitHub({ orgMissing: true }).client,
+    }, {
+      scopePath: orgMissing,
+      workbench: {},
+    }, rootPrincipalId);
+    expect(orgResult.manual.join("\n")).toMatch(/create GitHub org test-org manually/);
+
+    const webhookMissing = `prov-hook-${Date.now()}`;
+    const webhookResult = await provisionScope(db, {
+      plane: makeMockPlane({ workspaces: ["companyos", "hook-ws"], webhookUnavailable: true }),
+      github: null,
+    }, {
+      scopePath: webhookMissing,
+      planeWorkspaceSlug: "hook-ws",
+    }, rootPrincipalId);
+    expect(webhookResult.manual.join("\n")).toMatch(/register webhook .*Plane workspace settings/);
+
+    const noGithub = `prov-nogithub-${Date.now()}`;
+    const noGithubResult = await provisionScope(db, { plane: makeMockPlane(), github: null }, {
+      scopePath: noGithub,
+      workbench: {},
+    }, rootPrincipalId);
+    expect(noGithubResult.manual.join("\n")).toMatch(/configure GITHUB_TOKEN and GITHUB_ORG/);
+  });
+
+  it("creates workbench rows with repo root for projects and nested paths for subprojects", async () => {
+    const slug = `prov-paths-${Date.now()}`;
+    const github = makeMockGitHub();
+    await provisionScope(db, { plane: makeMockPlane(), github: github.client }, {
+      scopePath: slug,
+      subprojects: [{ slug: "seo", name: "SEO" }],
+      workbench: { repo: `${slug}-repo` },
+    }, rootPrincipalId);
+
+    const [project] = await db.select().from(schema.scopes).where(eq(schema.scopes.path, slug)).limit(1);
+    const [sub] = await db.select().from(schema.scopes).where(eq(schema.scopes.path, `${slug}/seo`)).limit(1);
+    const [projectWorkbench] = await db.select().from(schema.workbenches).where(eq(schema.workbenches.scopeId, project.id)).limit(1);
+    const [subWorkbench] = await db.select().from(schema.workbenches).where(eq(schema.workbenches.scopeId, sub.id)).limit(1);
+
+    expect(projectWorkbench.repo).toBe(`${slug}-repo`);
+    expect(projectWorkbench.path).toBe("");
+    expect(subWorkbench.repo).toBe(`${slug}-repo`);
+    expect(subWorkbench.path).toBe("seo");
+    expect(github.getFile(`${slug}-repo`, "seo/AGENTS.md")).toContain(`${slug}/seo`);
+  });
+});

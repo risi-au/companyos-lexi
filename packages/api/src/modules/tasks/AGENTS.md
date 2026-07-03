@@ -33,7 +33,7 @@ All functions take injected `db: DB` first and `plane: PlaneClient` where Plane 
 - `findScopeByPlaneProject(db, planeProjectId, planeLabelId?)`: webhook support; returns link result or null. Plane project IDs are treated as globally unique, so workspace slug is not part of the lookup key.
 - `getPlaneUrl(db, scopePath)`: returns a workspace-correct Plane project URL from the scope's own `task_links` row, then the top project's row, else base URL fallback.
 
-PlaneClient (in same dir): getProjects, createProject, getStates, createIssue, updateIssue, getIssue, listIssues, createLabel, listLabels. Constructor takes config + optional fetch. Use `plane.forWorkspace(slug)` for all non-default workspace calls; do not string-build workspace API paths outside the client.
+PlaneClient (in same dir): getProjects, createProject, getStates, createIssue, updateIssue, getIssue, listIssues, createLabel, listLabels, listWebhooks, createWebhook. Constructor takes config + optional fetch. Use `plane.forWorkspace(slug)` for all non-default workspace calls; do not string-build workspace API paths outside the client.
 
 Uses `requireAccess`, `emitEvent`, `getScope`, `createRecord` (records for note side-effect only).
 
@@ -62,11 +62,11 @@ Tests always use mocked PlaneClient (never live, never read .env). Acceptance cr
 - Events always emitted on mutations + provisioning/registration.
 - Unconfigured (missing plane in MCP) yields clear "tasks engine not configured".
 - Idempotent provisioning (no duplicate projects/labels on repeat calls; verified by mock recording).
-- Webhook registration is per Plane workspace and manual for now. When a project workspace is adopted, configure Plane webhooks in that workspace manually; M4-04 provisioning will make this an onboarding step.
+- Webhook registration is per Plane workspace. Provisioning now attempts to register the webhook when `PLANE_WEBHOOK_URL` and `PLANE_WEBHOOK_SECRET` are set, and reports a manual fallback if the Plane CE endpoint is unavailable.
 
 ## Do Not
 - No direct live Plane calls in tests.
-- No webhook auto-registration or ingestion in this module task.
+- Webhook auto-registration belongs to provisioning; task services only expose PlaneClient webhook methods and webhook lookup helpers.
 - Never log API tokens.
 - Never modify kernel/records schema files or prior migrations.
 - No cross-module imports except via records side-effect as specified (public reexports).

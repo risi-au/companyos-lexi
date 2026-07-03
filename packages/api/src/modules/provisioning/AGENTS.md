@@ -1,0 +1,44 @@
+# packages/api/src/modules/provisioning - AGENTS.md
+
+Provisioning module (M4-04): deterministic onboarding through `provisionScope` and the admin-gated MCP tool `provision_scope`.
+
+## Purpose
+Create or refresh the deterministic part of onboarding in one idempotent call: scopes, module instances, optional agent principal and token, Plane workspace adoption/webhook attempt, and optional GitHub workbench skeleton.
+
+Manual steps are returned instead of thrown when an external system cannot automate the action, such as creating a GitHub org or Plane workspace.
+
+## Contract
+`provisionScope(db, { plane, github }, spec, actorPrincipalId)` accepts `ProvisionSpec` with `scopePath`, optional `name`, `subprojects`, `modules`, `agent`, `planeWorkspaceSlug`, and `workbench`.
+
+Returns `scopePath`, `topLevelScopePath`, `steps`, `manual`, and optional `agentToken` with plaintext token and `storeNow: true`. Never store plaintext server-side.
+
+## Idempotency
+Running the same spec twice should produce only `existing` or `skipped` outcomes for already-provisioned resources. `GitHubClient.putFile` reads current content first and skips byte-identical writes.
+
+Managed `AGENTS.md` regeneration replaces only the block between `<!-- companyos:managed:start -->` and `<!-- companyos:managed:end -->`. Human content outside those markers must survive byte-for-byte.
+
+## Tables
+- `workbenches` in `packages/db`: `scope_id` unique, `repo`, `path`, timestamps.
+- Existing kernel tables used: `scopes`, `module_instances`, `principals`, `grants`, `tokens`, `events`.
+- Existing tasks table used: `task_links` for registered Plane workspace lookup.
+
+## Files
+- `github-client.ts` - injectable GitHub REST v3 client; no callsite builds GitHub URLs.
+- `agents-md.ts` - managed block renderer and marker-preserving updater.
+- `service.ts` - orchestration service.
+- `provisioning.test.ts` - PGlite service tests.
+
+## How To Test
+From repo root:
+- `pnpm --filter @companyos/api test`
+- `pnpm --filter @companyos/mcp test`
+- `pnpm test`
+- `pnpm typecheck && pnpm lint`
+
+Tests use mocked Plane and GitHub clients. No live GitHub or Plane calls in tests.
+
+## Do Not
+- Do not create GitHub orgs or Plane workspaces.
+- Do not log or persist plaintext tokens.
+- Do not hand-build GitHub URLs outside `GitHubClient`.
+- Do not make provisioning depend on UI-only behavior.
