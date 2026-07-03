@@ -32,9 +32,14 @@ import {
   PlaneClient,
   GitHubClient,
   provisionScope,
+  registerCapability,
+  reportRun,
+  listCapabilities,
+  listCapabilityRuns,
   type DB,
   AccessDeniedError,
   ScopeNotFoundError,
+  CapabilityNotFoundError,
   RecordNotFoundError,
   DashboardValidationError,
   DocumentNotFoundError,
@@ -55,6 +60,9 @@ function formatError(e: unknown): string {
   }
   if (e instanceof ScopeNotFoundError) {
     return `Scope not found: ${e.path}`;
+  }
+  if (e instanceof CapabilityNotFoundError) {
+    return `Capability not found: ${e.capabilityName} in ${e.scopePath}`;
   }
   if (e instanceof RecordNotFoundError) {
     return `Record not found: ${e.id}`;
@@ -712,6 +720,129 @@ ${JSON.stringify(rec.data || {}, null, 2)}
           },
           actor
         );
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // register_capability
+  server.registerTool(
+    "register_capability",
+    {
+      title: "Register Capability",
+      description:
+        "Register or update an automation/capability for a scope. Idempotent by scope + name. Requires admin on the scope.",
+      inputSchema: z.object({
+        scopePath: z.string().min(1).describe("Scope path, e.g. indya/marketing"),
+        name: z.string().min(1).describe("Capability name unique within the scope"),
+        engine: z.string().min(1).describe("Engine identifier such as n8n, flowise, or custom"),
+        engineRef: z.string().optional().describe("Optional engine-side id or deep-link URL"),
+        tokenId: z.string().optional().describe("Optional scoped token id used by the capability"),
+        description: z.string().optional(),
+        status: z.enum(["active", "disabled"]).optional(),
+      }),
+    },
+    async (input) => {
+      try {
+        const actor = ensurePrincipal();
+        const result = await registerCapability(db, input, actor);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // report_run
+  server.registerTool(
+    "report_run",
+    {
+      title: "Report Run",
+      description:
+        "Persist a run status for a registered capability. Idempotent by runRef when provided. Requires editor/agent on the scope.",
+      inputSchema: z.object({
+        scopePath: z.string().min(1).describe("Scope path"),
+        name: z.string().min(1).describe("Registered capability name"),
+        status: z.enum(["running", "success", "error"]),
+        runRef: z.string().optional().describe("Optional engine-side run id for idempotent updates"),
+        summary: z.string().optional(),
+        startedAt: z.string().optional(),
+        finishedAt: z.string().optional(),
+        durationMs: z.number().int().optional(),
+        payload: z.record(z.any()).optional(),
+      }),
+    },
+    async (input) => {
+      try {
+        const actor = ensurePrincipal();
+        const result = await reportRun(db, input, actor);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // list_capabilities
+  server.registerTool(
+    "list_capabilities",
+    {
+      title: "List Capabilities",
+      description: "List registered capabilities for a scope with each capability's latest run. Viewer required.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+      }),
+    },
+    async ({ scope }) => {
+      try {
+        const actor = ensurePrincipal();
+        const result = await listCapabilities(db, { scopePath: scope }, actor);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // list_capability_runs
+  server.registerTool(
+    "list_capability_runs",
+    {
+      title: "List Capability Runs",
+      description: "List newest runs for a registered capability. Viewer required. Limit defaults to 50 and caps at 200.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+        name: z.string().min(1).describe("Registered capability name"),
+        since: z.string().optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+      }),
+    },
+    async ({ scope, name, since, limit }) => {
+      try {
+        const actor = ensurePrincipal();
+        const result = await listCapabilityRuns(db, { scopePath: scope, name, since, limit }, actor);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };

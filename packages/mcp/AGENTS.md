@@ -22,6 +22,10 @@ Provides tools over MCP (stdio transport). Auth via `COS_TOKEN` env (cos_ prefix
 - `write_metrics({scope, points: [{metric, date, value, dims?}]})` — batch write/upsert metrics (max 1000). Editor/agent. Returns summary.
 - `query_metrics({scope, metrics, from, to, groupBy?, filters?, agg?})` — query series with optional grouping (date/metric/dim), filters, agg. Viewer.
 - `list_metric_names({scope})` — list distinct metric names + observed first/last dates for scope. Viewer.
+- `register_capability({scopePath, name, engine, engineRef?, tokenId?, description?, status?})` — register/update a scoped capability. Admin.
+- `report_run({scopePath, name, status, runRef?, summary?, startedAt?, finishedAt?, durationMs?, payload?})` — persist a registered capability run. Editor/agent.
+- `list_capabilities({scope})` — list scoped capabilities with latest run. Viewer.
+- `list_capability_runs({scope, name, since?, limit?})` — list newest runs for one capability. Viewer.
 - `save_dashboard({scope, name?, spec})` — save/upsert validated dashboard spec (v1 contract). Editor/agent. Emits saved, creates revision.
 - `get_dashboard({scope, name?})` — fetch current spec. Viewer.
 - `list_dashboards({scope})` — list dashboards for scope. Viewer.
@@ -68,6 +72,7 @@ All protected tools: unauth → clear error. AccessDenied surfaced as "Access de
 Acceptance (M1-05 + M2-01 + M2-02):
 - typecheck + lint + test pass
 - write_metrics / query_metrics / list_metric_names covered in MCP roundtrips; groupBy date and dim key roundtrip via MCP asserted
+- register_capability / report_run / list_capabilities / list_capability_runs covered in MCP roundtrips
 - save_dashboard / get_dashboard / list_dashboards / list_widget_types / revert_dashboard roundtrips and validation errors in MCP tests
 - auth cases (agent write ok in subtree / denied out; viewer no write; null principal auth error)
 - Handlers: pure arg parse + service call + format (no logic)

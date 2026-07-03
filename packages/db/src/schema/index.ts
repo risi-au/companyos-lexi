@@ -8,3 +8,4 @@ export * from "./documents";
 export * from "./canvases";
 export * from "./agent";
 export * from "./workbenches";
+export * from "./capabilities";

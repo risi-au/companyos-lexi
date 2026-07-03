@@ -30,6 +30,9 @@ export * from "./modules/provisioning/service";
 export * from "./modules/provisioning/agents-md";
 export { GitHubClient, OrgNotFoundError, type GitHubConfig } from "./modules/provisioning/github-client";
 
+// Capabilities module (M4-05)
+export * from "./modules/capabilities/service";
+
 // Agent HTTP / n8n support (M2-05)
 export * from "./agent";
 
