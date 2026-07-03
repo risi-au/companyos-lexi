@@ -1,5 +1,5 @@
-import { eq, like, or, desc, asc } from "drizzle-orm";
-import { scopes, moduleInstances } from "@companyos/db";
+import { eq, like, or, and, desc, asc } from "drizzle-orm";
+import { scopes, moduleInstances, grants } from "@companyos/db";
 import type { Scope } from "@companyos/db";
 import {
   emitEvent,
@@ -54,9 +54,10 @@ export async function createScope(
   // Top-level scopes attach to the root scope when one exists, so grants on
   // root cover the whole tree; paths stay clean (no "root/" prefix).
   let parentId: string | null = null;
+  let parentTypeForValidation: string | null = null;
   if (parentPath) {
     const [parent] = await db
-      .select({ id: scopes.id })
+      .select({ id: scopes.id, type: scopes.type })
       .from(scopes)
       .where(eq(scopes.path, parentPath))
       .limit(1);
@@ -64,13 +65,30 @@ export async function createScope(
       throw new ParentNotFoundError(parentPath);
     }
     parentId = parent.id;
+    parentTypeForValidation = parent.type;
   } else if (type !== "root") {
     const [root] = await db
-      .select({ id: scopes.id })
+      .select({ id: scopes.id, type: scopes.type })
       .from(scopes)
       .where(eq(scopes.type, "root"))
       .limit(1);
-    if (root) parentId = root.id;
+    if (root) {
+      parentId = root.id;
+      parentTypeForValidation = "root";
+    }
+  }
+
+  // Enforce structure v2: top-level (under root) = project; nested = subproject. root special.
+  if (type !== "root") {
+    if (parentTypeForValidation === "root" || parentTypeForValidation === null) {
+      if (type !== "project") {
+        throw new Error(`Top-level scopes (children of root) must have type "project", got "${type}"`);
+      }
+    } else if (parentTypeForValidation) {
+      if (type !== "subproject") {
+        throw new Error(`Nested scopes must have type "subproject", got "${type}"`);
+      }
+    }
   }
 
   const [created] = (await db
@@ -215,4 +233,79 @@ export async function listModules(
     .orderBy(asc(moduleInstances.position), desc(moduleInstances.createdAt));
 
   return rows as ModuleInstanceInfo[];
+}
+
+/**
+ * Returns the scopes visible to this principal.
+ * - If principal has any grant on root, return full tree (incl root).
+ * - Else, for each top-level project (child of root), include its subtree iff
+ *   the principal has access to that project (via direct grant or ancestor, excluding root here).
+ * - Root row is included only for root-granted principals.
+ * Used for sidebar + filtered navigation.
+ */
+export async function getVisibleTree(db: DB, principalId: string): Promise<Scope[]> {
+  // Find root
+  const [root] = await db
+    .select()
+    .from(scopes)
+    .where(eq(scopes.type, "root"))
+    .limit(1);
+  if (!root) return [];
+
+  // Check for root grant (any role on root scope)
+  const rootGrants = await db
+    .select({ id: grants.id })
+    .from(grants)
+    .where(
+      and(
+        eq(grants.principalId, principalId),
+        eq(grants.scopeId, root.id)
+      )
+    )
+    .limit(1);
+  const hasRootGrant = rootGrants.length > 0;
+
+  if (hasRootGrant) {
+    // full access: return everything (root + all)
+    const all = await db.select().from(scopes).orderBy(scopes.path);
+    return all as Scope[];
+  }
+
+  // No root grant: collect visible top-level project subtrees
+  const topLevelProjects = await db
+    .select()
+    .from(scopes)
+    .where(eq(scopes.parentId, root.id))
+    .orderBy(scopes.path);
+
+  const visible: Scope[] = [];
+  for (const proj of topLevelProjects) {
+    // Check access to this project: grants on project itself (root grant already ruled out)
+    const projGrants = await db
+      .select({ id: grants.id })
+      .from(grants)
+      .where(
+        and(
+          eq(grants.principalId, principalId),
+          eq(grants.scopeId, proj.id)
+        )
+      )
+      .limit(1);
+    if (projGrants.length > 0) {
+      // include full subtree for this project (self + descendants)
+      const sub = await db
+        .select()
+        .from(scopes)
+        .where(
+          or(
+            eq(scopes.path, proj.path),
+            like(scopes.path, `${proj.path}/%`)
+          )
+        )
+        .orderBy(scopes.path);
+      visible.push(...(sub as Scope[]));
+    }
+  }
+
+  return visible;
 }

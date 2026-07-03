@@ -232,7 +232,7 @@ describe("dashboards module (PGlite + migrations)", () => {
 
     it("viewer cannot save", async () => {
       const sp = "dash-vwrite-" + Date.now();
-      await createScope(db, { slug: sp, name: "DVW", type: "area" }, rootPrincipalId);
+      await createScope(db, { slug: sp, name: "DVW", type: "project" }, rootPrincipalId);
       await grantRole(db, { principalId: viewerPrincipalId, scopePath: sp, role: "viewer" }, rootPrincipalId);
 
       await expect(
@@ -242,7 +242,7 @@ describe("dashboards module (PGlite + migrations)", () => {
 
     it("no grant denies save/get", async () => {
       const sp = "dash-noacc-" + Date.now();
-      await createScope(db, { slug: sp, name: "DNA", type: "area" }, rootPrincipalId);
+      await createScope(db, { slug: sp, name: "DNA", type: "project" }, rootPrincipalId);
 
       await expect(
         saveDashboard(db, { scopePath: sp, spec: { version: 1, title: "x", range: { default: "7d" }, widgets: [] } }, noAccessPrincipalId)
@@ -255,8 +255,8 @@ describe("dashboards module (PGlite + migrations)", () => {
 
     it("agent can save in subtree", async () => {
       const sp = "dash-agent-" + Date.now();
-      await createScope(db, { slug: sp, name: "DA", type: "client" }, rootPrincipalId);
-      await createScope(db, { parentPath: sp, slug: "sub", name: "Sub", type: "area" }, rootPrincipalId);
+      await createScope(db, { slug: sp, name: "DA", type: "project" }, rootPrincipalId);
+      await createScope(db, { parentPath: sp, slug: "sub", name: "Sub", type: "subproject" }, rootPrincipalId);
       await grantRole(db, { principalId: agentPrincipalId, scopePath: sp, role: "agent" }, rootPrincipalId);
 
       const spec = { version: 1, title: "A", range: { default: "7d" as const }, widgets: [] };

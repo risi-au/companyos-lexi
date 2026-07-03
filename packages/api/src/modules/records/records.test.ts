@@ -126,8 +126,8 @@ describe("records module (PGlite + migrations)", () => {
 
     it("agent with agent grant can create inside subtree", async () => {
       const sp = "rec-agent-" + Date.now();
-      await createScope(db, { slug: sp, name: "RecA", type: "client" }, rootPrincipalId);
-      await createScope(db, { parentPath: sp, slug: "sub", name: "Sub", type: "area" }, rootPrincipalId);
+      await createScope(db, { slug: sp, name: "RecA", type: "project" }, rootPrincipalId);
+      await createScope(db, { parentPath: sp, slug: "sub", name: "Sub", type: "subproject" }, rootPrincipalId);
       await grantRole(db, { principalId: agentPrincipalId, scopePath: sp, role: "agent" }, rootPrincipalId);
 
       const rec = await createRecord(
@@ -142,8 +142,8 @@ describe("records module (PGlite + migrations)", () => {
     it("agent cannot create outside grant scope", async () => {
       const sp = "rec-agent-out-" + Date.now();
       const other = "other-" + Date.now();
-      await createScope(db, { slug: sp, name: "RecA", type: "client" }, rootPrincipalId);
-      await createScope(db, { slug: other, name: "Other", type: "client" }, rootPrincipalId);
+      await createScope(db, { slug: sp, name: "RecA", type: "project" }, rootPrincipalId);
+      await createScope(db, { slug: other, name: "Other", type: "project" }, rootPrincipalId);
       await grantRole(db, { principalId: agentPrincipalId, scopePath: sp, role: "agent" }, rootPrincipalId);
 
       await expect(
@@ -153,7 +153,7 @@ describe("records module (PGlite + migrations)", () => {
 
     it("viewer cannot write (create)", async () => {
       const sp = "rec-viewer-write-" + Date.now();
-      await createScope(db, { slug: sp, name: "V", type: "area" }, rootPrincipalId);
+      await createScope(db, { slug: sp, name: "V", type: "project" }, rootPrincipalId);
       await grantRole(db, { principalId: viewerPrincipalId, scopePath: sp, role: "viewer" }, rootPrincipalId);
 
       await expect(
@@ -163,7 +163,7 @@ describe("records module (PGlite + migrations)", () => {
 
     it("no grant denies create", async () => {
       const sp = "rec-no-" + Date.now();
-      await createScope(db, { slug: sp, name: "No", type: "area" }, rootPrincipalId);
+      await createScope(db, { slug: sp, name: "No", type: "project" }, rootPrincipalId);
 
       await expect(
         createRecord(db, { scopePath: sp, kind: "report", title: "X" }, noAccessPrincipalId)
@@ -199,7 +199,7 @@ describe("records module (PGlite + migrations)", () => {
 
     it("list respects since and max limit clamp", async () => {
       const sp = "rec-since-" + Date.now();
-      await createScope(db, { slug: sp, name: "S", type: "area" }, rootPrincipalId);
+      await createScope(db, { slug: sp, name: "S", type: "project" }, rootPrincipalId);
       await grantRole(db, { principalId: rootPrincipalId, scopePath: sp, role: "editor" }, rootPrincipalId);
 
       const old = await createRecord(db, { scopePath: sp, kind: "changelog", title: "Old" }, rootPrincipalId);
@@ -218,7 +218,7 @@ describe("records module (PGlite + migrations)", () => {
 
     it("unauthorized cannot get or list", async () => {
       const sp = "rec-auth-" + Date.now();
-      await createScope(db, { slug: sp, name: "Auth", type: "area" }, rootPrincipalId);
+      await createScope(db, { slug: sp, name: "Auth", type: "project" }, rootPrincipalId);
       await grantRole(db, { principalId: rootPrincipalId, scopePath: sp, role: "editor" }, rootPrincipalId);
       const rec = await createRecord(db, { scopePath: sp, kind: "note", title: "Secret" }, rootPrincipalId);
 
@@ -260,7 +260,7 @@ describe("records module (PGlite + migrations)", () => {
 
     it("viewer cannot update", async () => {
       const sp = "rec-upd-view-" + Date.now();
-      await createScope(db, { slug: sp, name: "UV", type: "area" }, rootPrincipalId);
+      await createScope(db, { slug: sp, name: "UV", type: "project" }, rootPrincipalId);
       await grantRole(db, { principalId: rootPrincipalId, scopePath: sp, role: "editor" }, rootPrincipalId);
       await grantRole(db, { principalId: viewerPrincipalId, scopePath: sp, role: "viewer" }, rootPrincipalId);
       const rec = await createRecord(db, { scopePath: sp, kind: "note", title: "V" }, rootPrincipalId);
@@ -280,7 +280,7 @@ describe("records module (PGlite + migrations)", () => {
   describe("events for all mutations", () => {
     it("create + update emit distinct events", async () => {
       const sp = "rec-ev-" + Date.now();
-      await createScope(db, { slug: sp, name: "EV", type: "area" }, rootPrincipalId);
+      await createScope(db, { slug: sp, name: "EV", type: "project" }, rootPrincipalId);
       await grantRole(db, { principalId: rootPrincipalId, scopePath: sp, role: "editor" }, rootPrincipalId);
 
       const rec = await createRecord(db, { scopePath: sp, kind: "decision", title: "E1" }, rootPrincipalId);
@@ -296,8 +296,8 @@ describe("records module (PGlite + migrations)", () => {
 
   it("agent can list/create in subtree, denied outside (full flow)", async () => {
     const rootP = "rec-agent-full-" + Date.now();
-    await createScope(db, { slug: rootP, name: "AF", type: "client" }, rootPrincipalId);
-    await createScope(db, { parentPath: rootP, slug: "team", name: "Team", type: "area" }, rootPrincipalId);
+    await createScope(db, { slug: rootP, name: "AF", type: "project" }, rootPrincipalId);
+    await createScope(db, { parentPath: rootP, slug: "team", name: "Team", type: "subproject" }, rootPrincipalId);
     await grantRole(db, { principalId: agentPrincipalId, scopePath: rootP, role: "agent" }, rootPrincipalId);
 
     const inside = await createRecord(db, { scopePath: `${rootP}/team`, kind: "changelog", title: "In" }, agentPrincipalId);
@@ -307,7 +307,7 @@ describe("records module (PGlite + migrations)", () => {
     expect(listed.length).toBeGreaterThan(0);
 
     const sib = "rec-sib-" + Date.now();
-    await createScope(db, { slug: sib, name: "Sib", type: "area" }, rootPrincipalId);
+    await createScope(db, { slug: sib, name: "Sib", type: "project" }, rootPrincipalId);
     await expect(
       createRecord(db, { scopePath: sib, kind: "note", title: "Out" }, agentPrincipalId)
     ).rejects.toThrow(AccessDeniedError);

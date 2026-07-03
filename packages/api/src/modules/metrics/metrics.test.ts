@@ -135,7 +135,7 @@ describe("metrics module (PGlite + migrations)", () => {
 
     it("enforces 1000 point cap", async () => {
       const sp = "met-cap-" + Date.now();
-      await createScope(db, { slug: sp, name: "Cap", type: "area" }, rootPrincipalId);
+      await createScope(db, { slug: sp, name: "Cap", type: "project" }, rootPrincipalId);
       await grantRole(db, { principalId: rootPrincipalId, scopePath: sp, role: "editor" }, rootPrincipalId);
 
       const tooMany = Array.from({ length: 1001 }, (_, i) => ({ metric: "t", date: "2026-07-01", value: i }));
@@ -145,7 +145,7 @@ describe("metrics module (PGlite + migrations)", () => {
 
     it("agent with grant can write, viewer cannot; no grant denied", async () => {
       const sp = "met-auth-" + Date.now();
-      await createScope(db, { slug: sp, name: "MA", type: "client" }, rootPrincipalId);
+      await createScope(db, { slug: sp, name: "MA", type: "project" }, rootPrincipalId);
       await grantRole(db, { principalId: agentPrincipalId, scopePath: sp, role: "agent" }, rootPrincipalId);
       await grantRole(db, { principalId: viewerPrincipalId, scopePath: sp, role: "viewer" }, rootPrincipalId);
 
@@ -215,7 +215,7 @@ describe("metrics module (PGlite + migrations)", () => {
 
     it("groupBy dim key produces per-dim series; agg avg works", async () => {
       const sp = "met-dim-" + Date.now();
-      await createScope(db, { slug: sp, name: "D", type: "area" }, rootPrincipalId);
+      await createScope(db, { slug: sp, name: "D", type: "project" }, rootPrincipalId);
       await grantRole(db, { principalId: rootPrincipalId, scopePath: sp, role: "editor" }, rootPrincipalId);
 
       await writeMetrics(db, { scopePath: sp, points: [
@@ -250,7 +250,7 @@ describe("metrics module (PGlite + migrations)", () => {
 
     it("unauthorized cannot query or list; missing scope returns empty", async () => {
       const sp = "met-noq-" + Date.now();
-      await createScope(db, { slug: sp, name: "NQ", type: "area" }, rootPrincipalId);
+      await createScope(db, { slug: sp, name: "NQ", type: "project" }, rootPrincipalId);
       await grantRole(db, { principalId: rootPrincipalId, scopePath: sp, role: "editor" }, rootPrincipalId);
       await writeMetrics(db, { scopePath: sp, points: [{ metric: "z", date: "2026-01-01", value: 1 }] }, rootPrincipalId);
 
@@ -271,7 +271,7 @@ describe("metrics module (PGlite + migrations)", () => {
 
   it("dry-verifies generator function from db:seed-demo (PGlite + service writes, idempotent)", async () => {
     const sp = "met-seed-demo-" + Date.now();
-    await createScope(db, { slug: sp, name: "SeedDemo", type: "client" }, rootPrincipalId);
+    await createScope(db, { slug: sp, name: "SeedDemo", type: "project" }, rootPrincipalId);
     await grantRole(db, { principalId: rootPrincipalId, scopePath: sp, role: "owner" }, rootPrincipalId);
 
     // dynamic import to run generator (as used by pnpm db:seed-demo script)

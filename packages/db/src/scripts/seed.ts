@@ -8,6 +8,7 @@ async function main() {
   const db = createDb();
 
   const rootPath = "root";
+  const instanceName = process.env.INSTANCE_NAME || "CompanyOS";
   const principalName = process.env.SEED_PRINCIPAL_NAME || "Root Owner";
   const principalEmail = process.env.SEED_PRINCIPAL_EMAIL || undefined;
 
@@ -24,7 +25,7 @@ async function main() {
       .values({
         slug: "root",
         path: rootPath,
-        name: "Root",
+        name: instanceName,
         type: "root",
         status: "active",
         settings: {},

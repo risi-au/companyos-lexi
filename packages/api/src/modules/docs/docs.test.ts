@@ -192,8 +192,8 @@ describe("docs module (PGlite + migrations)", () => {
 
     it("agent can operate in subtree", async () => {
       const sp = "doc-agent-sub-" + Date.now();
-      await createScope(db, { slug: sp, name: "DAS", type: "client" }, rootPrincipalId);
-      await createScope(db, { parentPath: sp, slug: "sub", name: "Sub", type: "area" }, rootPrincipalId);
+      await createScope(db, { slug: sp, name: "DAS", type: "project" }, rootPrincipalId);
+      await createScope(db, { parentPath: sp, slug: "sub", name: "Sub", type: "subproject" }, rootPrincipalId);
       await grantRole(db, { principalId: agentPrincipalId, scopePath: sp, role: "agent" }, rootPrincipalId);
 
       const d = await saveDoc(db, { scopePath: `${sp}/sub`, title: "Sub Doc", bodyMd: "ok" }, agentPrincipalId);

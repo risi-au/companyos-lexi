@@ -79,7 +79,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     await grantRole(db, { principalId: viewerPrincipalId, scopePath: testScope, role: "viewer" }, rootPrincipalId);
 
     subScope = `${testScope}/sub`;
-    await createScope(db, { parentPath: testScope, slug: "sub", name: "Sub", type: "area" }, rootPrincipalId);
+    await createScope(db, { parentPath: testScope, slug: "sub", name: "Sub", type: "subproject" }, rootPrincipalId);
     await grantRole(db, { principalId: agentPrincipalId, scopePath: subScope, role: "agent" }, rootPrincipalId);
 
     // attach a module instance for context test

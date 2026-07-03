@@ -58,7 +58,7 @@ export function Sidebar({ tree }: SidebarProps) {
           >
             {node.name}
           </Link>
-          <span className="ml-auto text-[var(--font-size-xs)] text-[var(--muted-foreground)]">{node.type}</span>
+          <span className="ml-auto text-[var(--font-size-xs)] text-[var(--muted-foreground)]">{node.type === "project" ? "Project / Client" : node.type === "subproject" ? "Sub-project" : node.type}</span>
         </div>
         {isOpen && kids.length > 0 && (
           <div>
@@ -151,11 +151,10 @@ function NewScopeDialog({ onClose, onCreated }: { onClose: () => void; onCreated
           <select
             name="type"
             className="w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--background)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)]"
-            defaultValue="client"
+            defaultValue="project"
           >
-            <option value="client">client</option>
-            <option value="project">project</option>
-            <option value="area">area</option>
+            <option value="project">Project / Client</option>
+            <option value="subproject">Sub-project</option>
           </select>
           <div className="flex gap-2 pt-1">
             <button type="button" onClick={onClose} className="flex-1 rounded border border-[var(--border)] py-[var(--space-2)] text-[var(--font-size-sm)]">Cancel</button>

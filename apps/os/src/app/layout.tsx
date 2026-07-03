@@ -15,7 +15,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "CompanyOS",
+  title: process.env.INSTANCE_NAME || "CompanyOS",
   description: "AI-native system of record for running businesses",
 };
 
