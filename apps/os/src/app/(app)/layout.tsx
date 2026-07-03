@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
+import { headers, cookies } from "next/headers";
 import { api, getCurrentActorPrincipalId } from "@/lib/api";
 import { Sidebar } from "./_components/Sidebar";
 import { UserMenu } from "./_components/UserMenu";
+import type { Scope } from "@companyos/db";
 
 export default async function AppLayout({
   children,
@@ -25,6 +26,32 @@ export default async function AppLayout({
   // Grant-filtered tree (M4-01)
   const tree = await api.getVisibleTree(actorId);
 
+  // M4-02 nav-v2: resolve selected project (cookie or default first visible project); root overview for root-grant principals
+  const cookieStore = await cookies();
+  const cookieSelected = cookieStore.get("nav.selectedProject")?.value;
+  const hasRootGrant = tree.some((s: Scope) => s.type === "root" || s.path === "root");
+  const topLevelProjects = tree
+    .filter((s: Scope) => s.type === "project" && s.path.split("/").length === 1)
+    .sort((a: Scope, b: Scope) => a.path.localeCompare(b.path));
+  const validPaths = topLevelProjects.map((p: Scope) => p.path);
+  let resolvedSelected: string | null = cookieSelected && (cookieSelected === "root" || validPaths.includes(cookieSelected)) ? cookieSelected : null;
+  if (!resolvedSelected) {
+    resolvedSelected = validPaths[0] || (hasRootGrant ? "root" : null);
+  }
+  if (resolvedSelected === "root" && !hasRootGrant) {
+    resolvedSelected = validPaths[0] || null;
+  }
+
+  // Server-rendered Task Manager URL (uses getPlaneUrl; falls back per spec)
+  let taskManagerUrl: string | null = null;
+  if (resolvedSelected && resolvedSelected !== "root") {
+    try {
+      taskManagerUrl = await api.getPlaneUrl(resolvedSelected);
+    } catch {
+      taskManagerUrl = process.env.PLANE_BASE_URL || null;
+    }
+  }
+
   return (
     <div className="flex min-h-screen bg-[var(--background)] text-[var(--foreground)]">
       {/* Sidebar */}
@@ -34,7 +61,12 @@ export default async function AppLayout({
           <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">ops record</div>
         </div>
 
-        <Sidebar tree={tree} />
+        <Sidebar
+          tree={tree}
+          selected={resolvedSelected}
+          taskManagerUrl={taskManagerUrl}
+          instanceName={process.env.INSTANCE_NAME || "CompanyOS"}
+        />
 
         <div className="mt-auto border-t border-[var(--border)] p-[var(--space-3)]">
           <UserMenu

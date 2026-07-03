@@ -2,6 +2,8 @@
 
 import { api, getCurrentActorPrincipalId } from "@/lib/api";
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 
 export async function createNewScope(formData: FormData): Promise<{ path?: string; error?: string }> {
   const name = (formData.get("name") as string || "").trim();
@@ -89,4 +91,21 @@ export async function revokeMember(formData: FormData): Promise<void> {
 
   await api.revokeGrant({ principalId, scopePath }, actor);
   revalidatePath(`/s/${scopePath}`);
+}
+
+/** Server action for project switcher: persists selection in cookie (SSR) then redirects */
+export async function setSelectedProject(formData: FormData): Promise<void> {
+  const path = ((formData.get("path") as string) || "").trim();
+  const store = await cookies();
+  if (path) {
+    store.set("nav.selectedProject", path, {
+      path: "/",
+      maxAge: 60 * 60 * 24 * 365,
+      sameSite: "lax",
+    });
+  } else {
+    store.delete("nav.selectedProject");
+  }
+  const dest = !path || path === "root" ? "/s/root" : `/s/${path}`;
+  redirect(dest);
 }

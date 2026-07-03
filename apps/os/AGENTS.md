@@ -37,3 +37,11 @@ Auth helper: src/lib/agent-auth.ts (bearer → principal, consistent {error, req
 - Consistent error shape for agent clients: { error, requires? }
 
 Update this file when API surface or auth wiring changes. (canvas added M3-03)
+
+## Navigation (M4-02)
+- Sidebar replaced with project switcher (cookie-persisted via setSelectedProject action) + per-project module sidebar.
+- Switcher lists visible top-level projects (via getVisibleTree) + "⌂ overview" first for root-grant users.
+- Selected project section shows header + Dashboard/Overview/Activity/Docs/Canvas (+ Members for project) + Task Manager ↗ (uses api.getPlaneUrl).
+- All links use /s/<path>?tab=... matching scope page tabs. Active states based on path+tab.
+- getPlaneUrl added to @companyos/api (packages/api) for isolated URL (current /companyos/projects/${id}/issues ; fallback to PLANE_BASE_URL).
+- No module cross-imports; all nav logic client thin + server layout + api service.
