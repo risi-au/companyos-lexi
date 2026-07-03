@@ -11,12 +11,17 @@ import {
   getSubtree,
   getScope,
   createScope,
+  getVisibleTree,
   listEvents,
   listRecords,
   listTasks,
+  grantRole,
   resolveAccess,
+  listGrants,
+  revokeGrant,
   linkAuthUser,
   getPrincipalIdForAuthUser,
+  getPrincipalByEmail,
   getDashboard,
   queryMetrics,
   PlaneClient,
@@ -64,6 +69,7 @@ export const api = {
   // Scopes / tree
   getSubtree: (path: string) => getSubtree(db, path),
   getScope: (path: string) => getScope(db, path),
+  getVisibleTree: (principalId: string) => getVisibleTree(db, principalId),
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   createScope: (input: any, actor?: string | null) =>
     createScope(db, input, actor),
@@ -81,8 +87,15 @@ export const api = {
     listTasks(db, getPlaneClient() as any, input, actorPrincipalId),
 
   // Grants
+  grantRole: (input: Parameters<typeof grantRole>[1], actor?: string | null) =>
+    grantRole(db, input, actor),
   resolveAccess: (principalId: string, scopePath: string) =>
     resolveAccess(db, principalId, scopePath),
+  listGrants: (scopePath: string, actorPrincipalId: string) =>
+    listGrants(db, scopePath, actorPrincipalId),
+  revokeGrant: (input: { principalId: string; scopePath: string }, actor?: string | null) =>
+    revokeGrant(db, input, actor),
+  getPrincipalByEmail: (email: string) => getPrincipalByEmail(db, email),
 
   // Dashboards + metrics (M2-04)
   getDashboard: (input: Parameters<typeof getDashboard>[1], actorPrincipalId: string) =>
@@ -163,6 +176,12 @@ export async function getSubtreeForCurrent(path: string) {
   if (!actor) throw new Error("No actor for subtree");
   // Note: getSubtree does not enforce access in kernel (viewer assumed for read in tree), call direct
   return getSubtree(db, path);
+}
+
+export async function getVisibleTreeForCurrent() {
+  const actor = await getCurrentActorPrincipalId();
+  if (!actor) throw new Error("No actor for visible tree");
+  return getVisibleTree(db, actor);
 }
 
 export async function createScopeForCurrent(input: Parameters<typeof createScope>[1]) {

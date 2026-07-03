@@ -54,7 +54,7 @@ describe("kernel schema (PGlite + migrations)", () => {
     const [root] = rootRes;
     if (!root) throw new Error("root insert failed");
 
-    const c1Res = (await db.insert(scopes).values({ parentId: root.id, slug: "c1", path: "r-test/c1", name: "C1", type: "client", status: "active" }).returning()) as any[];
+    const c1Res = (await db.insert(scopes).values({ parentId: root.id, slug: "c1", path: "r-test/c1", name: "C1", type: "project", status: "active" }).returning()) as any[];
     const [c1] = c1Res;
     if (!c1) throw new Error("c1 insert failed");
 
@@ -62,7 +62,7 @@ describe("kernel schema (PGlite + migrations)", () => {
     const [c2] = c2Res;
     if (!c2) throw new Error("c2 insert failed");
 
-    const c3Res = (await db.insert(scopes).values({ parentId: c2.id, slug: "c3", path: "r-test/c1/c2/c3", name: "C3", type: "area", status: "active" }).returning()) as any[];
+    const c3Res = (await db.insert(scopes).values({ parentId: c2.id, slug: "c3", path: "r-test/c1/c2/c3", name: "C3", type: "subproject", status: "active" }).returning()) as any[];
     const [c3] = c3Res;
     if (!c3) throw new Error("c3 insert failed");
 
@@ -96,7 +96,7 @@ describe("kernel schema (PGlite + migrations)", () => {
     const [p] = pRes;
     if (!p) throw new Error("failed to create principal for grant test");
 
-    const sRes = (await db.insert(scopes).values({ slug: "g1", path: "grant-test-" + Date.now(), name: "G", type: "area", status: "active" }).returning()) as any[];
+    const sRes = (await db.insert(scopes).values({ slug: "g1", path: "grant-test-" + Date.now(), name: "G", type: "subproject", status: "active" }).returning()) as any[];
     const [s] = sRes;
     if (!s) throw new Error("failed to create scope for grant test");
 

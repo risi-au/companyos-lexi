@@ -22,15 +22,15 @@ export default async function AppLayout({
     redirect("/sign-in");
   }
 
-  // Scope tree from root (all scopes for M2-03)
-  const tree = await api.getSubtree("root");
+  // Grant-filtered tree (M4-01)
+  const tree = await api.getVisibleTree(actorId);
 
   return (
     <div className="flex min-h-screen bg-[var(--background)] text-[var(--foreground)]">
       {/* Sidebar */}
       <aside className="flex w-64 flex-col border-r border-[var(--border)] bg-[var(--surface)]"> {/* structural width; tokens used for inner spacing per design system */}
         <div className="px-[var(--space-4)] py-[var(--space-3)] border-b border-[var(--border)]">
-          <div className="text-[var(--font-size-lg)] font-semibold tracking-[-0.01em]">CompanyOS</div>
+          <div className="text-[var(--font-size-lg)] font-semibold tracking-[-0.01em]">{process.env.INSTANCE_NAME || "CompanyOS"}</div>
           <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">ops record</div>
         </div>
 

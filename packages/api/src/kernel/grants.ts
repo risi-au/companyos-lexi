@@ -1,5 +1,5 @@
 import { eq, and, inArray } from "drizzle-orm";
-import { grants, scopes } from "@companyos/db";
+import { grants, scopes, principals } from "@companyos/db";
 import type { Grant } from "@companyos/db";
 import { emitEvent, type DB } from "./events";
 import { getScope } from "./scopes";
@@ -139,3 +139,75 @@ export async function requireAccess(
     throw new AccessDeniedError(principalId, scopePath, minRole);
   }
 }
+
+export interface ScopeGrant {
+  grantId: string;
+  principalId: string;
+  role: Grant["role"];
+  principalName: string;
+  principalEmail: string | null;
+}
+
+export async function listGrants(
+  db: DB,
+  scopePath: string,
+  actorPrincipalId: string
+): Promise<ScopeGrant[]> {
+  await requireAccess(db, actorPrincipalId, scopePath, "viewer");
+
+  const scope = await getScope(db, scopePath);
+  if (!scope) return [];
+
+  const rows = await db
+    .select({
+      grantId: grants.id,
+      principalId: grants.principalId,
+      role: grants.role,
+      principalName: principals.name,
+      principalEmail: principals.email,
+    })
+    .from(grants)
+    .innerJoin(principals, eq(grants.principalId, principals.id))
+    .where(eq(grants.scopeId, scope.id))
+    .orderBy(grants.createdAt);
+
+  return rows as ScopeGrant[];
+}
+
+export async function revokeGrant(
+  db: DB,
+  input: { principalId: string; scopePath: string },
+  actor?: string | null
+): Promise<void> {
+  const { principalId, scopePath } = input;
+
+  const scope = await getScope(db, scopePath);
+  if (!scope) {
+    throw new ScopeNotFoundError(scopePath);
+  }
+
+  const [existing] = await db
+    .select()
+    .from(grants)
+    .where(
+      and(
+        eq(grants.principalId, principalId),
+        eq(grants.scopeId, scope.id)
+      )
+    )
+    .limit(1);
+
+  if (!existing) {
+    return; // idempotent
+  }
+
+  await db.delete(grants).where(eq(grants.id, existing.id));
+
+  await emitEvent(db, {
+    type: "grant.revoked",
+    scopePath,
+    principalId: actor ?? null,
+    payload: { principalId, scopePath },
+  });
+}
+

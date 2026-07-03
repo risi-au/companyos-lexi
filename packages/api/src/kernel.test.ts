@@ -14,10 +14,12 @@ import {
   getScope,
   getChildren,
   getSubtree,
+  getVisibleTree,
   archiveScope,
   grantRole,
   resolveAccess,
   requireAccess,
+  revokeGrant,
   issueToken,
   authenticateToken,
   revokeToken,
@@ -79,48 +81,113 @@ describe("kernel services (PGlite + migrations)", () => {
     expect(tables).toEqual(expect.arrayContaining(["scopes", "principals", "grants", "tokens", "module_instances", "events"]));
   });
 
+  it("enum migration applies cleanly on fresh DB and converts existing client/area rows", async () => {
+    // Fresh: use separate pglite + migrate, confirm new types work
+    const freshClient = new PGlite();
+    const freshDb = drizzle(freshClient, { schema });
+    const migPath = path.resolve(__dirname, "../../db/drizzle");
+    await migrate(freshDb, { migrationsFolder: migPath });
+    // fresh should allow project/subproject
+    await freshDb.execute("INSERT INTO scopes (id, slug, path, name, type, status) VALUES (gen_random_uuid(), 'p1', 'p1', 'P1', 'project', 'active')");
+    await freshDb.execute("INSERT INTO scopes (id, slug, path, name, type, status) VALUES (gen_random_uuid(), 's1', 'p1/s1', 'S1', 'subproject', 'active')");
+    const freshRes: any = await freshDb.execute("SELECT type FROM scopes WHERE path IN ('p1','p1/s1') ORDER BY path");
+    const frows = freshRes.rows || [];
+    const ftypes = frows.map((r: any) => r.type || (Array.isArray(r)? r[0] : r)).filter(Boolean);
+    expect(ftypes).toContain("project");
+    expect(ftypes).toContain("subproject");
+    await freshClient.close();
+
+    // Legacy data test: raw setup old enum + rows, apply 0009 stmts individually
+    const legClient = new PGlite();
+    await legClient.exec(`CREATE TYPE "public"."scope_type" AS ENUM('root', 'client', 'project', 'area');`);
+    await legClient.exec(`CREATE TABLE "scopes" (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      parent_id uuid,
+      slug text NOT NULL,
+      path text NOT NULL UNIQUE,
+      name text NOT NULL,
+      type "public"."scope_type" NOT NULL,
+      status text NOT NULL DEFAULT 'active',
+      settings jsonb NOT NULL DEFAULT '{}',
+      created_at timestamptz DEFAULT now(),
+      updated_at timestamptz DEFAULT now()
+    );`);
+    // Insert legacy rows (old values valid here)
+    await legClient.exec(`INSERT INTO scopes (slug, path, name, type, status) VALUES ('air', 'air', 'Airbuddy', 'client', 'active')`);
+    await legClient.exec(`INSERT INTO scopes (slug, path, name, type, status) VALUES ('area1', 'air/a1', 'Area1', 'area', 'active')`);
+    // Apply migration statements (temp text, update, recreate enum, cast)
+    await legClient.exec(`ALTER TABLE "scopes" ALTER COLUMN "type" TYPE text;`);
+    await legClient.exec(`UPDATE "scopes" SET "type" = 'project' WHERE "type" = 'client';`);
+    await legClient.exec(`UPDATE "scopes" SET "type" = 'subproject' WHERE "type" = 'area';`);
+    await legClient.exec(`DROP TYPE IF EXISTS "public"."scope_type";`);
+    await legClient.exec(`CREATE TYPE "public"."scope_type" AS ENUM('root', 'project', 'subproject');`);
+    await legClient.exec(`ALTER TABLE "scopes" ALTER COLUMN "type" TYPE "public"."scope_type" USING "type"::"public"."scope_type";`);
+    // Query using raw to get results reliably
+    const legQuery = await legClient.query(`SELECT type FROM scopes ORDER BY path`);
+    const lrows = legQuery.rows || [];
+    const ltypes = lrows.map((r: any) => r.type || (Array.isArray(r) ? r[0] : r)).filter(Boolean);
+    expect(ltypes).toContain("project");
+    expect(ltypes).toContain("subproject");
+    expect(ltypes.some((t: string) => t === 'client' || t === 'area')).toBe(false);
+    await legClient.close();
+  });
+
   describe("scopes", () => {
     it("createScope computes path for root child and nested depth 4", async () => {
-      const r = await createScope(db, { slug: "airbuddy", name: "Airbuddy", type: "client" }, rootPrincipalId);
+      const r = await createScope(db, { slug: "airbuddy", name: "Airbuddy", type: "project" }, rootPrincipalId);
       expect(r.path).toBe("airbuddy");
       expect(r.slug).toBe("airbuddy");
 
-      const c1 = await createScope(db, { parentPath: "airbuddy", slug: "marketing", name: "Marketing", type: "project" }, rootPrincipalId);
+      const c1 = await createScope(db, { parentPath: "airbuddy", slug: "marketing", name: "Marketing", type: "subproject" }, rootPrincipalId);
       expect(c1.path).toBe("airbuddy/marketing");
 
-      const c2 = await createScope(db, { parentPath: "airbuddy/marketing", slug: "meta-ads", name: "Meta Ads", type: "area" }, rootPrincipalId);
+      const c2 = await createScope(db, { parentPath: "airbuddy/marketing", slug: "meta-ads", name: "Meta Ads", type: "subproject" }, rootPrincipalId);
       expect(c2.path).toBe("airbuddy/marketing/meta-ads");
 
-      const c3 = await createScope(db, { parentPath: "airbuddy/marketing/meta-ads", slug: "retargeting", name: "Retarget", type: "area" }, rootPrincipalId);
+      const c3 = await createScope(db, { parentPath: "airbuddy/marketing/meta-ads", slug: "retargeting", name: "Retarget", type: "subproject" }, rootPrincipalId);
       expect(c3.path).toBe("airbuddy/marketing/meta-ads/retargeting");
       expect(c3.parentId).toBeTruthy();
     });
 
     it("createScope rejects invalid slug", async () => {
       await expect(
-        createScope(db, { slug: "Invalid_Slug!", name: "Bad", type: "area" }, rootPrincipalId)
+        createScope(db, { slug: "Invalid_Slug!", name: "Bad", type: "subproject" }, rootPrincipalId)
       ).rejects.toThrow(InvalidSlugError);
     });
 
     it("createScope rejects duplicate path", async () => {
       const unique = "dup-" + Date.now();
-      await createScope(db, { slug: unique, name: "D1", type: "client" }, rootPrincipalId);
+      await createScope(db, { slug: unique, name: "D1", type: "project" }, rootPrincipalId);
       await expect(
-        createScope(db, { slug: unique, name: "D2", type: "client" }, rootPrincipalId)
+        createScope(db, { slug: unique, name: "D2", type: "project" }, rootPrincipalId)
       ).rejects.toThrow(DuplicatePathError);
     });
 
     it("createScope rejects missing parent", async () => {
       await expect(
-        createScope(db, { parentPath: "no-such-parent", slug: "child", name: "C", type: "area" }, rootPrincipalId)
+        createScope(db, { parentPath: "no-such-parent", slug: "child", name: "C", type: "subproject" }, rootPrincipalId)
       ).rejects.toThrow(ParentNotFoundError);
+    });
+
+    it("createScope enforces top-level=project, nested=subproject", async () => {
+      const top = "v2top-" + Date.now();
+      await expect(
+        createScope(db, { slug: top, name: "BadTop", type: "subproject" }, rootPrincipalId)
+      ).rejects.toThrow(/Top-level/);
+      await createScope(db, { slug: top, name: "OkTop", type: "project" }, rootPrincipalId);
+      const nestedBad = "badnest";
+      await expect(
+        createScope(db, { parentPath: top, slug: nestedBad, name: "BadNest", type: "project" }, rootPrincipalId)
+      ).rejects.toThrow(/Nested/);
+      const okNest = await createScope(db, { parentPath: top, slug: "oksub", name: "OkSub", type: "subproject" }, rootPrincipalId);
+      expect(okNest.type).toBe("subproject");
     });
 
     it("getScope, getChildren, getSubtree work", async () => {
       const base = "tree-" + Date.now();
-      const rootS = await createScope(db, { slug: base, name: "RootT", type: "client" }, rootPrincipalId);
-      await createScope(db, { parentPath: base, slug: "c1", name: "C1", type: "project" }, rootPrincipalId);
-      await createScope(db, { parentPath: `${base}/c1`, slug: "c2", name: "C2", type: "area" }, rootPrincipalId);
+      const rootS = await createScope(db, { slug: base, name: "RootT", type: "project" }, rootPrincipalId);
+      await createScope(db, { parentPath: base, slug: "c1", name: "C1", type: "subproject" }, rootPrincipalId);
+      await createScope(db, { parentPath: `${base}/c1`, slug: "c2", name: "C2", type: "subproject" }, rootPrincipalId);
 
       const got = await getScope(db, base);
       expect(got?.id).toBe(rootS.id);
@@ -136,7 +203,7 @@ describe("kernel services (PGlite + migrations)", () => {
 
     it("archiveScope sets archived and emits event", async () => {
       const p = "arch-" + Date.now();
-      await createScope(db, { slug: p, name: "A", type: "area" }, rootPrincipalId);
+      await createScope(db, { slug: p, name: "A", type: "project" }, rootPrincipalId);
       const archived = await archiveScope(db, p, rootPrincipalId);
       expect(archived.status).toBe("archived");
 
@@ -148,7 +215,7 @@ describe("kernel services (PGlite + migrations)", () => {
   describe("grants and access resolution", () => {
     it("grantRole upserts and emits grant.created", async () => {
       const sp = "gscope-" + Date.now();
-      await createScope(db, { slug: sp, name: "G", type: "client" }, rootPrincipalId);
+      await createScope(db, { slug: sp, name: "G", type: "project" }, rootPrincipalId);
 
       const g1 = await grantRole(db, { principalId: rootPrincipalId, scopePath: sp, role: "owner" }, rootPrincipalId);
       expect(g1.role).toBe("owner");
@@ -163,10 +230,10 @@ describe("kernel services (PGlite + migrations)", () => {
     it("resolveAccess walks up ancestors: grant on airbuddy gives access to deep child, not to sibling", async () => {
       const air = "airbuddy-" + Date.now();
       const ind = "indya-" + Date.now();
-      await createScope(db, { slug: air, name: "Air", type: "client" }, rootPrincipalId);
-      await createScope(db, { parentPath: air, slug: "x", name: "X", type: "project" }, rootPrincipalId);
-      await createScope(db, { parentPath: `${air}/x`, slug: "y", name: "Y", type: "area" }, rootPrincipalId);
-      await createScope(db, { slug: ind, name: "Ind", type: "client" }, rootPrincipalId);
+      await createScope(db, { slug: air, name: "Air", type: "project" }, rootPrincipalId);
+      await createScope(db, { parentPath: air, slug: "x", name: "X", type: "subproject" }, rootPrincipalId);
+      await createScope(db, { parentPath: `${air}/x`, slug: "y", name: "Y", type: "subproject" }, rootPrincipalId);
+      await createScope(db, { slug: ind, name: "Ind", type: "project" }, rootPrincipalId);
 
       // grant only on airbuddy root
       await grantRole(db, { principalId: rootPrincipalId, scopePath: air, role: "editor" }, rootPrincipalId);
@@ -183,8 +250,8 @@ describe("kernel services (PGlite + migrations)", () => {
 
     it("role precedence: owner > admin > editor > viewer", async () => {
       const prec = "prec-" + Date.now();
-      await createScope(db, { slug: prec, name: "P", type: "client" }, rootPrincipalId);
-      await createScope(db, { parentPath: prec, slug: "c", name: "C", type: "project" }, rootPrincipalId);
+      await createScope(db, { slug: prec, name: "P", type: "project" }, rootPrincipalId);
+      await createScope(db, { parentPath: prec, slug: "c", name: "C", type: "subproject" }, rootPrincipalId);
 
       // viewer on root, admin on child => should resolve admin on child
       await grantRole(db, { principalId: rootPrincipalId, scopePath: prec, role: "viewer" }, rootPrincipalId);
@@ -199,7 +266,7 @@ describe("kernel services (PGlite + migrations)", () => {
 
     it("requireAccess throws AccessDeniedError when insufficient", async () => {
       const reqp = "req-" + Date.now();
-      await createScope(db, { slug: reqp, name: "R", type: "area" }, rootPrincipalId);
+      await createScope(db, { slug: reqp, name: "R", type: "project" }, rootPrincipalId);
       await grantRole(db, { principalId: rootPrincipalId, scopePath: reqp, role: "viewer" }, rootPrincipalId);
 
       await expect(
@@ -212,9 +279,9 @@ describe("kernel services (PGlite + migrations)", () => {
 
     it("agent grant confers inside subtree but not outside (resolve)", async () => {
       const ag = "agent-scope-" + Date.now();
-      await createScope(db, { slug: ag, name: "Ag", type: "client" }, rootPrincipalId);
-      await createScope(db, { parentPath: ag, slug: "sub", name: "Sub", type: "area" }, rootPrincipalId);
-      await createScope(db, { slug: ag + "-sib", name: "Sib", type: "client" }, rootPrincipalId);
+      await createScope(db, { slug: ag, name: "Ag", type: "project" }, rootPrincipalId);
+      await createScope(db, { parentPath: ag, slug: "sub", name: "Sub", type: "subproject" }, rootPrincipalId);
+      await createScope(db, { slug: ag + "-sib", name: "Sib", type: "project" }, rootPrincipalId);
 
       const agentPid = (await db.insert(schema.principals).values({ kind: "agent", name: "Bot-" + Date.now(), status: "active" }).returning() as any[])[0].id;
 
@@ -228,6 +295,56 @@ describe("kernel services (PGlite + migrations)", () => {
       await expect(requireAccess(db, agentPid, `${ag}/sub`, "viewer")).resolves.not.toThrow();
       await expect(requireAccess(db, agentPid, `${ag}/sub`, "admin")).rejects.toThrow(AccessDeniedError);
       await expect(requireAccess(db, agentPid, ag + "-sib", "viewer")).rejects.toThrow(AccessDeniedError);
+    });
+
+    it("getVisibleTree: root owner sees all; project-only sees exactly their project subtree; no-grant sees nothing", async () => {
+      const rootOwner = rootPrincipalId;
+      const projOnly = (await db.insert(schema.principals).values({ kind: "human", name: "ProjOnly" + Date.now() }).returning() as any[])[0].id;
+      const noGrant = (await db.insert(schema.principals).values({ kind: "human", name: "NoG" + Date.now() }).returning() as any[])[0].id;
+
+      // ensure root scope + grant (tests may not auto-seed root)
+      await createScope(db, { slug: "root", name: "Root", type: "root" }, rootOwner);
+      await grantRole(db, { principalId: rootOwner, scopePath: "root", role: "owner" }, rootOwner);
+
+      const air = "airvis-" + Date.now();
+      await createScope(db, { slug: air, name: "Air", type: "project" }, rootOwner);
+      await createScope(db, { parentPath: air, slug: "mkt", name: "Mkt", type: "subproject" }, rootOwner);
+
+      const other = "othervis-" + Date.now();
+      await createScope(db, { slug: other, name: "Other", type: "project" }, rootOwner);
+
+      await grantRole(db, { principalId: projOnly, scopePath: air, role: "editor" }, rootOwner);
+
+      // root owner
+      const visRoot = await getVisibleTree(db, rootOwner);
+      expect(visRoot.some(s => s.path === "root")).toBe(true);
+      expect(visRoot.some(s => s.path === air)).toBe(true);
+      expect(visRoot.some(s => s.path === other)).toBe(true);
+
+      // project only
+      const visProj = await getVisibleTree(db, projOnly);
+      expect(visProj.some(s => s.path === "root")).toBe(false);
+      expect(visProj.some(s => s.path === air)).toBe(true);
+      expect(visProj.some(s => s.path === `${air}/mkt`)).toBe(true);
+      expect(visProj.some(s => s.path === other)).toBe(false);
+
+      // no grant
+      const visNone = await getVisibleTree(db, noGrant);
+      expect(visNone.length).toBe(0);
+    });
+
+    it("revokeGrant removes grant and emits grant.revoked", async () => {
+      const sp = "revscope-" + Date.now();
+      await createScope(db, { slug: sp, name: "Rev", type: "project" }, rootPrincipalId);
+      const pid = (await db.insert(schema.principals).values({ kind: "human", name: "RevP" + Date.now() }).returning() as any[])[0].id;
+      await grantRole(db, { principalId: pid, scopePath: sp, role: "editor" }, rootPrincipalId);
+      expect(await resolveAccess(db, pid, sp)).toBe("editor");
+
+      await revokeGrant(db, { principalId: pid, scopePath: sp }, rootPrincipalId);
+      expect(await resolveAccess(db, pid, sp)).toBeNull();
+
+      const evs = await listEvents(db, { type: "grant.revoked", limit: 5 });
+      expect(evs.some(e => e.payload && (e.payload as any).scopePath === sp)).toBe(true);
     });
   });
 
@@ -286,7 +403,7 @@ describe("kernel services (PGlite + migrations)", () => {
       const beforeCountRes = await db.select().from(schema.events);
       const before = beforeCountRes.length;
 
-      await createScope(db, { slug: evPath, name: "E", type: "area" }, rootPrincipalId);
+      await createScope(db, { slug: evPath, name: "E", type: "project" }, rootPrincipalId);
       await grantRole(db, { principalId: rootPrincipalId, scopePath: evPath, role: "viewer" }, rootPrincipalId);
       await archiveScope(db, evPath, rootPrincipalId);
 
@@ -301,8 +418,8 @@ describe("kernel services (PGlite + migrations)", () => {
 
     it("listEvents filters by scopePath and type", async () => {
       const lp = "listp-" + Date.now();
-      await createScope(db, { slug: lp, name: "L", type: "client" }, rootPrincipalId);
-      await createScope(db, { parentPath: lp, slug: "c", name: "Lc", type: "project" }, rootPrincipalId);
+      await createScope(db, { slug: lp, name: "L", type: "project" }, rootPrincipalId);
+      await createScope(db, { parentPath: lp, slug: "c", name: "Lc", type: "subproject" }, rootPrincipalId);
 
       const scopeEvents = await listEvents(db, { scopePath: lp, limit: 50 });
       expect(scopeEvents.length).toBeGreaterThan(0);

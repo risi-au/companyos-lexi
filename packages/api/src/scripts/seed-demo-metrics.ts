@@ -67,7 +67,7 @@ export async function generateDemoMetrics(options: GenerateDemoOptions): Promise
           slug: scopePath,
           path: scopePath,
           name: "AirBuddy",
-          type: "client",
+          type: "project",
           status: "active",
           settings: {},
         })

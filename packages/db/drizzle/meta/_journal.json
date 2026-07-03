@@ -64,6 +64,13 @@
       "when": 1783100000000,
       "tag": "0008_brave_foxhound",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1783200000000,
+      "tag": "0009_structure_v2_enum",
+      "breakpoints": true
     }
   ]
 }

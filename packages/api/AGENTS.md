@@ -16,15 +16,18 @@ Implements the kernel: scope tree ops, grants/authz, token issuance+auth, event 
 - `src/errors.ts` — AccessDeniedError, ScopeNotFoundError, DuplicatePathError, InvalidSlugError, ParentNotFoundError, TokenNotFoundError, KernelError
 - `src/kernel/`
   - `events.ts` — emitEvent, listEvents
-  - `scopes.ts` — createScope, getScope, getChildren, getSubtree, archiveScope, listModules (for MCP context)
-  - `grants.ts` — grantRole, resolveAccess, requireAccess
+  - `scopes.ts` — createScope (enforces project/subproject), getScope, getChildren, getSubtree, getVisibleTree, archiveScope, listModules
+  - `grants.ts` — grantRole, resolveAccess, requireAccess, listGrants, revokeGrant (emits grant.revoked)
+  - `auth-link.ts` — getPrincipalByEmail (for member assignment)
   - `tokens.ts` — issueToken (returns plaintext once), authenticateToken (updates lastUsedAt), revokeToken
   - `index.ts` — barrel
 - `src/kernel.test.ts` — full PGlite coverage of contracts + acceptance criteria
 - `src/health.test.ts` — basic
 
 ## Key behaviors (per M1-03)
-- createScope: computes path = parent? parent.path + "/" + slug : slug. Slug validated `[a-z0-9-]+`. Rejects dups/missing parents.
+- createScope: top-level (direct under root) must be "project"; nested must be "subproject". Computes path, slug `[a-z0-9-]+`. Rejects dups/missing/invalid type.
+- getVisibleTree(principalId): returns only visible subtrees per grants (root grant => full; else only granted top projects + subs). No root row for limited users.
+- revokeGrant: deletes grant row + emits "grant.revoked". Idempotent.
 - resolveAccess: walks scope ancestors (self → root) for principal's grants, returns highest role or null.
 - agent grant covers subtree only (walk-up semantics).
 - Tokens: only hash stored (sha256 hex); plaintext `cos_` + base64url(32 bytes). Revoked/expired never auth.
@@ -54,7 +57,7 @@ Uses PGlite + drizzle migrator (copied pattern from packages/db/src/kernel.test.
 ```ts
 import { createScope, grantRole, issueToken, requireAccess } from "@companyos/api";
 const db = ...; // from @companyos/db or pglite
-const scope = await createScope(db, { slug: "acme", name: "Acme", type: "client" }, principalId);
+const scope = await createScope(db, { slug: "acme", name: "Acme", type: "project" }, principalId);
 await grantRole(db, { principalId, scopePath: "acme", role: "owner" });
 const token = await issueToken(db, { principalId, name: "agent-1" });
 await requireAccess(db, principalId, "acme", "viewer");

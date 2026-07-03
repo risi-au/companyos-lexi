@@ -1,10 +1,11 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { api, getCurrentActorPrincipalId } from "@/lib/api";
 import { DashboardRenderer, DashboardEmptyState, RangePicker } from "@/modules/dashboards";
 import { DocsView } from "@/modules/docs";
 import { CanvasView } from "@/modules/canvas";
 import { getDashboard } from "@companyos/api";
 import { AskOSButton } from "@/modules/agent";
+import { addMemberToScope, changeMemberRole, revokeMember } from "../../_components/actions";
 // Consume spec contract (never fork schema); derive type from service surface for compile
 type DashboardSpec = NonNullable<Awaited<ReturnType<typeof getDashboard>>>["spec"] & {
   version: 1;
@@ -30,6 +31,20 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
   const actor = await getCurrentActorPrincipalId();
   if (!actor) {
     return null;
+  }
+
+  // For root: if no root grant, redirect to first visible project (grant-filtered nav)
+  if (scopePath === "root") {
+    const rootAccess = await api.resolveAccess(actor, "root");
+    if (!rootAccess) {
+      const visible = await api.getVisibleTree(actor);
+      const first = visible.find((s: { type: string; path: string }) => s.type === "project");
+      if (first) {
+        redirect(`/s/${first.path}`);
+      } else {
+        notFound();
+      }
+    }
   }
 
   const scope = await api.getScope(scopePath);
@@ -65,6 +80,9 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
     if (t === "canvas") {
       return `/s/${scopePath}?tab=canvas${canvasParam ? `&canvas=${encodeURIComponent(canvasParam)}` : ""}`;
     }
+    if (t === "members") {
+      return `/s/${scopePath}?tab=members`;
+    }
     return `/s/${scopePath}?tab=${t}`;
   };
 
@@ -73,6 +91,8 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
   const isActivity = currentTab === "activity";
   const isDocs = currentTab === "docs";
   const isCanvas = currentTab === "canvas";
+  const isMembers = currentTab === "members";
+  const canManageMembers = scope.type === "project" && ["owner", "admin"].includes(access);
 
   return (
     <div className="space-y-[var(--space-6)]">
@@ -82,7 +102,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
           <div className="flex items-center gap-[var(--space-2)]">
             <h1 className="text-[var(--font-size-2xl)] font-semibold tracking-[-0.01em]">{scope.name}</h1>
             <span className="inline-block rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
-              {scope.type}
+              {scope.type === "project" ? "Project / Client" : scope.type === "subproject" ? "Sub-project" : scope.type}
             </span>
             <span className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">· {scope.status}</span>
           </div>
@@ -134,6 +154,14 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
           >
             Canvas
           </a>
+          {canManageMembers && (
+            <a
+              href={makeTabHref("members")}
+              className={`${isMembers ? "border-b-2 border-[var(--primary)] font-medium text-[var(--primary)]" : "text-[var(--muted-foreground)]"} pb-[var(--space-2)]`}
+            >
+              Members
+            </a>
+          )}
         </div>
       </div>
 
@@ -252,6 +280,11 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
         <CanvasView scopePath={scopePath} initialCanvasSlug={canvasParam} initialAccess={access} />
       )}
 
+      {/* Members tab (M4-01) - only for top-level projects to root/project admins */}
+      {isMembers && canManageMembers && (
+        <MembersTab scopePath={scopePath} actor={actor} />
+      )}
+
       {/* Overview + Activity legacy combined when not dashboard (keep full original layout for overview+activity non-tabbed fallback if any) */}
       {!isDashboard && !isOverview && !isActivity && !isDocs && !isCanvas && (
         <div className="space-y-[var(--space-4)]">
@@ -332,6 +365,86 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Members management UI for project admins/root admins */
+async function MembersTab({ scopePath, actor }: { scopePath: string; actor: string }) {
+  const grants = await api.listGrants(scopePath, actor);
+
+  return (
+    <div className="space-y-[var(--space-4)]">
+      <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
+        <div className="mb-[var(--space-3)] text-[var(--font-size-sm)] font-medium">Project members (grants on this scope)</div>
+
+        {grants.length === 0 ? (
+          <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No direct grants on this scope.</div>
+        ) : (
+          <table className="w-full text-[var(--font-size-sm)]">
+            <thead>
+              <tr className="text-left text-[var(--muted-foreground)]">
+                <th className="pb-2">Name</th>
+                <th className="pb-2">Email</th>
+                <th className="pb-2">Role</th>
+                <th className="pb-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {grants.map((g: { grantId: string; principalId: string; principalName: string; principalEmail: string | null; role: string }) => (
+                <tr key={g.grantId} className="border-t border-[var(--border)]">
+                  <td className="py-[var(--space-2)]">{g.principalName}</td>
+                  <td className="py-[var(--space-2)] text-[var(--muted-foreground)]">{g.principalEmail || "—"}</td>
+                  <td className="py-[var(--space-2)]">
+                    <form action={changeMemberRole} className="inline-flex gap-1">
+                      <input type="hidden" name="scopePath" value={scopePath} />
+                      <input type="hidden" name="principalId" value={g.principalId} />
+                      <select name="role" defaultValue={g.role} className="rounded border border-[var(--border)] bg-[var(--background)] px-2 py-0.5 text-xs">
+                        <option value="owner">owner</option>
+                        <option value="admin">admin</option>
+                        <option value="editor">editor</option>
+                        <option value="viewer">viewer</option>
+                        <option value="agent">agent</option>
+                      </select>
+                      <button type="submit" className="rounded border border-[var(--border)] px-2 py-0.5 text-xs hover:bg-[var(--muted)]">Save</button>
+                    </form>
+                  </td>
+                  <td className="py-[var(--space-2)]">
+                    <form action={revokeMember} className="inline">
+                      <input type="hidden" name="scopePath" value={scopePath} />
+                      <input type="hidden" name="principalId" value={g.principalId} />
+                      <button type="submit" className="rounded border border-[var(--destructive)] px-2 py-0.5 text-xs text-[var(--destructive)] hover:bg-[var(--muted)]">Revoke</button>
+                    </form>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
+        <div className="mb-[var(--space-3)] text-[var(--font-size-sm)] font-medium">Add member (existing user by email; default editor)</div>
+        <form action={addMemberToScope} className="flex flex-wrap gap-[var(--space-2)] items-end">
+          <input type="hidden" name="scopePath" value={scopePath} />
+          <div>
+            <label className="block text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Email</label>
+            <input name="email" type="email" required className="w-64 rounded border border-[var(--border)] bg-[var(--background)] px-[var(--space-2)] py-1 text-sm" placeholder="user@example.com" />
+          </div>
+          <div>
+            <label className="block text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Role</label>
+            <select name="role" defaultValue="editor" className="rounded border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-sm">
+              <option value="owner">owner</option>
+              <option value="admin">admin</option>
+              <option value="editor">editor (default)</option>
+              <option value="viewer">viewer</option>
+              <option value="agent">agent</option>
+            </select>
+          </div>
+          <button type="submit" className="rounded bg-[var(--primary)] px-3 py-1 text-sm text-[var(--primary-foreground)]">Add member</button>
+        </form>
+        <p className="mt-2 text-[var(--font-size-xs)] text-[var(--muted-foreground)]">User must already have signed up (auth principal exists).</p>
+      </div>
     </div>
   );
 }

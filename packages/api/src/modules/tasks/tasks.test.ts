@@ -185,8 +185,8 @@ describe("tasks module (PGlite + mocked Plane)", () => {
     it("first call for airbuddy/website creates one project (for top) and label for exact path", async () => {
       const top = "airbuddy-prov-" + Date.now();
       const sub = `${top}/website`;
-      await createScope(db, { slug: top, name: "AirBuddy", type: "client" }, rootPrincipalId);
-      await createScope(db, { parentPath: top, slug: "website", name: "Website", type: "area" }, rootPrincipalId);
+      await createScope(db, { slug: top, name: "AirBuddy", type: "project" }, rootPrincipalId);
+      await createScope(db, { parentPath: top, slug: "website", name: "Website", type: "subproject" }, rootPrincipalId);
       await grantRole(db, { principalId: rootPrincipalId, scopePath: top, role: "editor" }, rootPrincipalId);
 
       const plane = makeMockPlane();
@@ -217,9 +217,9 @@ describe("tasks module (PGlite + mocked Plane)", () => {
       const top = "airbuddy-map-" + Date.now();
       const s1 = `${top}/website`;
       const s2 = `${top}/meta-ads`;
-      await createScope(db, { slug: top, name: "Air", type: "client" }, rootPrincipalId);
-      await createScope(db, { parentPath: top, slug: "website", name: "Web", type: "area" }, rootPrincipalId);
-      await createScope(db, { parentPath: top, slug: "meta-ads", name: "Meta", type: "area" }, rootPrincipalId);
+      await createScope(db, { slug: top, name: "Air", type: "project" }, rootPrincipalId);
+      await createScope(db, { parentPath: top, slug: "website", name: "Web", type: "subproject" }, rootPrincipalId);
+      await createScope(db, { parentPath: top, slug: "meta-ads", name: "Meta", type: "subproject" }, rootPrincipalId);
       await grantRole(db, { principalId: rootPrincipalId, scopePath: top, role: "editor" }, rootPrincipalId);
 
       const plane = makeMockPlane();
@@ -258,7 +258,7 @@ describe("tasks module (PGlite + mocked Plane)", () => {
 
     it("viewer denied create", async () => {
       const sp = "airbuddy-vdeny-" + Date.now();
-      await createScope(db, { slug: sp, name: "V", type: "area" }, rootPrincipalId);
+      await createScope(db, { slug: sp, name: "V", type: "project" }, rootPrincipalId);
       await grantRole(db, { principalId: viewerPrincipalId, scopePath: sp, role: "viewer" }, rootPrincipalId);
 
       const plane = makeMockPlane();
@@ -270,8 +270,8 @@ describe("tasks module (PGlite + mocked Plane)", () => {
     it("agent write in subtree ok, outside denied", async () => {
       const rootP = "airbuddy-ag-" + Date.now();
       const sub = `${rootP}/eng`;
-      await createScope(db, { slug: rootP, name: "A", type: "client" }, rootPrincipalId);
-      await createScope(db, { parentPath: rootP, slug: "eng", name: "Eng", type: "area" }, rootPrincipalId);
+      await createScope(db, { slug: rootP, name: "A", type: "project" }, rootPrincipalId);
+      await createScope(db, { parentPath: rootP, slug: "eng", name: "Eng", type: "subproject" }, rootPrincipalId);
       await grantRole(db, { principalId: agentPrincipalId, scopePath: rootP, role: "agent" }, rootPrincipalId);
 
       const plane = makeMockPlane();
@@ -279,7 +279,7 @@ describe("tasks module (PGlite + mocked Plane)", () => {
       expect(ok.id).toBeTruthy();
 
       const other = "airbuddy-other-" + Date.now();
-      await createScope(db, { slug: other, name: "O", type: "area" }, rootPrincipalId);
+      await createScope(db, { slug: other, name: "O", type: "project" }, rootPrincipalId);
       await expect(
         createTask(db, plane, { scopePath: other, title: "Bad" }, agentPrincipalId)
       ).rejects.toThrow(AccessDeniedError);

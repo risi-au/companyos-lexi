@@ -3,6 +3,7 @@ import { principals, grants } from "@companyos/db";
 import { emitEvent, type DB } from "./events";
 import { getScope } from "./scopes";
 import { grantRole } from "./grants";
+import type { Principal } from "@companyos/db";
 
 /**
  * Auth ↔ Kernel principal link service (pre-approved additive change).
@@ -135,4 +136,16 @@ export async function getPrincipalIdForAuthUser(db: DB, authUserId: string): Pro
     .where(eq(principals.authUserId, authUserId))
     .limit(1);
   return p ? p.id : null;
+}
+
+/**
+ * Lookup principal by email for member assignment (must be existing user; no invites here).
+ */
+export async function getPrincipalByEmail(db: DB, email: string): Promise<Principal | null> {
+  const [p] = await db
+    .select()
+    .from(principals)
+    .where(eq(principals.email, email))
+    .limit(1);
+  return (p as Principal) ?? null;
 }
