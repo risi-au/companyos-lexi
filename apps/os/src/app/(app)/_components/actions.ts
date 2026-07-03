@@ -2,11 +2,15 @@
 
 import { api, getCurrentActorPrincipalId } from "@/lib/api";
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 
 export async function createNewScope(formData: FormData): Promise<{ path?: string; error?: string }> {
   const name = (formData.get("name") as string || "").trim();
   const slug = (formData.get("slug") as string || "").trim() || name.toLowerCase().replace(/[^a-z0-9-]/g, "-");
-  const type = (formData.get("type") as "project" | "subproject") || "project";
+  const parentPath = (formData.get("parentPath") as string || "").trim() || null;
+  // Type follows placement: top level = project, nested = subproject
+  const type: "project" | "subproject" = parentPath ? "subproject" : "project";
 
   if (!name || !slug) {
     return { error: "Name and slug required" };
@@ -15,14 +19,13 @@ export async function createNewScope(formData: FormData): Promise<{ path?: strin
   const actor = await getCurrentActorPrincipalId();
   if (!actor) return { error: "Not authenticated" };
 
-  // Enforce at least admin on root (UI layer + service expectation); note createScope itself does not call requireAccess (kernel limited per task)
-  const canCreate = await api.resolveAccess(actor, "root");
+  // Enforce at least admin on the parent (or root for top-level creates)
+  const canCreate = await api.resolveAccess(actor, parentPath || "root");
   if (!canCreate || !["owner", "admin"].includes(canCreate)) {
     return { error: "Insufficient permissions to create scope" };
   }
 
-  // Determine parent: default to root (dialog lacks live current path context)
-  const created = await api.createScope({ slug, name, type, parentPath: null }, actor);
+  const created = await api.createScope({ slug, name, type, parentPath }, actor);
 
   revalidatePath("/");
   revalidatePath(`/s/${created.path}`);
@@ -89,4 +92,21 @@ export async function revokeMember(formData: FormData): Promise<void> {
 
   await api.revokeGrant({ principalId, scopePath }, actor);
   revalidatePath(`/s/${scopePath}`);
+}
+
+/** Server action for project switcher: persists selection in cookie (SSR) then redirects */
+export async function setSelectedProject(formData: FormData): Promise<void> {
+  const path = ((formData.get("path") as string) || "").trim();
+  const store = await cookies();
+  if (path) {
+    store.set("nav.selectedProject", path, {
+      path: "/",
+      maxAge: 60 * 60 * 24 * 365,
+      sameSite: "lax",
+    });
+  } else {
+    store.delete("nav.selectedProject");
+  }
+  const dest = !path || path === "root" ? "/s/root" : `/s/${path}`;
+  redirect(dest);
 }

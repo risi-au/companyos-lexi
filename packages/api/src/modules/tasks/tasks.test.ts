@@ -18,6 +18,7 @@ import {
   ensureTaskTarget,
   listEvents,
   listRecords,
+  getPlaneUrl,
 } from "../../index";
 import { AccessDeniedError } from "../../index";
 
@@ -395,5 +396,48 @@ describe("tasks module (PGlite + mocked Plane)", () => {
     const all = await listEvents(db, { scopePath: sp, limit: 20 });
     const types = all.map((e: any) => e.type);
     expect(types).toEqual(expect.arrayContaining(["task.created", "task.updated", "task.completed", "tasks.target_provisioned"]));
+  });
+
+  describe("getPlaneUrl (M4-02)", () => {
+    it("returns fallback when no task_links row", async () => {
+      const sp = "plane-fallback-" + Date.now();
+      await createScope(db, { slug: sp, name: "NoLink", type: "project" }, rootPrincipalId);
+      // no grant or link needed for getPlaneUrl (read helper)
+      const url = await getPlaneUrl(db, sp);
+      expect(url).toBe("https://app.plane.so"); // default fallback (no PLANE_BASE_URL in test)
+    });
+
+    it("returns constructed URL when task_link exists for top project (via ensure)", async () => {
+      const sp = "plane-linked-" + Date.now();
+      await createScope(db, { slug: sp, name: "LinkedP", type: "project" }, rootPrincipalId);
+      await grantRole(db, { principalId: rootPrincipalId, scopePath: sp, role: "owner" }, rootPrincipalId);
+
+      const plane = makeMockPlane();
+      await ensureTaskTarget(db, plane, sp); // populates task_links row for top
+
+      const url = await getPlaneUrl(db, sp);
+      // ensure created a proj_... id ; url should use /companyos/projects/<id>/issues
+      expect(url).toMatch(/\/companyos\/projects\/proj_[^/]+\/issues$/);
+    });
+
+    it("uses link from top for subproject path", async () => {
+      const top = "plane-t2-" + Date.now();
+      const sub = `${top}/sub`;
+      await createScope(db, { slug: top, name: "T2", type: "project" }, rootPrincipalId);
+      await createScope(db, { parentPath: top, slug: "sub", name: "S2", type: "subproject" }, rootPrincipalId);
+      await grantRole(db, { principalId: rootPrincipalId, scopePath: top, role: "owner" }, rootPrincipalId);
+
+      const plane = makeMockPlane();
+      await ensureTaskTarget(db, plane, sub);
+
+      const url = await getPlaneUrl(db, sub);
+      expect(url).toMatch(/\/companyos\/projects\/proj_[^/]+\/issues$/);
+    });
+
+    it("root returns fallback base", async () => {
+      const url = await getPlaneUrl(db, "root");
+      expect(typeof url).toBe("string");
+      expect(url.length).toBeGreaterThan(0);
+    });
   });
 });

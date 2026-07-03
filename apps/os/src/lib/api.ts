@@ -17,6 +17,7 @@ import {
   listTasks,
   grantRole,
   resolveAccess,
+  getPlaneUrl,
   listGrants,
   revokeGrant,
   linkAuthUser,
@@ -85,6 +86,7 @@ export const api = {
   listTasks: (input: Parameters<typeof listTasks>[2], actorPrincipalId: string) =>
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     listTasks(db, getPlaneClient() as any, input, actorPrincipalId),
+  getPlaneUrl: (scopePath: string) => getPlaneUrl(db, scopePath),
 
   // Grants
   grantRole: (input: Parameters<typeof grantRole>[1], actor?: string | null) =>

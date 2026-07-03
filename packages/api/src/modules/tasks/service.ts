@@ -414,3 +414,31 @@ export async function findScopeByPlaneProject(
     planeLabelId: pick.planeLabelId,
   };
 }
+
+/**
+ * Returns the Plane Task Manager URL for a given scopePath.
+ * Uses task_links for the top-level project; falls back to PLANE_BASE_URL if none.
+ * NOTE: URL format is temporary (M4-03 will update); keep construction isolated here.
+ */
+export async function getPlaneUrl(db: DB, scopePath: string): Promise<string> {
+  const rawBase = process.env.PLANE_BASE_URL || "https://app.plane.so";
+  const base = rawBase.replace(/\/$/, "");
+  if (!scopePath || scopePath === "root") {
+    return base;
+  }
+  // Current mapping stores links under the top-level project path
+  const topPath = scopePath.split("/")[0] || scopePath;
+  const top = await getScope(db, topPath);
+  if (!top) return base;
+
+  const [row] = (await db
+    .select({ planeProjectId: taskLinks.planeProjectId })
+    .from(taskLinks)
+    .where(eq(taskLinks.scopeId, top.id))
+    .limit(1)) as { planeProjectId?: string }[];
+
+  if (row && row.planeProjectId) {
+    return `${base}/companyos/projects/${row.planeProjectId}/issues`;
+  }
+  return base;
+}
