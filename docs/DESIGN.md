@@ -38,7 +38,15 @@ Agents and vendor tools are stateless workers. All durable state — tasks, chan
 16. **SaaS structure** — two admin planes. **Control plane** (platform super-admin): tenant registry, provision/suspend/remove tenant instances, per-tenant resource + token usage, versions, platform roles, billing hooks later. **Tenant admin** (module inside each tenant): user management, SSO (OIDC via Better Auth), agent token management, observability — API usage + token spend by scope/capability/model/principal, full activity log (the events table), admin-gated MCP tools (`query_events`, `query_usage`) so optimization agents can analyze the OS's own usage.
 17. **Portability** — API-first: web UI, MCP agents, and future mobile (Expo/React Native) are three clients of one typed service layer. Web ships as responsive PWA day one. Nothing reachable only through the UI.
 
-**Terminology:** a SaaS customer = **tenant** (tenant #1 = the holding company). Inside a tenant, airbuddy/indya are **scopes**. Never conflate.
+**Terminology:** a SaaS customer = **tenant/instance** (instance #1 = **Brissie Digital**). Inside a tenant, airbuddy/indya are **scopes**. Never conflate.
+
+### Structure ratification (2026-07-03)
+
+1. **Scope types:** `project` (top level — client work and own ventures alike; UI label "Project / Client") and `subproject` (everything nested; formerly "area"). `client` type removed (migrated to `project`). `root` unchanged.
+2. **Isolation ladder:** SaaS platform (companyos repo + control plane) → instance (own stack, own users, own tenant repo, e.g. Brissie Digital) → project (own GitHub repo, own Plane workspace, own user assignments) → subproject (folders inside the project repo).
+3. **Plane mapping v2:** one **Plane workspace per OS project** (was: one Plane project per OS project). Inside it, one Plane project per subproject (plus a default "General"). `task_links` gains workspace slug. Chosen knowingly: hard isolation for future client access outweighs the loss of a single cross-project board.
+4. **GitHub:** one **GitHub org per instance** (instance #1: `brissie-digital`); project repos live in the org. Org creation is manual (GitHub API cannot create orgs); repo creation is automated.
+5. **Access UX:** users assigned to a project (default role **editor**) see ONLY their assigned projects — the scope tree and all navigation are filtered by grants, not just enforced on read.
 
 ---
 
