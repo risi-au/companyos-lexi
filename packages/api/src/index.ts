@@ -22,6 +22,7 @@ export * from "./modules/canvas/service";
 
 // Tasks module (Plane adapter)
 export * from "./modules/tasks/service";
+export { setProjectWorkspace } from "./modules/tasks/service";
 export { PlaneClient, type PlaneConfig, type FetchLike } from "./modules/tasks/plane-client";
 
 // Agent HTTP / n8n support (M2-05)

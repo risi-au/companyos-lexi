@@ -5,10 +5,11 @@
 ## Roles
 
 - **Architect/Reviewer (Claude Fable, in Claude Code):** writes task briefs, reviews every diff against the brief + CONSTITUTION.md, runs tests, merges or writes fix lists. Owns kernel contracts, architecture decisions, and anything an implementer circles on twice.
-- **Implementer (Grok, headless):** executes exactly one task brief per run. Invoked as:
+- **Implementer (Grok, headless; Codex as fallback/for harder tasks):** executes exactly one task brief per run. Invoked as:
   ```
-  grok -p "Read docs/ORCHESTRATION.md, then implement docs/tasks/<BRIEF>.md exactly. Respect docs/CONSTITUTION.md." --cwd <repo> --permission-mode acceptEdits --effort high --check
+  grok -p "Read docs/ORCHESTRATION.md, then implement docs/tasks/<BRIEF>.md exactly. Respect docs/CONSTITUTION.md." --cwd <repo> --permission-mode acceptEdits --check
   ```
+  See **docs/SUBAGENTS.md** for known CLI failure modes (do NOT pass `--effort high` to grok; close stdin for codex), the codex invocation template, and the mandatory post-run verification checklist.
 - **Owner (Rishi):** approves milestones, makes product calls, provides credentials/accounts when needed.
 
 ## The loop

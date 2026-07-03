@@ -17,6 +17,61 @@ import { PlaneClient } from "./plane-client";
 export interface TaskTarget {
   projectId: string;
   labelId: string | null;
+  /** Registered workspace slug for this scope's project; null = client's default workspace (legacy v1). */
+  workspaceSlug: string | null;
+}
+
+/** Rebind the client to the target's workspace (no-op for legacy/default targets). */
+export function planeForTarget(plane: PlaneClient, target: { workspaceSlug: string | null }): PlaneClient {
+  return target.workspaceSlug ? plane.forWorkspace(target.workspaceSlug) : plane;
+}
+
+/** Create a Plane project, adopting an existing one by name on conflict (409). */
+async function ensurePlaneProject(plane: PlaneClient, name: string, identifier: string): Promise<string> {
+  let proj: any;
+  try {
+    proj = await plane.createProject(name, identifier);
+  } catch {
+    const existing = await plane.getProjects();
+    const list = Array.isArray(existing) ? existing : (existing as any)?.results || [];
+    proj = list.find((pr: any) => pr.name === name);
+    if (!proj) throw new Error(`Plane project create failed and no existing project named ${name}`);
+  }
+  const projectId =
+    proj.id || proj.uuid || proj.project_id || (typeof proj === "string" ? proj : "") || (proj as any).results?.[0]?.id || "";
+  if (!projectId) throw new Error("Failed to obtain plane project id");
+  return projectId;
+}
+
+function projectIdentifier(seed: string): string {
+  return seed.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 5) || "TASK";
+}
+
+async function getTaskLink(db: DB, scopeId: string): Promise<TaskLink | null> {
+  const [row] = (await db
+    .select()
+    .from(taskLinks)
+    .where(eq(taskLinks.scopeId, scopeId))
+    .limit(1)) as any[];
+  return (row as TaskLink) || null;
+}
+
+async function upsertTaskLink(
+  db: DB,
+  scopeId: string,
+  values: { planeProjectId?: string; planeLabelId?: string | null; planeWorkspaceSlug?: string | null }
+): Promise<void> {
+  const existing = await getTaskLink(db, scopeId);
+  if (existing) {
+    await db.update(taskLinks).set(values).where(eq(taskLinks.id, existing.id));
+  } else {
+    await db.insert(taskLinks).values({
+      scopeId,
+      planeProjectId: values.planeProjectId ?? "",
+      planeLabelId: values.planeLabelId ?? null,
+      planeWorkspaceSlug: values.planeWorkspaceSlug ?? null,
+    });
+  }
 }
 
 export async function ensureTaskTarget(
@@ -32,53 +87,29 @@ export async function ensureTaskTarget(
   // compute top-level scope path for the project (first segment)
   const topPath = scopePath.split("/")[0] || scopePath;
 
-  const topScope = await getScope(db, topPath);
+  const topScope = topPath === scopePath ? scope : await getScope(db, topPath);
   const topScopeId = topScope?.id ?? null;
 
-  // find or create project link for top
-  let topLink: TaskLink | null = null;
-  if (topScopeId) {
-    const [topRow] = (await db
-      .select()
-      .from(taskLinks)
-      .where(eq(taskLinks.scopeId, topScopeId))
-      .limit(1)) as any[];
-    if (topRow) {
-      topLink = topRow as TaskLink;
-    }
+  const topLink: TaskLink | null = topScopeId ? await getTaskLink(db, topScopeId) : null;
+
+  // M4-03: registered workspace → v2 mapping (workspace-per-project)
+  const registeredSlug = topLink?.planeWorkspaceSlug || null;
+  if (registeredSlug && topScope) {
+    return ensureTaskTargetV2(db, plane.forWorkspace(registeredSlug), registeredSlug, scope, topScope, topLink);
   }
 
+  // ---- legacy v1: one Plane project per OS project in the default workspace ----
   let projectId = "";
-  if (topLink) {
+  if (topLink && topLink.planeProjectId) {
     projectId = topLink.planeProjectId;
   } else {
     // create project lazily in Plane; adopt an existing project on name
     // conflict (409) — happens when task_links is missing but Plane has it
     const projName = topScope?.name || topPath;
-    let proj;
-    try {
-      proj = await plane.createProject(projName, topPath.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 5) || "TASK");
-    } catch {
-      const existing = await plane.getProjects();
-      const list = Array.isArray(existing) ? existing : (existing as any)?.results || [];
-      proj = list.find((pr: any) => pr.name === projName);
-      if (!proj) throw new Error(`Plane project create failed and no existing project named ${projName}`);
-    }
-    projectId = proj.id || proj.uuid || proj.project_id || (typeof proj === "string" ? proj : "");
-    if (!projectId) {
-      // fallback if response shape different
-      projectId = (proj as any).id || (proj as any).results?.[0]?.id || "";
-    }
-    if (!projectId) throw new Error("Failed to obtain plane project id");
+    projectId = await ensurePlaneProject(plane, projName, projectIdentifier(topPath));
 
-    // store link for the top scope (project only)
-    const topScopeRow = topScope;
-    if (topScopeRow) {
-      await db.insert(taskLinks).values({
-        scopeId: topScopeRow.id,
-        planeProjectId: projectId,
-        planeLabelId: null,
-      });
+    if (topScope) {
+      await upsertTaskLink(db, topScope.id, { planeProjectId: projectId });
       await emitEvent(db, {
         type: "tasks.target_provisioned",
         scopePath: topPath,
@@ -89,19 +120,14 @@ export async function ensureTaskTarget(
   if (!projectId) throw new Error("Failed to resolve plane project id for target");
 
   // now ensure label for the *exact* scopePath
-  const scopeRow = scope;
   const labelName = `scope:${scopePath}`;
 
   // check if we have a stored link for this exact scope
-  const [existing] = (await db
-    .select()
-    .from(taskLinks)
-    .where(eq(taskLinks.scopeId, scopeRow.id))
-    .limit(1)) as any[];
+  const existing = await getTaskLink(db, scope.id);
 
   if (existing && existing.planeLabelId) {
     // idempotent: already have label for this scope
-    return { projectId, labelId: existing.planeLabelId };
+    return { projectId, labelId: existing.planeLabelId, workspaceSlug: null };
   }
 
   // ensure label exists in plane project (list + find or create)
@@ -114,19 +140,7 @@ export async function ensureTaskTarget(
 
   if (!labelId) throw new Error("Failed to obtain plane label id");
 
-  // upsert/store the link for this scope (project + label)
-  if (existing) {
-    await db
-      .update(taskLinks)
-      .set({ planeProjectId: projectId, planeLabelId: labelId })
-      .where(eq(taskLinks.id, existing.id));
-  } else {
-    await db.insert(taskLinks).values({
-      scopeId: scopeRow.id,
-      planeProjectId: projectId,
-      planeLabelId: labelId,
-    });
-  }
+  await upsertTaskLink(db, scope.id, { planeProjectId: projectId, planeLabelId: labelId });
 
   await emitEvent(db, {
     type: "tasks.target_provisioned",
@@ -134,7 +148,144 @@ export async function ensureTaskTarget(
     payload: { planeProjectId: projectId, planeLabelId: labelId, kind: "scope" },
   });
 
-  return { projectId, labelId };
+  return { projectId, labelId, workspaceSlug: null };
+}
+
+/**
+ * V2 mapping (registered workspace): the OS project's own tasks live in a "General"
+ * Plane project; each second-level subproject gets its own Plane project; deeper
+ * scopes use their second-level ancestor's project + a scope:<path> label.
+ * Rows written under v2 always carry the workspace slug; rows with a different
+ * (or missing) slug are stale v1/other-workspace links and are ignored + rewritten.
+ */
+async function ensureTaskTargetV2(
+  db: DB,
+  wsPlane: PlaneClient,
+  slug: string,
+  scope: NonNullable<Awaited<ReturnType<typeof getScope>>>,
+  topScope: NonNullable<Awaited<ReturnType<typeof getScope>>>,
+  topLink: TaskLink | null
+): Promise<TaskTarget> {
+  const segments = scope.path.split("/");
+
+  // Top-level project itself → "General"
+  if (segments.length === 1) {
+    let projectId = topLink?.planeWorkspaceSlug === slug ? topLink.planeProjectId : "";
+    if (!projectId) {
+      projectId = await ensurePlaneProject(wsPlane, "General", "GEN");
+      await upsertTaskLink(db, topScope.id, { planeProjectId: projectId, planeLabelId: null, planeWorkspaceSlug: slug });
+      await emitEvent(db, {
+        type: "tasks.target_provisioned",
+        scopePath: topScope.path,
+        payload: { planeProjectId: projectId, planeWorkspaceSlug: slug, kind: "workspace-general" },
+      });
+    }
+    return { projectId, labelId: null, workspaceSlug: slug };
+  }
+
+  // Second-level subproject → its own Plane project in the workspace
+  const secondPath = segments.slice(0, 2).join("/");
+  const secondScope = secondPath === scope.path ? scope : await getScope(db, secondPath);
+  if (!secondScope) throw new ScopeNotFoundError(secondPath);
+
+  const secondLink = await getTaskLink(db, secondScope.id);
+  let projectId = secondLink?.planeWorkspaceSlug === slug ? secondLink.planeProjectId : "";
+  if (!projectId) {
+    projectId = await ensurePlaneProject(wsPlane, secondScope.name, projectIdentifier(secondScope.slug));
+    await upsertTaskLink(db, secondScope.id, { planeProjectId: projectId, planeLabelId: null, planeWorkspaceSlug: slug });
+    await emitEvent(db, {
+      type: "tasks.target_provisioned",
+      scopePath: secondScope.path,
+      payload: { planeProjectId: projectId, planeWorkspaceSlug: slug, kind: "subproject-project" },
+    });
+  }
+
+  if (segments.length === 2) {
+    return { projectId, labelId: null, workspaceSlug: slug };
+  }
+
+  // Deeper nesting → label scope:<path> inside the second-level project
+  const exactLink = scope.id === secondScope.id ? secondLink : await getTaskLink(db, scope.id);
+  if (exactLink && exactLink.planeWorkspaceSlug === slug && exactLink.planeProjectId === projectId && exactLink.planeLabelId) {
+    return { projectId, labelId: exactLink.planeLabelId, workspaceSlug: slug };
+  }
+
+  const labelName = `scope:${scope.path}`;
+  const labels = await wsPlane.listLabels(projectId);
+  let label = labels.find((l: any) => (l.name || l.title) === labelName);
+  if (!label) {
+    label = await wsPlane.createLabel(projectId, labelName, "#0ea5e9");
+  }
+  const labelId = label.id || label.uuid || (label as any).label_id;
+  if (!labelId) throw new Error("Failed to obtain plane label id");
+
+  await upsertTaskLink(db, scope.id, { planeProjectId: projectId, planeLabelId: labelId, planeWorkspaceSlug: slug });
+
+  await emitEvent(db, {
+    type: "tasks.target_provisioned",
+    scopePath: scope.path,
+    payload: { planeProjectId: projectId, planeLabelId: labelId, planeWorkspaceSlug: slug, kind: "scope" },
+  });
+
+  return { projectId, labelId, workspaceSlug: slug };
+}
+
+export interface SetProjectWorkspaceInput {
+  scopePath: string;
+  workspaceSlug: string;
+}
+
+/**
+ * Register a manually-created Plane workspace for a top-level project (M4-03).
+ * Plane CE's public API cannot create or list workspaces, so the OS adopts one
+ * by slug after validating it is reachable with the configured token.
+ * Re-registering with a different slug resets the project's stored Plane ids
+ * (they belong to the old workspace); deeper scopes are lazily re-provisioned
+ * by ensureTaskTarget because their slug no longer matches.
+ */
+export async function setProjectWorkspace(
+  db: DB,
+  plane: PlaneClient,
+  input: SetProjectWorkspaceInput,
+  actorPrincipalId: string
+): Promise<void> {
+  const { scopePath, workspaceSlug } = input;
+
+  if (!workspaceSlug || !/^[a-z0-9][a-z0-9_-]*$/.test(workspaceSlug)) {
+    throw new Error(`Invalid workspace slug: "${workspaceSlug}"`);
+  }
+
+  await requireAccess(db, actorPrincipalId, scopePath, "admin");
+
+  const scope = await getScope(db, scopePath);
+  if (!scope) throw new ScopeNotFoundError(scopePath);
+  if (scope.type !== "project" || scope.path.includes("/")) {
+    throw new Error("A Plane workspace can only be registered on a top-level project");
+  }
+
+  // Reachability check: cheapest authenticated call in the target workspace
+  try {
+    await plane.forWorkspace(workspaceSlug).getProjects();
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`Plane workspace "${workspaceSlug}" is not reachable with the configured token: ${msg}`);
+  }
+
+  const existing = await getTaskLink(db, scope.id);
+  if (existing) {
+    if (existing.planeWorkspaceSlug !== workspaceSlug) {
+      await upsertTaskLink(db, scope.id, { planeWorkspaceSlug: workspaceSlug, planeProjectId: "", planeLabelId: null });
+    }
+  } else {
+    await upsertTaskLink(db, scope.id, { planeWorkspaceSlug: workspaceSlug });
+  }
+
+  await emitEvent(db, {
+    type: "tasks.workspace_registered",
+    scopePath,
+    principalId: actorPrincipalId,
+    payload: { planeWorkspaceSlug: workspaceSlug },
+  });
 }
 
 export interface CreateTaskInput {
@@ -161,6 +312,7 @@ export async function createTask(
   }
 
   const target = await ensureTaskTarget(db, plane, scopePath);
+  const targetPlane = planeForTarget(plane, target);
 
   const issueData: any = {
     name: title,
@@ -175,13 +327,13 @@ export async function createTask(
   }
 
   // pick a default state? omit to let Plane use project's default (usually backlog)
-  const created = await plane.createIssue(target.projectId, issueData);
+  const created = await targetPlane.createIssue(target.projectId, issueData);
 
   const issueId = created.id || created.uuid || created.work_item_id;
   const sequenceId = created.sequence_id || created.sequenceId || created.id;
   // construct a usable url; Plane responses may vary
-  const base = (plane as any).config?.baseUrl || "";
-  const ws = (plane as any).config?.workspaceSlug || "";
+  const base = targetPlane.baseUrl || "";
+  const ws = targetPlane.workspaceSlug || "";
   const url = base && ws && issueId
     ? `${base.replace(/\/$/, "")}/${ws}/projects/${target.projectId}/work-items/${issueId}/`
     : `plane:issue:${issueId}`;
@@ -194,6 +346,7 @@ export async function createTask(
       planeProjectId: target.projectId,
       planeIssueId: issueId,
       planeLabelId: target.labelId,
+      planeWorkspaceSlug: target.workspaceSlug,
       title,
       sequenceId,
     },
@@ -219,9 +372,10 @@ export async function completeTask(
   await requireAccess(db, actorPrincipalId, scopePath, "editor");
 
   const target = await ensureTaskTarget(db, plane, scopePath);
+  const targetPlane = planeForTarget(plane, target);
 
   // fetch states and pick completed group
-  const states = await plane.getStates(target.projectId);
+  const states = await targetPlane.getStates(target.projectId);
   let doneState = states.find((s: any) => (s.group || s.state_group) === "completed");
   if (!doneState && states.length) {
     // fallback to last state or name containing done/complete
@@ -229,7 +383,7 @@ export async function completeTask(
   }
   const stateId = doneState?.id || doneState?.uuid;
 
-  await plane.updateIssue(target.projectId, issueId, stateId ? { state: stateId } : {});
+  await targetPlane.updateIssue(target.projectId, issueId, stateId ? { state: stateId } : {});
 
   // optional changelog via records (cross-module via public service)
   if (note && note.trim()) {
@@ -279,6 +433,7 @@ export async function updateTask(
   await requireAccess(db, actorPrincipalId, scopePath, "editor");
 
   const target = await ensureTaskTarget(db, plane, scopePath);
+  const targetPlane = planeForTarget(plane, target);
 
   const patch: any = {};
   if (title !== undefined) patch.name = title;
@@ -287,7 +442,7 @@ export async function updateTask(
   if (priority !== undefined) patch.priority = priority;
   if (dueDate !== undefined) patch.target_date = dueDate;
 
-  await plane.updateIssue(target.projectId, issueId, patch);
+  await targetPlane.updateIssue(target.projectId, issueId, patch);
 
   await emitEvent(db, {
     type: "task.updated",
@@ -323,6 +478,7 @@ export async function listTasks(
   await requireAccess(db, actorPrincipalId, scopePath, "viewer");
 
   const target = await ensureTaskTarget(db, plane, scopePath);
+  const targetPlane = planeForTarget(plane, target);
 
   const filters: any = {};
   if (target.labelId) filters.label = target.labelId;
@@ -333,7 +489,7 @@ export async function listTasks(
     // for simplicity pass no filter or use a non-completed; mock will handle
   }
 
-  let issues = await plane.listIssues(target.projectId, filters);
+  let issues = await targetPlane.listIssues(target.projectId, filters);
 
   if (state === "open") {
     issues = issues.filter((i: any) => {
@@ -417,28 +573,34 @@ export async function findScopeByPlaneProject(
 
 /**
  * Returns the Plane Task Manager URL for a given scopePath.
- * Uses task_links for the top-level project; falls back to PLANE_BASE_URL if none.
- * NOTE: URL format is temporary (M4-03 will update); keep construction isolated here.
+ * Uses the scope's own task_links row when present, then the top project's row.
+ * Rows with null workspace slug use the env-default workspace (legacy v1).
  */
 export async function getPlaneUrl(db: DB, scopePath: string): Promise<string> {
   const rawBase = process.env.PLANE_BASE_URL || "https://app.plane.so";
   const base = rawBase.replace(/\/$/, "");
+  const defaultWorkspace = process.env.PLANE_WORKSPACE_SLUG || "companyos";
   if (!scopePath || scopePath === "root") {
     return base;
   }
-  // Current mapping stores links under the top-level project path
-  const topPath = scopePath.split("/")[0] || scopePath;
-  const top = await getScope(db, topPath);
+
+  const scope = await getScope(db, scopePath);
+  if (!scope) return base;
+
+  const own = await getTaskLink(db, scope.id);
+  if (own?.planeProjectId) {
+    const slug = own.planeWorkspaceSlug || defaultWorkspace;
+    return `${base}/${slug}/projects/${own.planeProjectId}/issues`;
+  }
+
+  const topPath = scope.path.split("/")[0] || scope.path;
+  const top = topPath === scope.path ? scope : await getScope(db, topPath);
   if (!top) return base;
 
-  const [row] = (await db
-    .select({ planeProjectId: taskLinks.planeProjectId })
-    .from(taskLinks)
-    .where(eq(taskLinks.scopeId, top.id))
-    .limit(1)) as { planeProjectId?: string }[];
-
-  if (row && row.planeProjectId) {
-    return `${base}/companyos/projects/${row.planeProjectId}/issues`;
+  const topLink = await getTaskLink(db, top.id);
+  if (topLink?.planeProjectId) {
+    const slug = topLink.planeWorkspaceSlug || defaultWorkspace;
+    return `${base}/${slug}/projects/${topLink.planeProjectId}/issues`;
   }
   return base;
 }
