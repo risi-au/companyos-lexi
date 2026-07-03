@@ -139,6 +139,8 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "get_record",
       "get_tree",
       "list_canvases",
+      "list_capabilities",
+      "list_capability_runs",
       "list_dashboards",
       "list_doc_revisions",
       "list_docs",
@@ -151,6 +153,8 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "ping",
       "provision_scope",
       "query_metrics",
+      "register_capability",
+      "report_run",
       "revert_dashboard",
       "revert_doc",
       "save_canvas",
@@ -437,6 +441,56 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     expect(parsed.scopePath).toBe(`${testScope}/provisioned`);
     expect(parsed.steps.some((s: any) => s.key === "github.repo" && s.status === "created")).toBe(true);
     expect(repos.get(testScope)?.files.get("provisioned/AGENTS.md")).toContain("companyos:managed:start");
+  });
+
+  it("capabilities MCP tools roundtrip: register, report, list capabilities, list runs", async () => {
+    await grantRole(db, { principalId: rootPrincipalId, scopePath: testScope, role: "admin" }, rootPrincipalId);
+    const { mcpClient } = await makeRoundtrip(rootPrincipalId);
+
+    const registered = await mcpClient.callTool({
+      name: "register_capability",
+      arguments: {
+        scopePath: testScope,
+        name: "nightly-sync",
+        engine: "n8n",
+        engineRef: "https://n8n.test/workflow/nightly-sync",
+      },
+    });
+    expect((registered as any).isError).toBeFalsy();
+    const registerJson = JSON.parse((registered as any).content?.[0]?.text || "{}");
+    expect(registerJson.created).toBe(true);
+    expect(registerJson.capability.name).toBe("nightly-sync");
+
+    const report = await mcpClient.callTool({
+      name: "report_run",
+      arguments: {
+        scopePath: testScope,
+        name: "nightly-sync",
+        status: "success",
+        runRef: "mcp-run-1",
+        summary: "completed",
+        durationMs: 321,
+      },
+    });
+    expect((report as any).isError).toBeFalsy();
+    const reportJson = JSON.parse((report as any).content?.[0]?.text || "{}");
+    expect(reportJson.created).toBe(true);
+    expect(reportJson.run.runRef).toBe("mcp-run-1");
+
+    const caps = await mcpClient.callTool({
+      name: "list_capabilities",
+      arguments: { scope: testScope },
+    });
+    const capsJson = JSON.parse((caps as any).content?.[0]?.text || "[]");
+    expect(capsJson.some((cap: any) => cap.name === "nightly-sync" && cap.lastRun?.status === "success")).toBe(true);
+
+    const runs = await mcpClient.callTool({
+      name: "list_capability_runs",
+      arguments: { scope: testScope, name: "nightly-sync", limit: 10 },
+    });
+    const runsJson = JSON.parse((runs as any).content?.[0]?.text || "[]");
+    expect(runsJson.length).toBe(1);
+    expect(runsJson[0].summary).toBe("completed");
   });
 
   // M2-01 metrics MCP roundtrips: groupBy date and dim key asserted

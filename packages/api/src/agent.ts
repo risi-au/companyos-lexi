@@ -86,6 +86,11 @@ export interface ReportCapabilityRunInput {
   [key: string]: unknown;
 }
 
+/**
+ * Legacy event-only capability run reporter.
+ * The capabilities module persists registered runs; this remains the
+ * compatibility fallback for unregistered or scope-less reporters.
+ */
 export async function reportCapabilityRun(
   db: DB,
   input: ReportCapabilityRunInput,

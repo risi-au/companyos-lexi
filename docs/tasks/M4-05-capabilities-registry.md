@@ -1,5 +1,5 @@
 # M4-05: Capabilities registry + run reporting
-status: todo
+status: done
 module: capabilities (packages/api) + schema (packages/db)
 branch: task/M4-05
 
@@ -53,8 +53,8 @@ Capabilities (agents/automations built in any engine — n8n, Flowise, custom) a
 - Don't gate report_run at admin (see Context — architect decision).
 
 ## Acceptance criteria
-- [ ] `pnpm typecheck`, `pnpm lint`, `pnpm test` pass from root; migration 0012 applies via `pnpm --filter @companyos/db db:migrate` with no journal edits
-- [ ] Registering the same capability twice yields one row (asserted); reporting the same runRef twice yields one run row (asserted)
-- [ ] An agent-role principal can report_run; only admin can register_capability (both asserted)
-- [ ] `register_capability`, `report_run`, `list_capabilities`, `list_capability_runs` MCP tools work end-to-end in tests
-- [ ] HTTP `/api/v1/capabilities/report-run` writes a real run row for registered capabilities and falls back to event-only for unregistered ones
+- [x] `pnpm typecheck`, `pnpm lint`, `pnpm test` pass from root (165/165); migration 0012 applied via `pnpm --filter @companyos/db db:migrate` with no journal edits (verified by architect)
+- [x] Registering the same capability twice yields one row (asserted); reporting the same runRef twice yields one run row (asserted)
+- [x] An agent-role principal can report_run; only admin can register_capability (both asserted)
+- [x] `register_capability`, `report_run`, `list_capabilities`, `list_capability_runs` MCP tools work end-to-end in tests
+- [x] HTTP `/api/v1/capabilities/report-run` writes a real run row for registered capabilities and falls back to event-only for unregistered ones (architect extended the fallback to legacy/missing statuses post-review, preserving the old stub's leniency; regression test added)

@@ -61,6 +61,17 @@ export class TokenNotFoundError extends KernelError {
   }
 }
 
+export class CapabilityNotFoundError extends KernelError {
+  public readonly scopePath: string;
+  public readonly capabilityName: string;
+  constructor(scopePath: string, name: string) {
+    super(`Capability not found: ${name} in scope ${scopePath}`);
+    this.name = "CapabilityNotFoundError";
+    this.scopePath = scopePath;
+    this.capabilityName = name;
+  }
+}
+
 export class RecordNotFoundError extends KernelError {
   public readonly id: string;
   constructor(id: string) {
