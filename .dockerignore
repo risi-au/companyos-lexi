@@ -1,0 +1,17 @@
+node_modules
+.next
+.git
+.turbo
+docs
+**/*.test.*
+.env*
+dist
+coverage
+*.log
+*.tsbuildinfo
+apps/*/.next
+apps/*/.turbo
+packages/*/.turbo
+legacy
+mcps
+terminals
