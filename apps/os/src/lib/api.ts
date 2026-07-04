@@ -54,13 +54,19 @@ function getPlaneClient(): any { // eslint-disable-line @typescript-eslint/no-ex
   const workspace = process.env.PLANE_WORKSPACE_SLUG || "companyos";
   if (!token) {
     // Full stub implementing surface used by service (no-ops / empties to avoid crashes)
-    return {
+    const planeStub = {
       listIssues: async () => [],
       getProjects: async () => [],
       createProject: async () => ({ id: "stub" }),
       createLabel: async () => ({ id: "stub" }),
+      listLabels: async () => [],
       getStates: async () => [],
+      forWorkspace: (slug: string) => {
+        void slug;
+        return planeStub;
+      },
     };
+    return planeStub;
   }
   return new PlaneClient({ baseUrl, apiToken: token, workspaceSlug: workspace });
 }
