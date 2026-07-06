@@ -1,6 +1,6 @@
 # M5-02: Staging deploy automation (tag → GHCR → SSH deploy → smoke check)
 
-status: todo (blocked on: v0.5.1 manual staging deploy verified — architect will unblock)
+status: done (workflow merged 2026-07-06; blocked on owner adding 3 GitHub secrets + enabling SSH pubkey auth for the deploy key on the staging VPS before it can run end-to-end — see infra/README.md "Staging auto-deploy")
 module: infra + .github
 branch: task/M5-02
 
