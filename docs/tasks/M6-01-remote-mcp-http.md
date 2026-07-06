@@ -1,15 +1,15 @@
 # M6-01: Remote MCP HTTP transport + whoami
 
-status: in-progress (implemented + verified locally 2026-07-06; deployed to staging and
-partially live-verified — auth-matrix confirmed on https://cos-staging.risi.au/api/mcp
-(missing/invalid token -> 401 JSON, no /sign-in redirect after fixing a middleware gap
-found during this rollout). Full authenticated roundtrip (whoami -> get_context ->
-save_report with a real scoped token) NOT yet verified: minting a token today requires
-direct staging DB access (SSH) since the Connect UI (M6-02) doesn't exist yet, and the
-architect does not have standing permission to handle the VPS SSH credential
-programmatically. Needs either the owner minting/sharing a test token, an explicit
-owner go-ahead for the architect to use VPS SSH for this one-time check, or fast-tracking
-M6-02. Still gates M6-02/03 until closed out.
+status: done — fully live-verified on staging 2026-07-06. Auth-matrix confirmed on
+https://cos-staging.risi.au/api/mcp (missing/invalid token -> 401 JSON, no /sign-in
+redirect after fixing a middleware gap found during this rollout). Full authenticated
+roundtrip (whoami -> get_context -> save_report) verified over the real network against
+staging with a throwaway scoped token: owner minted the token directly in the staging
+DB via SSH (owner ran all SSH/psql commands themselves — the architect does not handle
+the VPS SSH credential programmatically, per standing policy); architect then ran the
+whoami/get_context/save_report roundtrip from a local script against the live endpoint,
+all three calls succeeded. Test scope/principal/grant/token were deleted afterward
+(cascade). No longer gates M6-02/03.
 module: packages/mcp + apps/os (thin route mount)
 branch: task/M6-01
 
@@ -85,14 +85,16 @@ tool lets a freshly connected agent self-discover its principal and grants.
 
 ## Acceptance criteria
 
-- [ ] `pnpm typecheck`, `pnpm lint`, `pnpm test` pass from root
-- [ ] HTTP auth matrix tested: valid / invalid / revoked / expired / absent → 401 vs 200
-- [ ] In-subtree tool call succeeds over HTTP; out-of-subtree denied (same token)
-- [ ] Revoking a token → its very next HTTP request 401s (live session dies)
-- [ ] `whoami` returns correct principal + grants for a scoped agent token (stdio + HTTP)
-- [ ] Full roundtrip over HTTP: `whoami` → `get_context` → `save_report`
-- [ ] Tokens never appear in logs or URLs (test the handler's error paths)
-- [ ] stdio transport tests pass unchanged
-- [ ] `last_used_at` visibly bumps on HTTP auth (feeds M6-03)
-- [ ] Architect live-verifies on staging: real MCP client (Claude Code `--transport http`
-      or curl) against `https://cos.risi.au/api/mcp` — this sign-off gates M6-02/03
+- [x] `pnpm typecheck`, `pnpm lint`, `pnpm test` pass from root
+- [x] HTTP auth matrix tested: valid / invalid / revoked / expired / absent → 401 vs 200
+- [x] In-subtree tool call succeeds over HTTP; out-of-subtree denied (same token)
+- [x] Revoking a token → its very next HTTP request 401s (live session dies)
+- [x] `whoami` returns correct principal + grants for a scoped agent token (stdio + HTTP)
+- [x] Full roundtrip over HTTP: `whoami` → `get_context` → `save_report`
+- [x] Tokens never appear in logs or URLs (test the handler's error paths)
+- [x] stdio transport tests pass unchanged
+- [x] `last_used_at` visibly bumps on HTTP auth (feeds M6-03)
+- [x] Architect live-verifies on staging: real MCP client against
+      `https://cos-staging.risi.au/api/mcp` with a scoped token minted directly in the
+      staging DB — whoami → get_context → save_report all succeeded 2026-07-06. This
+      sign-off gates M6-02/03 and is now closed out.
