@@ -201,7 +201,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          curl -fsS --max-time 20 https://cos.risi.au >/dev/null
+          curl -fsS --max-time 20 https://cos-staging.risi.au >/dev/null
           smoke_status="$?"
           set -e
 
