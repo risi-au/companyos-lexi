@@ -40,6 +40,9 @@ import {
   runTurn,
   listConversations,
   getConversationMessages,
+  mintConnectionToken,
+  listConnectionTokens,
+  revokeConnectionToken,
   type LLMConfig,
   type RunTurnInput,
 } from "@companyos/api";
@@ -151,6 +154,14 @@ export const api = {
     listConversations(db, input, actorPrincipalId),
   getConversationMessages: (input: Parameters<typeof getConversationMessages>[1], actorPrincipalId: string) =>
     getConversationMessages(db, input, actorPrincipalId),
+
+  // Connect to MCP (M6-02)
+  mintConnectionToken: (input: Parameters<typeof mintConnectionToken>[1], actorPrincipalId: string) =>
+    mintConnectionToken(db, input, actorPrincipalId),
+  listConnectionTokens: (input: Parameters<typeof listConnectionTokens>[1], actorPrincipalId: string) =>
+    listConnectionTokens(db, input, actorPrincipalId),
+  revokeConnectionToken: (input: Parameters<typeof revokeConnectionToken>[1], actorPrincipalId: string) =>
+    revokeConnectionToken(db, input, actorPrincipalId),
 };
 
 export { db }; // only for auth wiring internally

@@ -36,6 +36,9 @@ export * from "./modules/capabilities/service";
 // Skills module (M4-06)
 export * from "./modules/skills/service";
 
+// Connect module (M6-02)
+export * from "./modules/connect/service";
+
 // Agent HTTP / n8n support (M2-05)
 export * from "./agent";
 

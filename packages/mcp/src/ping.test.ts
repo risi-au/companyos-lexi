@@ -22,6 +22,8 @@ import {
   writeMetrics,
   issueToken,
   revokeToken,
+  mintConnectionToken,
+  revokeConnectionToken,
   GitHubClient,
 } from "@companyos/api";
 import { createHttpHandler, createServer, ping } from "./index";
@@ -847,6 +849,49 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     });
     expect((denied as any).isError).toBe(true);
     expect((denied as any).content?.[0]?.text || "").toMatch(/Access denied/);
+  });
+
+  it("connect-minted token authenticates over HTTP with only the target subtree and 401s after connect revoke", async () => {
+    const connectScope = `connect-http-${Date.now()}`;
+    await createScope(db, { slug: connectScope, name: "Connect HTTP", type: "project" }, rootPrincipalId);
+    await createScope(db, { parentPath: connectScope, slug: "child", name: "Child", type: "subproject" }, rootPrincipalId);
+    await grantRole(db, { principalId: rootPrincipalId, scopePath: connectScope, role: "admin" }, rootPrincipalId);
+
+    const sibling = `${connectScope}-sibling`;
+    await createScope(db, { slug: sibling, name: "Sibling", type: "project" }, rootPrincipalId);
+    await grantRole(db, { principalId: rootPrincipalId, scopePath: sibling, role: "admin" }, rootPrincipalId);
+
+    const minted = await mintConnectionToken(
+      db,
+      { scopePath: connectScope, name: "HTTP Connect Agent", role: "agent" },
+      rootPrincipalId
+    );
+    const { mcpClient } = await makeHttpClient(minted.token);
+
+    const who = await mcpClient.callTool({ name: "whoami", arguments: {} });
+    const whoJson = JSON.parse((who as any).content?.[0]?.text || "{}");
+    expect(whoJson.principal).toMatchObject({
+      id: minted.principalId,
+      kind: "agent",
+      name: "HTTP Connect Agent",
+    });
+    expect(whoJson.grants).toEqual([{ scopePath: connectScope, role: "agent" }]);
+
+    const childWrite = await mcpClient.callTool({
+      name: "save_report",
+      arguments: { scope: `${connectScope}/child`, title: "Connect child", body_md: "ok" },
+    });
+    expect((childWrite as any).isError).toBeFalsy();
+
+    const siblingWrite = await mcpClient.callTool({
+      name: "save_report",
+      arguments: { scope: sibling, title: "Denied sibling", body_md: "no" },
+    });
+    expect((siblingWrite as any).isError).toBe(true);
+    expect((siblingWrite as any).content?.[0]?.text || "").toMatch(/Access denied/);
+
+    await revokeConnectionToken(db, { tokenId: minted.tokenId }, rootPrincipalId);
+    await expect(mcpClient.callTool({ name: "whoami", arguments: {} })).rejects.toThrow(/401|Unauthorized/i);
   });
 
   it("revoked HTTP token fails on the very next request and last_used_at bumps on auth", async () => {
