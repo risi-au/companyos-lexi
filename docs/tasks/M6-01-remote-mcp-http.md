@@ -1,6 +1,15 @@
 # M6-01: Remote MCP HTTP transport + whoami
 
-status: in-progress (implemented + verified locally 2026-07-06; pending architect live-verify on staging — gates M6-02/03)
+status: in-progress (implemented + verified locally 2026-07-06; deployed to staging and
+partially live-verified — auth-matrix confirmed on https://cos-staging.risi.au/api/mcp
+(missing/invalid token -> 401 JSON, no /sign-in redirect after fixing a middleware gap
+found during this rollout). Full authenticated roundtrip (whoami -> get_context ->
+save_report with a real scoped token) NOT yet verified: minting a token today requires
+direct staging DB access (SSH) since the Connect UI (M6-02) doesn't exist yet, and the
+architect does not have standing permission to handle the VPS SSH credential
+programmatically. Needs either the owner minting/sharing a test token, an explicit
+owner go-ahead for the architect to use VPS SSH for this one-time check, or fast-tracking
+M6-02. Still gates M6-02/03 until closed out.
 module: packages/mcp + apps/os (thin route mount)
 branch: task/M6-01
 
