@@ -47,6 +47,7 @@ import {
   revokePrincipalAccess,
   revokeScopeAccess,
   listSessions,
+  findNearestWiki,
   type LLMConfig,
   type RunTurnInput,
 } from "@companyos/api";
@@ -176,6 +177,7 @@ export const api = {
   // Sessions registry (M6-07)
   listSessions: (input: Parameters<typeof listSessions>[1], actorPrincipalId: string) =>
     listSessions(db, input, actorPrincipalId),
+  findNearestWiki: (scopePath: string) => findNearestWiki(db, scopePath),
 };
 
 export { db }; // only for auth wiring internally

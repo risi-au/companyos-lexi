@@ -12,7 +12,8 @@ Stdio auth uses `COS_TOKEN` env. HTTP auth uses `Authorization: Bearer cos_...` 
 ## Tools
 - `ping` - no auth, returns "pong". Connectivity only.
 - `whoami` - read-only; returns `{ principal: { id, name, kind }, grants: [{ scopePath, role }] }` for the authenticated principal.
-- `get_context({scope})` - markdown context bundle for a scope. Viewer. Includes a Workbench section when the scope or nearest ancestor has one, with repo, folder, and MCP URL when configured.
+- `get_context({scope})` - markdown context bundle for a scope. Viewer. Includes a Workbench section when the scope or nearest ancestor has one, with repo, folder, and MCP URL when configured. Includes a Knowledge section (nearest ancestor wiki's doc index + owning scope path) when a `wiki` doc exists anywhere in the ancestor chain.
+- `search({scope, query, kinds?, limit?})` - Postgres full-text search over records + docs in the scope subtree. Viewer. Compact tab-delimited output with snippets.
 - `verify_workbench({cwd, scope?})` - read-only warning helper; checks whether client cwd matches the expected workbench folder. Viewer when scope is explicit; otherwise uses the principal's single direct grant.
 - `register_session({scope, title, engine, model?, token_id?, worktree_ref?})` - register a cooperative scoped work session. Editor/agent.
 - `update_session({session_id, status?, title?, worktree_ref?})` - heartbeat or update a session. Bare calls bump heartbeat only. Editor/agent on the session scope.

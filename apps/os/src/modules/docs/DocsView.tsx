@@ -12,8 +12,9 @@ import {
   listRevisionsAction,
   revertDocAction,
   getAccessAction,
+  getInheritedWikiAction,
 } from "./actions";
-import { Plus, History, Archive, X } from "lucide-react";
+import { Plus, History, Archive, X, BookOpen } from "lucide-react";
 
 interface DocListItem {
   id: string;
@@ -35,6 +36,11 @@ interface DocsViewProps {
   initialAccess?: string | null;
 }
 
+interface InheritedWiki {
+  scopePath: string;
+  docs: Array<{ id: string; slug: string; title: string }>;
+}
+
 export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -45,6 +51,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
   const [access, setAccess] = useState<string | null>(initialAccess || null);
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [isLoadingDoc, setIsLoadingDoc] = useState(false);
+  const [inheritedWiki, setInheritedWiki] = useState<InheritedWiki | null>(null);
   const [, setSaveState] = useState<"saved" | "saving" | "error">("saved");
 
   const [showNewDialog, setShowNewDialog] = useState(false);
@@ -121,6 +128,13 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
       const acc = initialAccess ?? (await getAccessAction(scopePath));
       if (mounted) setAccess(acc);
 
+      try {
+        const wiki = await getInheritedWikiAction(scopePath);
+        if (mounted) setInheritedWiki(wiki as InheritedWiki | null);
+      } catch {
+        if (mounted) setInheritedWiki(null);
+      }
+
       // Load initial or first doc from ?doc
       const spDoc = searchParams?.get("doc");
       const startSlug = spDoc || initialDocSlug || null;
@@ -139,6 +153,12 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
       mounted = false;
     };
   }, [scopePath, initialAccess, initialDocSlug, searchParams, refreshList, loadDoc]);
+
+  const sortedDocs = [...docs].sort((a, b) => {
+    if (a.slug === "wiki") return -1;
+    if (b.slug === "wiki") return 1;
+    return 0;
+  });
 
   const onSelectDoc = async (slug: string) => {
     if (slug === selectedSlug) return;
@@ -301,6 +321,26 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
           )}
         </div>
 
+        {inheritedWiki && (
+          <div className="mb-[var(--space-2)] rounded-[var(--radius-sm)] border border-[var(--primary)] px-[var(--space-2)] py-[var(--space-2)] text-[var(--font-size-xs)]">
+            <div className="mb-1 flex items-center gap-1 font-medium text-[var(--primary)]">
+              <BookOpen size={13} /> Inherited wiki — from {inheritedWiki.scopePath}
+            </div>
+            <ul className="space-y-0.5">
+              {inheritedWiki.docs.map((d) => (
+                <li key={d.id}>
+                  <a
+                    href={`/s/${inheritedWiki.scopePath}?tab=docs&doc=${encodeURIComponent(d.slug)}`}
+                    className="text-[var(--muted-foreground)] hover:text-[var(--primary)] hover:underline"
+                  >
+                    {d.title}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {isLoadingList ? (
           <div className="p-3 text-[var(--font-size-sm)] text-[var(--muted-foreground)]">Loading…</div>
         ) : !hasDocs ? (
@@ -309,18 +349,20 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
           </div>
         ) : (
           <ul className="space-y-[var(--space-1)] overflow-auto">
-            {docs.map((d) => {
+            {sortedDocs.map((d) => {
               const isSel = d.slug === selectedSlug;
               const isEditing = editingSlug === d.slug;
+              const isWiki = d.slug === "wiki";
               return (
                 <li
                   key={d.slug}
                   className={`group flex items-center justify-between rounded px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-sm)] ${
                     isSel ? "bg-[var(--muted)]" : "hover:bg-[var(--muted)]"
-                  }`}
+                  } ${isWiki ? "font-medium" : ""}`}
                   onDoubleClick={() => !readOnly && startRename(d)}
                 >
-                  <div className="flex min-w-0 flex-1 cursor-pointer" onClick={() => onSelectDoc(d.slug)}>
+                  <div className="flex min-w-0 flex-1 cursor-pointer items-center gap-1" onClick={() => onSelectDoc(d.slug)}>
+                    {isWiki && <BookOpen size={13} className="shrink-0 text-[var(--primary)]" />}
                     {isEditing ? (
                       <input
                         autoFocus
@@ -334,7 +376,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
                         className="w-full bg-transparent outline-none border-b border-[var(--primary)] text-[var(--font-size-sm)]"
                       />
                     ) : (
-                      <span className="truncate">{d.title}</span>
+                      <span className={`truncate ${isWiki ? "text-[var(--primary)]" : ""}`}>{d.title}</span>
                     )}
                   </div>
 

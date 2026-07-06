@@ -179,6 +179,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "save_doc",
       "save_note",
       "save_report",
+      "search",
       "sync_skills",
       "update_session",
       "update_task",
@@ -450,6 +451,20 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     expect((completed as any).isError).toBeFalsy();
     const completedJson = JSON.parse((completed as any).content?.[0]?.text || "{}");
     expect(completedJson.status).toBe("completed");
+  });
+
+  it("search MCP tool roundtrips over records with a snippet and tab-delimited output", async () => {
+    const { mcpClient } = await makeRoundtrip(rootPrincipalId);
+
+    const result = await mcpClient.callTool({
+      name: "search",
+      arguments: { scope: testScope, query: "progress" },
+    });
+    expect((result as any).isError).toBeFalsy();
+    const text = (result as any).content?.[0]?.text || "";
+    expect(text).toContain("type\tid\tref\ttitle\tscope\tdate\tsnippet");
+    expect(text).toContain("Initial setup");
+    expect(text).toContain(testScope);
   });
 
   // === M1-07 task MCP roundtrips (mock injected, unconfigured error) ===

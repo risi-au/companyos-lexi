@@ -6,9 +6,9 @@ KB editor UI (M3-02): Docs tab on scope pages. Two-pane (list + BlockNote editor
 Provide Notion-style rich editing for per-scope KB documents using BlockNote (shadcn view). List, create, rename (double-click), archive, history/revert, autosave. Read-only for viewer role. All writes via server actions -> service layer (principal resolved server-side). Styling strictly via design tokens.
 
 ## Files
-- `DocsView.tsx`: two-pane list + editor wrapper. Client component. Handles list, selection via ?doc=, new dialog, inline rename, archive confirm, history popover + restore.
+- `DocsView.tsx`: two-pane list + editor wrapper. Client component. Handles list, selection via ?doc=, new dialog, inline rename, archive confirm, history popover + restore. Pins the `wiki` slug doc first (distinct icon/accent) per docs/patterns/WIKI.md; shows an "Inherited wiki — from <ancestor path>" banner linking the ancestor's doc index when the current scope has no wiki of its own (M6-09).
 - `DocEditor.tsx`: BlockNote instance using @blocknote/shadcn. md→blocks on load (tryParseMarkdownToBlocks), blocks→md on change (blocksToMarkdownLossy) + 1.5s debounced autosave via action. Save indicator. Respects readOnly.
-- `actions.ts`: "use server" thin wrappers calling api.* (getCurrentActorPrincipalId + bound services). Revalidate on mutates.
+- `actions.ts`: "use server" thin wrappers calling api.* (getCurrentActorPrincipalId + bound services). Revalidate on mutates. `getInheritedWikiAction` resolves the nearest ancestor wiki (M6-09) via `api.findNearestWiki`, returning null when the current scope owns its own wiki.
 - `index.ts`: public exports for scope pages.
 - `AGENTS.md`: this file.
 
@@ -16,6 +16,7 @@ Provide Notion-style rich editing for per-scope KB documents using BlockNote (sh
 Consumes from `@companyos/api` (via lib/api wrappers):
 - listDocs, getDoc, saveDoc, renameDoc, archiveDoc, listDocRevisions, revertDoc
 - resolveAccess for readOnly
+- findNearestWiki (M6-09) for the inherited-wiki banner; ancestor-walk, ownership check by `wiki.scopePath === scopePath`
 
 Markdown is source of truth. Editor constrained to default schema (markdown-survivable blocks only: no multi-col, images as links).
 

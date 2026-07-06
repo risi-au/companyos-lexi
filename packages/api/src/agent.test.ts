@@ -17,6 +17,7 @@ import {
   listEvents,
   verifyPlaneWebhookSignature,
   emitEvent,
+  saveDoc,
 } from "./index";
 import { eq } from "drizzle-orm";
 import { createHmac } from "crypto";
@@ -110,6 +111,39 @@ describe("agent HTTP support (M2-05: context, report, plane lookup)", () => {
   it("getContextBundle omits workbench section when no ancestor has one", async () => {
     const md = await getContextBundle(db, demoScopePath, agentId);
     expect(md).not.toContain("**Workbench**");
+  });
+
+  it("getContextBundle shows the ancestor wiki's doc index and owning scope path from a deep sub-scope", async () => {
+    await saveDoc(db, { scopePath: demoScopePath, slug: "wiki", title: "Wiki" }, agentId);
+    await saveDoc(db, { scopePath: demoScopePath, slug: "checkout", title: "Checkout Notes" }, agentId);
+    const child = await createScope(db, { parentPath: demoScopePath, slug: "seo", name: "SEO", type: "subproject" }, rootId);
+    await grantRole(db, { principalId: agentId, scopePath: child.path, role: "editor" }, rootId);
+
+    const md = await getContextBundle(db, child.path, agentId);
+
+    expect(md).toContain("**Knowledge**");
+    expect(md).toContain(`Wiki scope: ${demoScopePath}`);
+    expect(md).toContain("wiki - Wiki");
+    expect(md).toContain("checkout - Checkout Notes");
+    expect(md).toContain("search(scope, query)");
+  });
+
+  it("getContextBundle omits the Knowledge section when no scope in the ancestor chain has a wiki doc", async () => {
+    const md = await getContextBundle(db, demoScopePath, agentId);
+    expect(md).not.toContain("**Knowledge**");
+  });
+
+  it("getContextBundle prefers a graduated descendant wiki over the top-level one in the ancestor walk", async () => {
+    await saveDoc(db, { scopePath: demoScopePath, slug: "wiki", title: "Top Level Wiki" }, agentId);
+    const child = await createScope(db, { parentPath: demoScopePath, slug: "graduated", name: "Graduated", type: "subproject" }, rootId);
+    await grantRole(db, { principalId: agentId, scopePath: child.path, role: "editor" }, rootId);
+    await saveDoc(db, { scopePath: child.path, slug: "wiki", title: "Graduated Wiki" }, agentId);
+
+    const md = await getContextBundle(db, child.path, agentId);
+
+    expect(md).toContain(`Wiki scope: ${child.path}`);
+    expect(md).toContain("wiki - Graduated Wiki");
+    expect(md).not.toContain("Top Level Wiki");
   });
 
   it("verifyWorkbench returns ok:false with expected repo/path on cwd mismatch", async () => {

@@ -63,3 +63,13 @@ export async function getAccessAction(scopePath: string) {
   if (!actor) return null;
   return api.resolveAccess(actor, scopePath);
 }
+
+export async function getInheritedWikiAction(scopePath: string) {
+  const actor = await getCurrentActorPrincipalId();
+  if (!actor) throw new Error("Not authenticated");
+  const access = await api.resolveAccess(actor, scopePath);
+  if (!access) throw new Error("Access denied");
+  const wiki = await api.findNearestWiki(scopePath);
+  if (!wiki || wiki.scopePath === scopePath) return null;
+  return wiki;
+}

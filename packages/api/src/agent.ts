@@ -9,8 +9,8 @@ import {
 } from "./index";
 import { ScopeNotFoundError } from "./errors";
 import { skillsContextSection } from "./modules/skills/service";
-import { grants, scopes, workbenches } from "@companyos/db";
-import { eq, inArray } from "drizzle-orm";
+import { documents, grants, scopes, workbenches } from "@companyos/db";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { createHmac, timingSafeEqual } from "crypto";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -29,6 +29,17 @@ interface WorkbenchCandidate {
   scopePath: string;
   repo: string;
   path: string;
+}
+
+export interface WikiDocIndexItem {
+  id: string;
+  slug: string;
+  title: string;
+}
+
+export interface NearestWiki {
+  scopePath: string;
+  docs: WikiDocIndexItem[];
 }
 
 function ancestorPaths(scopePath: string): string[] {
@@ -66,6 +77,42 @@ export async function findNearestWorkbench(db: DB, scopePath: string) {
   }
 
   return null;
+}
+
+export async function findNearestWiki(db: DB, scopePath: string): Promise<NearestWiki | null> {
+  const candidates = ancestorPaths(scopePath);
+  if (!candidates.length) return null;
+
+  const wikiRows = await db
+    .select({
+      scopePath: scopes.path,
+      docId: documents.id,
+    })
+    .from(scopes)
+    .innerJoin(documents, eq(documents.scopeId, scopes.id))
+    .where(and(inArray(scopes.path, candidates), eq(documents.slug, "wiki"), isNull(documents.archivedAt)));
+
+  let owningScopePath: string | null = null;
+  for (const candidate of candidates) {
+    if (wikiRows.some((row: { scopePath: string; docId: string }) => row.scopePath === candidate)) {
+      owningScopePath = candidate;
+      break;
+    }
+  }
+  if (!owningScopePath) return null;
+
+  const rows = (await db
+    .select({
+      id: documents.id,
+      slug: documents.slug,
+      title: documents.title,
+    })
+    .from(documents)
+    .innerJoin(scopes, eq(documents.scopeId, scopes.id))
+    .where(and(eq(scopes.path, owningScopePath), isNull(documents.archivedAt)))
+    .orderBy(sql`case when ${documents.slug} = 'wiki' then 0 else 1 end`, documents.position, documents.title)) as WikiDocIndexItem[];
+
+  return { scopePath: owningScopePath, docs: rows };
 }
 
 export interface VerifyWorkbenchInput {
@@ -189,6 +236,7 @@ export async function getContextBundle(
   if (!recordsMd) recordsMd = "(no recent changelog/decision records)\n";
   const skillsMd = await skillsContextSection(db, scopePath);
   const workbench = await findNearestWorkbench(db, scopePath);
+  const wiki = await findNearestWiki(db, scopePath);
 
   const moduleList = mods.length
     ? mods.map((m: any) => `- ${m.moduleType}`).join("\n")
@@ -198,6 +246,15 @@ export async function getContextBundle(
 **Workbench**
 Repo: ${workbench.repo} · Folder: ${workbench.path || "."} · Clone the repo and work inside this folder.
 ${config.mcpPublicUrl ? `MCP URL: ${config.mcpPublicUrl}\n` : ""}`
+    : "";
+  const knowledgeMd = wiki
+    ? `
+**Knowledge**
+Wiki scope: ${wiki.scopePath}
+Docs:
+${wiki.docs.map((doc) => `- ${doc.slug} - ${doc.title}`).join("\n")}
+Use search(scope, query) for older records and docs beyond the recent records shown here.
+`
     : "";
 
   const md = `# Context for ${scopePath}
@@ -214,6 +271,7 @@ ${moduleList}
 **Children**
 ${childPaths || "(none)"}
 ${workbenchMd}
+${knowledgeMd}
 
 **Recent changelog/decision records (last 10)**
 ${recordsMd}
