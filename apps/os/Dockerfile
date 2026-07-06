@@ -11,6 +11,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.js
 COPY apps/os/package.json ./apps/os/package.json
 COPY packages/api/package.json ./packages/api/package.json
 COPY packages/db/package.json ./packages/db/package.json
+COPY packages/mcp/package.json ./packages/mcp/package.json
 COPY packages/ui/package.json ./packages/ui/package.json
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm fetch --filter @companyos/os... --filter @companyos/db
 
@@ -18,6 +19,7 @@ FROM deps AS install
 COPY apps/os ./apps/os
 COPY packages/api ./packages/api
 COPY packages/db ./packages/db
+COPY packages/mcp ./packages/mcp
 COPY packages/ui ./packages/ui
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile --offline --filter @companyos/os... --filter @companyos/db
 
