@@ -1,5 +1,5 @@
 import { api, getCurrentActorPrincipalId } from "@/lib/api";
-import { McpManagerView } from "@/modules/mcp-manager";
+import { McpManagerView, UsageDashboardView } from "@/modules/mcp-manager";
 
 function isRootAdmin(access: string | null): boolean {
   return access === "owner" || access === "admin";
@@ -23,7 +23,12 @@ export default async function McpAdminPage() {
     );
   }
 
-  const initialConnections = await api.listConnections({}, actor);
+  const [initialConnections, usage, recommendations, profile] = await Promise.all([
+    api.listConnections({}, actor),
+    api.queryUsage({ scope: "root", since: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), groupBy: "operation", limit: 500 }, actor),
+    api.usageRecommendations({ scopePath: "root", since: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }, actor),
+    api.getContextProfile({ scopePath: "root" }, actor),
+  ]);
 
   return (
     <div className="space-y-[var(--space-6)]">
@@ -38,6 +43,15 @@ export default async function McpAdminPage() {
       </div>
 
       <McpManagerView initialConnections={initialConnections} />
+      <div className="border-t border-[var(--border)] pt-[var(--space-6)]">
+        <div className="mb-[var(--space-4)]">
+          <h2 className="text-[var(--font-size-xl)] font-semibold tracking-[-0.01em]">Usage Observability</h2>
+          <div className="mt-[var(--space-1)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
+            Estimated CompanyOS MCP and context overhead. Actual model tokens appear only when clients provide them.
+          </div>
+        </div>
+        <UsageDashboardView initial={{ usage, recommendations, profile }} />
+      </div>
     </div>
   );
 }

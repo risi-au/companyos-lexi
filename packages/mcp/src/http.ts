@@ -1,11 +1,17 @@
 import { createHash } from "node:crypto";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { authenticateToken, type DB } from "@companyos/api";
+import {
+  authenticateTokenWithMetadata,
+  estimateTokens,
+  logUsageEventSafely,
+  type DB,
+} from "@companyos/api";
 import type { GitHubClient, PlaneClient } from "@companyos/api";
 import { createServer } from "./server";
 
 export interface HttpAuthenticatedPrincipal {
   principalId: string;
+  tokenId?: string | null;
 }
 
 export interface HttpRateLimitOptions {
@@ -116,7 +122,7 @@ function consumeRateLimit(token: string, options: Required<HttpRateLimitOptions>
 }
 
 async function readJsonBody(request: Request, maxBodyBytes: number): Promise<
-  | { ok: true; parsedBody: unknown }
+  | { ok: true; parsedBody: unknown; rawText: string; byteLength: number }
   | { ok: false; response: Response }
 > {
   const contentLength = request.headers.get("content-length");
@@ -138,7 +144,7 @@ async function readJsonBody(request: Request, maxBodyBytes: number): Promise<
   }
 
   try {
-    return { ok: true, parsedBody: JSON.parse(text) };
+    return { ok: true, parsedBody: JSON.parse(text), rawText: text, byteLength: body.byteLength };
   } catch {
     return { ok: false, response: jsonRpcError(400, -32700, "Parse error: Invalid JSON") };
   }
@@ -152,14 +158,138 @@ async function defaultAuthenticateRequest(db: DB, request: Request): Promise<Htt
     throw e;
   }
 
-  const principal = await authenticateToken(db, token);
-  if (!principal) {
+  const authenticated = await authenticateTokenWithMetadata(db, token);
+  if (!authenticated) {
     const e = new Error("Invalid or expired token") as Error & { status?: number };
     e.status = 401;
     throw e;
   }
 
-  return { principalId: principal.id };
+  return { principalId: authenticated.principal.id, tokenId: authenticated.tokenId };
+}
+
+interface ToolCallTelemetry {
+  operation: string;
+  scopePath: string | null;
+  sessionId: string | null;
+  engine: string | null;
+  model: string | null;
+  metadata: Record<string, unknown>;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function toolCallsFromJsonRpc(parsedBody: unknown): ToolCallTelemetry[] {
+  const requests = Array.isArray(parsedBody) ? parsedBody : [parsedBody];
+  const calls: ToolCallTelemetry[] = [];
+  for (const request of requests) {
+    const req = asRecord(request);
+    if (req.method !== "tools/call") continue;
+    const params = asRecord(req.params);
+    const args = asRecord(params.arguments);
+    const operation = stringOrNull(params.name) || "unknown_tool";
+    calls.push({
+      operation,
+      scopePath: stringOrNull(args.scope) || stringOrNull(args.scopePath),
+      sessionId: stringOrNull(args.session_id) || stringOrNull(args.sessionId),
+      engine: stringOrNull(args.engine),
+      model: stringOrNull(args.model),
+      metadata: {
+        jsonrpcMethod: req.method,
+        argumentKeys: Object.keys(args).sort(),
+        requestIdType: req.id === null || req.id === undefined ? null : typeof req.id,
+      },
+    });
+  }
+  return calls;
+}
+
+async function responseBodyText(response: Response): Promise<string> {
+  try {
+    return await response.clone().text();
+  } catch {
+    return "";
+  }
+}
+
+function jsonRpcResponseSuccess(text: string, status: number): { success: boolean; errorCode: string | null } {
+  if (status >= 400) return { success: false, errorCode: String(status) };
+  try {
+    const parsed = JSON.parse(text);
+    const responses = Array.isArray(parsed) ? parsed : [parsed];
+    const failed = responses.find((item) => {
+      const row = asRecord(item);
+      const result = asRecord(row.result);
+      return row.error || result.isError === true;
+    });
+    if (failed) {
+      const row = asRecord(failed);
+      const error = asRecord(row.error);
+      return { success: false, errorCode: stringOrNull(error.code) || stringOrNull(error.message) || "tool_error" };
+    }
+  } catch {
+    return { success: status < 400, errorCode: null };
+  }
+  return { success: true, errorCode: null };
+}
+
+function usageLoggingEnabled(): boolean {
+  const enabled = process.env.USAGE_LOG_MCP_HTTP;
+  if (enabled === "0" || enabled === "false") return false;
+  const sampleRate = Number(process.env.USAGE_SAMPLE_RATE ?? "1");
+  const normalized = Number.isFinite(sampleRate) ? Math.min(Math.max(sampleRate, 0), 1) : 1;
+  return normalized >= 1 || Math.random() < normalized;
+}
+
+async function logMcpToolCalls(input: {
+  db: DB;
+  principal: HttpAuthenticatedPrincipal;
+  parsedBody: unknown;
+  rawText: string;
+  byteIn: number;
+  response: Response;
+  startedAt: number;
+}): Promise<void> {
+  if (!usageLoggingEnabled()) return;
+  const calls = toolCallsFromJsonRpc(input.parsedBody);
+  if (calls.length === 0) return;
+
+  const outputText = await responseBodyText(input.response);
+  const inputEstimate = estimateTokens(input.rawText);
+  const outputEstimate = estimateTokens(outputText);
+  const result = jsonRpcResponseSuccess(outputText, input.response.status);
+  const latencyMs = Date.now() - input.startedAt;
+
+  for (const call of calls) {
+    await logUsageEventSafely(input.db, {
+      scopePath: call.scopePath,
+      principalId: input.principal.principalId,
+      tokenId: input.principal.tokenId ?? null,
+      sessionId: call.sessionId,
+      source: "mcp_http",
+      engine: call.engine,
+      model: call.model,
+      operation: call.operation,
+      inputTokensEst: inputEstimate.tokens,
+      outputTokensEst: outputEstimate.tokens,
+      byteIn: input.byteIn,
+      byteOut: new TextEncoder().encode(outputText).byteLength,
+      latencyMs,
+      success: result.success,
+      errorCode: result.errorCode,
+      metadata: {
+        ...call.metadata,
+        estimated: true,
+        httpStatus: input.response.status,
+      },
+    });
+  }
 }
 
 export function createHttpHandler(options: CreateHttpHandlerOptions): (request: Request) => Promise<Response> {
@@ -171,6 +301,7 @@ export function createHttpHandler(options: CreateHttpHandlerOptions): (request: 
   };
 
   return async function handleMcpHttp(request: Request): Promise<Response> {
+    const startedAt = Date.now();
     const token = bearerToken(request);
     if (!token) {
       return jsonError("Unauthorized", 401);
@@ -195,10 +326,14 @@ export function createHttpHandler(options: CreateHttpHandlerOptions): (request: 
     }
 
     let parsedBody: unknown;
+    let rawText = "";
+    let byteIn = 0;
     if (request.method === "POST") {
       const bodyResult = await readJsonBody(request, maxBodyBytes);
       if (!bodyResult.ok) return bodyResult.response;
       parsedBody = bodyResult.parsedBody;
+      rawText = bodyResult.rawText;
+      byteIn = bodyResult.byteLength;
     }
 
     const server = createServer({
@@ -215,7 +350,21 @@ export function createHttpHandler(options: CreateHttpHandlerOptions): (request: 
 
     try {
       await server.connect(transport);
-      return await transport.handleRequest(request, { parsedBody });
+      const response = await transport.handleRequest(request, { parsedBody });
+      try {
+        await logMcpToolCalls({
+          db: options.db,
+          principal,
+          parsedBody,
+          rawText,
+          byteIn,
+          response,
+          startedAt,
+        });
+      } catch {
+        // usage logging must never fail the MCP request itself
+      }
+      return response;
     } catch {
       return jsonRpcError(500, -32603, "Internal server error");
     } finally {

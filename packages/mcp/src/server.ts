@@ -49,6 +49,9 @@ import {
   listSessions,
   SessionNotFoundError,
   search,
+  queryUsage,
+  getContextProfile,
+  setContextProfile,
   type DB,
   AccessDeniedError,
   AlertValidationError,
@@ -413,6 +416,119 @@ export function createServer(options: CreateServerOptions) {
             includeDescendants: include_descendants,
             idleWindowMs: idle_window_ms,
             limit,
+          },
+          actor
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "query_usage",
+    {
+      title: "Query Usage",
+      description:
+        "Admin-gated usage summary for CompanyOS MCP/context overhead. Returns grouped estimated token/byte/latency summaries plus recent event metadata without raw prompts or responses.",
+      inputSchema: z.object({
+        scope: z.string().optional().describe("Scope subtree, defaults to root"),
+        since: z.string().optional().describe("ISO datetime lower bound"),
+        group_by: z.enum(["operation", "scope", "principal", "token", "connection", "session", "source", "model", "success"]).optional(),
+        operation: z.string().optional(),
+        session_id: z.string().optional(),
+        principal_id: z.string().optional(),
+        token_id: z.string().optional(),
+        connection_id: z.string().optional(),
+        limit: z.number().int().min(1).max(1000).optional(),
+      }),
+    },
+    async ({ scope, since, group_by, operation, session_id, principal_id, token_id, connection_id, limit }) => {
+      try {
+        const actor = ensurePrincipal();
+        const result = await queryUsage(
+          db,
+          {
+            scope: scope || "root",
+            since: since ? new Date(since) : null,
+            groupBy: group_by,
+            operation,
+            sessionId: session_id,
+            principalId: principal_id,
+            tokenId: token_id,
+            connectionId: connection_id,
+            limit,
+          },
+          actor
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "get_context_profile",
+    {
+      title: "Get Context Profile",
+      description: "Admin-gated read of the effective context profile for a scope.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+      }),
+    },
+    async ({ scope }) => {
+      try {
+        const actor = ensurePrincipal();
+        const result = await getContextProfile(db, { scopePath: scope }, actor);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "set_context_profile",
+    {
+      title: "Set Context Profile",
+      description:
+        "Admin-gated create/update of a context profile at a scope. Presets are lean, standard, and deep; config overrides are jsonb-compatible.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+        name: z.string().min(1).describe("Profile name"),
+        preset: z.enum(["lean", "standard", "deep"]).optional(),
+        config: z.record(z.any()).optional(),
+        is_default: z.boolean().optional(),
+      }),
+    },
+    async ({ scope, name, preset, config, is_default }) => {
+      try {
+        const actor = ensurePrincipal();
+        const result = await setContextProfile(
+          db,
+          {
+            scopePath: scope,
+            name,
+            preset,
+            config,
+            isDefault: is_default,
           },
           actor
         );

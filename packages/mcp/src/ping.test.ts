@@ -146,6 +146,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "create_task",
       "get_canvas",
       "get_context",
+      "get_context_profile",
       "get_dashboard",
       "get_doc",
       "get_record",
@@ -169,6 +170,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "ping",
       "provision_scope",
       "query_metrics",
+      "query_usage",
       "register_capability",
       "register_session",
       "report_run",
@@ -179,6 +181,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "save_doc",
       "save_note",
       "save_report",
+      "set_context_profile",
       "search",
       "sync_skills",
       "update_session",
@@ -971,6 +974,62 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     });
     expect((denied as any).isError).toBe(true);
     expect((denied as any).content?.[0]?.text || "").toMatch(/Access denied/);
+
+    const tokenRow = await tokenRowByName("http-roundtrip");
+    const usageRows = await db
+      .select()
+      .from(schema.usageEvents)
+      .where(and(eq(schema.usageEvents.source, "mcp_http"), eq(schema.usageEvents.tokenId, tokenRow.id)));
+    expect(usageRows.map((row: any) => row.operation)).toEqual(expect.arrayContaining(["whoami", "get_context", "save_report"]));
+    const getContextUsage = usageRows.find((row: any) => row.operation === "get_context");
+    expect(getContextUsage).toMatchObject({
+      principalId: agentPrincipalId,
+      tokenId: tokenRow.id,
+      success: true,
+    });
+    expect(getContextUsage.byteIn).toBeGreaterThan(0);
+    expect(getContextUsage.byteOut).toBeGreaterThan(0);
+    expect(getContextUsage.totalTokensEst).toBeGreaterThan(0);
+    const audit = JSON.stringify(usageRows);
+    expect(audit).not.toContain(token);
+    expect(audit).not.toContain("Saved over remote MCP HTTP.");
+  });
+
+  it("HTTP usage logging failure does not fail the underlying MCP tool call", async () => {
+    const token = await issueToken(db, { principalId: agentPrincipalId, name: "http-usage-fail-open" }, rootPrincipalId);
+    const brokenDb = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop === "insert") {
+          return (table: any) => {
+            if (table === schema.usageEvents) {
+              throw new Error("usage insert unavailable");
+            }
+            return target.insert(table);
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    const handler = createHttpHandler({
+      db: brokenDb,
+      allowedOrigins: ["https://client.test"],
+      rateLimit: { maxRequests: 1000 },
+    });
+    const transport = new StreamableHTTPClientTransport(new URL("https://companyos.test/api/mcp"), {
+      fetch: (url: string | URL, init?: RequestInit) => handler(new Request(url, init)),
+      requestInit: {
+        headers: {
+          authorization: `Bearer ${token}`,
+          origin: "https://client.test",
+        },
+      },
+    });
+    const mcpClient = new Client({ name: "http-usage-fail-open", version: "0.0.0" });
+    await mcpClient.connect(transport);
+
+    const who = await mcpClient.callTool({ name: "whoami", arguments: {} });
+    expect((who as any).isError).toBeFalsy();
+    expect((who as any).content?.[0]?.text || "").toContain(agentPrincipalId);
   });
 
   it("connect-minted token authenticates over HTTP with only the target subtree and 401s after connect revoke", async () => {

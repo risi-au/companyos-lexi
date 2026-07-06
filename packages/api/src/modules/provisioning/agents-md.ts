@@ -1,4 +1,5 @@
 import type { Scope } from "@companyos/db";
+import { estimateTokens } from "../usage/service";
 
 export const MANAGED_START = "<!-- companyos:managed:start -->";
 export const MANAGED_END = "<!-- companyos:managed:end -->";
@@ -63,6 +64,12 @@ ${children}
 - Never assume vendor memory knows the current scope — always call get_context at
   session start.
 ${MANAGED_END}`;
+}
+
+export function estimateManagedSection(input: ManagedSectionInput): { markdown: string; bytes: number; tokensEst: number } {
+  const markdown = renderManagedSection(input);
+  const estimate = estimateTokens(markdown);
+  return { markdown, bytes: estimate.bytes, tokensEst: estimate.tokens };
 }
 
 export function applyManagedSection(existingContent: string | null, section: string): string {

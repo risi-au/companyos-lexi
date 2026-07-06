@@ -15,6 +15,7 @@ Next.js (app router) tenant UI + thin HTTP API surface for agents/engines (n8n, 
 
 ## API surface (bearer cos_ token)
 - GET/POST/DELETE /api/mcp: remote streamable MCP HTTP transport. Requires `Authorization: Bearer cos_...` on every request; route delegates to `@companyos/mcp` `createHttpHandler` and `src/lib/agent-auth.ts`.
+- `/admin/mcp`: root-admin MCP connection console plus usage observability dashboard for estimated CompanyOS MCP/context overhead and context profile presets.
 - POST /api/v1/metrics/write { scope, points: [...] } → writeMetrics (editor)
 - POST /api/v1/records/log { scope, kind, title, body_md?, data? } → createRecord (editor)
 - GET /api/v1/context?scope=... → getContextBundle markdown (viewer)

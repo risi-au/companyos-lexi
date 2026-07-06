@@ -18,7 +18,7 @@ import {
   GitHubClient,
   AccessDeniedError,
 } from "../../index";
-import { MANAGED_END, MANAGED_START } from "./agents-md";
+import { estimateManagedSection, MANAGED_END, MANAGED_START } from "./agents-md";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -278,6 +278,34 @@ describe("provisioning module", () => {
     expect(rootAgents).not.toContain("CompanyOS MCP endpoint:");
     expect(rootAgents).not.toContain(result.agentToken!.plaintext);
     expect(rootAgents).not.toContain(process.env.COMPANYOS_TOKEN!);
+  });
+
+  it("reports managed AGENTS.md byte and token estimates without secret values", async () => {
+    const scope = {
+      id: "00000000-0000-0000-0000-000000000001",
+      parentId: null,
+      slug: "estimate",
+      path: "estimate",
+      name: "Estimate",
+      type: "project",
+      status: "active",
+      settings: {},
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as any;
+    const child = { ...scope, id: "00000000-0000-0000-0000-000000000002", slug: "seo", path: "estimate/seo", name: "SEO", parentId: scope.id };
+    const measured = estimateManagedSection({
+      scope,
+      children: [child],
+      companyosUrl: "https://companyos.test",
+      mcpPublicUrl: "https://companyos.test/api/mcp",
+      tokenEnvVar: "COMPANYOS_TOKEN",
+    });
+
+    expect(measured.markdown).toContain(MANAGED_START);
+    expect(measured.bytes).toBeGreaterThan(100);
+    expect(measured.tokensEst).toBeGreaterThan(20);
+    expect(JSON.stringify(measured)).not.toContain(process.env.COMPANYOS_TOKEN!);
   });
 
   it("AGENTS.md regeneration preserves human content outside managed markers", async () => {

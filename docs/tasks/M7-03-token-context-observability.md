@@ -1,6 +1,12 @@
 # M7-03: Token/context observability and tuning console
 
-status: todo (blocked on: M6-07 + M6-09 shipped; admin shell from M5-04 or M6-03 exists)
+status: done — implemented 2026-07-07 by codex (scaled-down v1 per the analysis gate;
+review passed with one architect-applied isolation fix in mcp http logging — see
+.review.md + docs/tasks/M7-03-analysis.md). usage_events + context_profiles (migration
+0017), MCP HTTP instrumentation, get_context/search/AGENTS.md estimates, admin usage
+dashboard in /admin/mcp, query_usage/get_context_profile/set_context_profile tools.
+Gates green (246 tests). Staging env knobs USAGE_LOG_MCP_HTTP / USAGE_SAMPLE_RATE
+documented in review notes; deploy pending origin push.
 module: packages/api (new module `usage`) + packages/mcp + apps/os admin
 branch: task/M7-03
 
