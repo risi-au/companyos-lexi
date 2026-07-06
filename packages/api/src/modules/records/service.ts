@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { eq, and, gte, desc } from "drizzle-orm";
+import { eq, and, gte, desc, or, like } from "drizzle-orm";
 import { records, scopes } from "@companyos/db";
 import type { Record as DbRecord } from "@companyos/db";
 import {
@@ -98,14 +98,17 @@ export interface ListRecordsInput {
   kind?: DbRecord["kind"];
   since?: Date;
   limit?: number;
+  includeDescendants?: boolean;
 }
+
+export type ListedRecord = DbRecord & { scopePath?: string };
 
 export async function listRecords(
   db: DB,
   input: ListRecordsInput,
   actorPrincipalId: string
-): Promise<DbRecord[]> {
-  const { scopePath, kind, since, limit = 50 } = input;
+): Promise<ListedRecord[]> {
+  const { scopePath, kind, since, limit = 50, includeDescendants = false } = input;
   const effectiveLimit = Math.min(Math.max(1, limit ?? 50), 200);
 
   await requireAccess(db, actorPrincipalId, scopePath, "viewer");
@@ -115,12 +118,39 @@ export async function listRecords(
     return [];
   }
 
-  const conditions: any[] = [eq(records.scopeId, scope.id)];
+  const conditions: any[] = includeDescendants
+    ? scopePath === "root"
+      ? [like(scopes.path, "%")]
+      : [or(eq(scopes.path, scopePath), like(scopes.path, `${scopePath}/%`))]
+    : [eq(records.scopeId, scope.id)];
   if (kind) {
     conditions.push(eq(records.kind, kind));
   }
   if (since) {
     conditions.push(gte(records.createdAt, since));
+  }
+
+  if (includeDescendants) {
+    const q = db
+      .select({
+        id: records.id,
+        scopeId: records.scopeId,
+        kind: records.kind,
+        title: records.title,
+        bodyMd: records.bodyMd,
+        data: records.data,
+        authorId: records.authorId,
+        createdAt: records.createdAt,
+        updatedAt: records.updatedAt,
+        scopePath: scopes.path,
+      })
+      .from(records)
+      .innerJoin(scopes, eq(records.scopeId, scopes.id))
+      .where(and(...conditions))
+      .orderBy(desc(records.createdAt))
+      .limit(effectiveLimit);
+
+    return (await q) as ListedRecord[];
   }
 
   const q = db
