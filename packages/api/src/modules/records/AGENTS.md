@@ -23,6 +23,7 @@ Exports from `@companyos/db`: records table, recordKindEnum, Record interface, N
 All functions take injected `db: DB` first (no globals). Re-exported from `@companyos/api`.
 
 - `createRecord(db, {scopePath, kind, title, bodyMd?, data?}, actorPrincipalId)`: requires editor/agent on scope; inserts; emits `record.created` (payload has kind, title, recordId).
+- `createSystemRecord(db, {scopePath, kind, title, bodyMd?, data?}, systemPrincipalId)`: for internal system writers such as signed webhook ingestion; skips `requireAccess` but uses the same scope validation, insert, and `record.created` event shape as `createRecord`.
 - `getRecord(db, id, actorPrincipalId)`: fetches by id; requires viewer on owning scope; returns Record | null.
 - `listRecords(db, {scopePath, kind?, since?, limit? (50 default, clamped max 200), includeDescendants?}, actorPrincipalId)`: requires viewer on the requested scope; exact-scope by default; with `includeDescendants: true`, joins scopes and returns records from the requested scope subtree newest-first with an additive `scopePath` on each row; filters kind/since.
 - `updateRecord(db, id, {title?, bodyMd?, data?}, actorPrincipalId)`: requires editor/agent; bumps updated_at; emits `record.updated`.
@@ -62,13 +63,15 @@ Tests use PGlite + migrationsFolder resolution (same as kernel.test.ts). Accepta
 - Do not implement MCP tools (M1-05), UI, or other modules.
 - Never modify kernel schema (packages/db/src/schema/kernel.ts) or existing migrations.
 - No direct DB in clients; always through these services.
+- Cross-module/system writers must call `createRecord` or `createSystemRecord`; do not insert into `records` directly or hand-roll `record.created`.
 - Don't add delete.
 - Update module AGENTS.md in same commit as behavior change.
 
 ## Usage
 ```ts
-import { createRecord, listRecords, updateRecord, getRecord } from "@companyos/api";
+import { createRecord, createSystemRecord, listRecords, updateRecord, getRecord } from "@companyos/api";
 const rec = await createRecord(db, { scopePath: "acme/project", kind: "note", title: "Kickoff", bodyMd: "## Notes\n..." }, principalId);
+await createSystemRecord(db, { scopePath: "acme/project", kind: "changelog", title: "Webhook fallback" }, systemPrincipalId);
 const list = await listRecords(db, { scopePath: "acme/project", kind: "note", limit: 20 }, principalId);
 await updateRecord(db, rec.id, { bodyMd: "updated..." }, principalId);
 ```

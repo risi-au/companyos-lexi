@@ -31,6 +31,11 @@ function presetToSince(preset: SincePreset) {
   return date.toISOString();
 }
 
+function recordSource(record: WorkLogRecord): string | null {
+  const data = record.data as { source?: unknown } | null;
+  return typeof data?.source === "string" ? data.source : null;
+}
+
 export function WorkLogView({
   scopePath,
   initialRecords,
@@ -148,7 +153,16 @@ export function WorkLogView({
                       {record.kind}
                     </span>
                   </td>
-                  <td className="px-[var(--space-3)] py-[var(--space-2)] font-medium">{record.title}</td>
+                  <td className="px-[var(--space-3)] py-[var(--space-2)] font-medium">
+                    <div className="flex flex-wrap items-center gap-[var(--space-2)]">
+                      <span>{record.title}</span>
+                      {recordSource(record) === "github" ? (
+                        <span className="inline-flex rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-2)] py-px text-[var(--font-size-xs)] font-normal text-[var(--muted-foreground)]">
+                          GitHub
+                        </span>
+                      ) : null}
+                    </div>
+                  </td>
                   <td className="px-[var(--space-3)] py-[var(--space-2)] text-right text-[var(--font-size-xs)] text-[var(--muted-foreground)] tabular-nums">
                     {new Date(String(record.createdAt)).toLocaleDateString()}
                   </td>

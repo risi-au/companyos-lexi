@@ -42,8 +42,8 @@ export function renderManagedSection(input: ManagedSectionInput): string {
 - Call \`verify_workbench\` (if available) after \`get_context\` when doing file work.
 
 ### Session End / Handover
-- Use \`log_change\` incrementally during work.
-- Call \`complete_session\` on wrap-up for any session registered at start.
+- Use \`log_change\` incrementally during work; include PR URLs, PR numbers, and commit SHAs when available.
+- Call \`complete_session\` on wrap-up for any session registered at start; include PR URLs, PR numbers, and commit SHAs when available.
 - On wrap-up, call \`complete_task\` and \`log_decision\` where applicable.
 - If the work changed standing truth, update the affected wiki topic page via \`save_doc\` (see docs/patterns/WIKI.md - update in place, cite record ids).
 - Durable state lives in the OS, not the chat transcript.

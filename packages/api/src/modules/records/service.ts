@@ -21,7 +21,7 @@ export interface CreateRecordInput {
   data?: { [key: string]: unknown };
 }
 
-export async function createRecord(
+async function insertRecord(
   db: DB,
   input: CreateRecordInput,
   actorPrincipalId: string
@@ -32,8 +32,6 @@ export async function createRecord(
   if (!scope) {
     throw new ScopeNotFoundError(scopePath);
   }
-
-  await requireAccess(db, actorPrincipalId, scopePath, "editor");
 
   const [created] = (await db
     .insert(records)
@@ -59,6 +57,30 @@ export async function createRecord(
   });
 
   return created;
+}
+
+export async function createRecord(
+  db: DB,
+  input: CreateRecordInput,
+  actorPrincipalId: string
+): Promise<DbRecord> {
+  const scope = await getScope(db, input.scopePath);
+  if (!scope) {
+    throw new ScopeNotFoundError(input.scopePath);
+  }
+  await requireAccess(db, actorPrincipalId, input.scopePath, "editor");
+  return insertRecord(db, input, actorPrincipalId);
+}
+
+// Internal system writers such as signed webhook ingestion act under a system/agent
+// principal and intentionally skip grant checks, while sharing record validation and
+// event emission with ordinary user/agent record creation.
+export async function createSystemRecord(
+  db: DB,
+  input: CreateRecordInput,
+  systemPrincipalId: string
+): Promise<DbRecord> {
+  return insertRecord(db, input, systemPrincipalId);
 }
 
 export async function getRecord(

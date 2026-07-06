@@ -1,6 +1,10 @@
 # M7-02: GitHub workbench ingestion (git -> OS safety net)
 
-status: todo (blocked on: M6-07 + M6-08 shipped; pilot after M7-01 pilot client is chosen)
+status: done — implemented 2026-07-07 by codex (one review fix cycle: blanket stub
+suppression bug, fabricated session links, records-table boundary → createSystemRecord,
+provisioning test expectation). Full gates green (242 tests). Live GitHub webhook
+registration on the workbench repos + staging env `GITHUB_WEBHOOK_SECRET` still pending
+(needs origin push / staging deploy). See .review.md + docs/tasks/M7-02-analysis.md.
 module: packages/api (new module `workbench-events`) + apps/os API route + GitHub webhook
 branch: task/M7-02
 

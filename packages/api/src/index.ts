@@ -42,6 +42,9 @@ export * from "./modules/connect/service";
 // Sessions module (M6-07)
 export * from "./modules/sessions/service";
 
+// Workbench events module (M7-02)
+export * from "./modules/workbench-events/service";
+
 // Search module (M6-09)
 export * from "./modules/search/service";
 
