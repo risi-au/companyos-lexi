@@ -24,7 +24,7 @@ All functions take injected `db: DB` first (no globals). Re-exported from `@comp
 
 - `createRecord(db, {scopePath, kind, title, bodyMd?, data?}, actorPrincipalId)`: requires editor/agent on scope; inserts; emits `record.created` (payload has kind, title, recordId).
 - `getRecord(db, id, actorPrincipalId)`: fetches by id; requires viewer on owning scope; returns Record | null.
-- `listRecords(db, {scopePath, kind?, since?, limit? (50 default, clamped max 200)}, actorPrincipalId)`: requires viewer; newest-first by created_at; filters kind/since.
+- `listRecords(db, {scopePath, kind?, since?, limit? (50 default, clamped max 200), includeDescendants?}, actorPrincipalId)`: requires viewer on the requested scope; exact-scope by default; with `includeDescendants: true`, joins scopes and returns records from the requested scope subtree newest-first with an additive `scopePath` on each row; filters kind/since.
 - `updateRecord(db, id, {title?, bodyMd?, data?}, actorPrincipalId)`: requires editor/agent; bumps updated_at; emits `record.updated`.
 - No delete.
 
@@ -51,6 +51,7 @@ Tests use PGlite + migrationsFolder resolution (same as kernel.test.ts). Accepta
 - Access: viewer read (incl get/list); editor + agent (rank eq) for create/update within granted scope/subtree.
 - Agent grants work for subtree (inherited via ancestor walk).
 - list newest first; limit enforced; since is inclusive gte on createdAt.
+- list rollup mode checks access only on the requested ancestor, excludes sibling branches, preserves kind/since/limit filters, and projects each matched row's originating scope path.
 - update bumps updatedAt; partial updates allowed.
 - Every write emits event with correct type + scope + principal.
 - Unauthorized (no grant or insufficient role) throws AccessDeniedError.

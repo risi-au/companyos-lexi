@@ -216,6 +216,69 @@ describe("records module (PGlite + migrations)", () => {
       expect(clamped.length).toBeLessThanOrEqual(200);
     });
 
+    it("list can roll up descendant records with filters, limit, ordering, and scopePath", async () => {
+      const sp = "rec-rollup-" + Date.now();
+      const sibling = "rec-rollup-sibling-" + Date.now();
+      await createScope(db, { slug: sp, name: "Rollup", type: "project" }, rootPrincipalId);
+      await createScope(db, { parentPath: sp, slug: "alpha", name: "Alpha", type: "subproject" }, rootPrincipalId);
+      await createScope(db, { parentPath: sp, slug: "beta", name: "Beta", type: "subproject" }, rootPrincipalId);
+      await createScope(db, { slug: sibling, name: "Sibling", type: "project" }, rootPrincipalId);
+      await grantRole(db, { principalId: rootPrincipalId, scopePath: sp, role: "editor" }, rootPrincipalId);
+      await grantRole(db, { principalId: rootPrincipalId, scopePath: sibling, role: "editor" }, rootPrincipalId);
+      await grantRole(db, { principalId: viewerPrincipalId, scopePath: sp, role: "viewer" }, rootPrincipalId);
+
+      await createRecord(db, { scopePath: `${sp}/alpha`, kind: "note", title: "Old alpha note" }, rootPrincipalId);
+      await new Promise((r) => setTimeout(r, 10));
+      const cutoff = new Date();
+      await new Promise((r) => setTimeout(r, 10));
+      await createRecord(db, { scopePath: `${sp}/beta`, kind: "decision", title: "Recent beta decision" }, rootPrincipalId);
+      await new Promise((r) => setTimeout(r, 10));
+      await createRecord(db, { scopePath: `${sp}/alpha`, kind: "note", title: "Recent alpha note" }, rootPrincipalId);
+      await createRecord(db, { scopePath: sibling, kind: "note", title: "Sibling note" }, rootPrincipalId);
+
+      const exact = await listRecords(db, { scopePath: sp, limit: 10 }, viewerPrincipalId);
+      expect(exact).toEqual([]);
+
+      const rolledUp = await listRecords(db, { scopePath: sp, includeDescendants: true, limit: 10 }, viewerPrincipalId);
+      expect(rolledUp.map((r) => r.title)).toEqual([
+        "Recent alpha note",
+        "Recent beta decision",
+        "Old alpha note",
+      ]);
+      expect(rolledUp.map((r) => r.scopePath)).toEqual([
+        `${sp}/alpha`,
+        `${sp}/beta`,
+        `${sp}/alpha`,
+      ]);
+      expect(rolledUp.some((r) => r.title === "Sibling note")).toBe(false);
+
+      const filtered = await listRecords(
+        db,
+        { scopePath: sp, includeDescendants: true, kind: "note", since: cutoff, limit: 1 },
+        viewerPrincipalId
+      );
+      expect(filtered.length).toBe(1);
+      expect(filtered[0]!.title).toBe("Recent alpha note");
+      expect(filtered[0]!.kind).toBe("note");
+    });
+
+    it("rollup access is checked on the requested ancestor only", async () => {
+      const sp = "rec-rollup-auth-" + Date.now();
+      await createScope(db, { slug: sp, name: "Rollup Auth", type: "project" }, rootPrincipalId);
+      await createScope(db, { parentPath: sp, slug: "leaf", name: "Leaf", type: "subproject" }, rootPrincipalId);
+      await grantRole(db, { principalId: rootPrincipalId, scopePath: sp, role: "editor" }, rootPrincipalId);
+      await grantRole(db, { principalId: viewerPrincipalId, scopePath: `${sp}/leaf`, role: "viewer" }, rootPrincipalId);
+      await createRecord(db, { scopePath: `${sp}/leaf`, kind: "note", title: "Leaf note" }, rootPrincipalId);
+
+      await expect(
+        listRecords(db, { scopePath: sp, includeDescendants: true }, viewerPrincipalId)
+      ).rejects.toThrow(AccessDeniedError);
+
+      const leaf = await listRecords(db, { scopePath: `${sp}/leaf` }, viewerPrincipalId);
+      expect(leaf.length).toBe(1);
+      expect(leaf[0]!.title).toBe("Leaf note");
+    });
+
     it("unauthorized cannot get or list", async () => {
       const sp = "rec-auth-" + Date.now();
       await createScope(db, { slug: sp, name: "Auth", type: "project" }, rootPrincipalId);
