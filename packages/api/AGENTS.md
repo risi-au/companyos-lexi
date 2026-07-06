@@ -34,7 +34,7 @@ Implements the kernel: scope tree ops, grants/authz, token issuance+auth, event 
 - Every mutating service calls emitEvent (scope.created, scope.archived, grant.created, token.issued, token.revoked).
 - listEvents supports scopePath (resolved to id), type, since, limit. Desc createdAt.
 - listModules(scopePath, actor): requires viewer; returns attached moduleTypes + config for the scope (used by get_context).
-- (M2-05/M4-05) Agent HTTP helpers: getContextBundle (same md as MCP), reportCapabilityRun (legacy event-only `capability.run_reported` fallback behind the capabilities module), findScopeByPlaneProject (reverse task link lookup for webhooks). Re-exported; used by thin routes only.
+- (M2-05/M4-05/M6-04) Agent HTTP helpers: getContextBundle (same md as MCP; includes nearest workbench repo/folder and injected MCP public URL when available), reportCapabilityRun (legacy event-only `capability.run_reported` fallback behind the capabilities module), findScopeByPlaneProject (reverse task link lookup for webhooks). Re-exported; used by thin routes only.
 - (M3-03) Canvas: saveCanvas/getCanvas/listCanvases/archiveCanvas + size cap + events; exported for MCP/HTTP/UI.
 - (M3-04) Resident agent: runTurn (tool loop over LiteLLM + services), listConversations, getConversationMessages; agent_conversations + agent_messages tables. Injected LLM config; mocked in tests. Events: agent.turn_completed.
 - (M4-05) Capabilities: registerCapability/reportRun/listCapabilities/listCapabilityRuns; persisted `capabilities` + `capability_runs`; admin-gated registration, editor/agent run reporting, viewer listing. Events: capability.registered, capability.run_reported.

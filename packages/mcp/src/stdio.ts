@@ -50,7 +50,7 @@ async function main() {
     console.error("[mcp] Plane not configured (PLANE_* missing); task tools will return clear error.");
   }
 
-  const server = createServer({ db, principalId, planeClient });
+  const server = createServer({ db, principalId, planeClient, mcpPublicUrl: process.env.MCP_PUBLIC_URL || null });
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

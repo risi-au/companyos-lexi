@@ -21,6 +21,7 @@ export interface CreateHttpHandlerOptions {
   allowedOrigins?: string[];
   maxBodyBytes?: number;
   rateLimit?: HttpRateLimitOptions;
+  mcpPublicUrl?: string | null;
 }
 
 interface Bucket {
@@ -205,6 +206,7 @@ export function createHttpHandler(options: CreateHttpHandlerOptions): (request: 
       principalId: principal.principalId,
       planeClient: options.planeClient,
       githubClient: options.githubClient,
+      mcpPublicUrl: options.mcpPublicUrl ?? process.env.MCP_PUBLIC_URL ?? null,
     });
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
