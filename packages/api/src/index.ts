@@ -39,6 +39,9 @@ export * from "./modules/skills/service";
 // Connect module (M6-02)
 export * from "./modules/connect/service";
 
+// Sessions module (M6-07)
+export * from "./modules/sessions/service";
+
 // Agent HTTP / n8n support (M2-05)
 export * from "./agent";
 

@@ -34,7 +34,8 @@ export function renderManagedSection(input: ManagedSectionInput): string {
 ### Session Start Checklist
 1. Call \`whoami\`.
 2. Call \`get_context("${input.scope.path}")\`.
-3. If MCP is unreachable or auth fails: STOP and tell the user - never proceed on assumed OS state.
+3. Call \`register_session\` before file work so the OS can track active sessions on this scope.
+4. If MCP is unreachable or auth fails: STOP and tell the user - never proceed on assumed OS state.
 
 ### Folder Guard
 - Your cwd must be under \`<workbench.path>\`; if it isn't, stop and ask the user.
@@ -42,6 +43,7 @@ export function renderManagedSection(input: ManagedSectionInput): string {
 
 ### Session End / Handover
 - Use \`log_change\` incrementally during work.
+- Call \`complete_session\` on wrap-up for any session registered at start.
 - On wrap-up, call \`complete_task\` and \`log_decision\` where applicable.
 - If the work changed standing truth, update the affected wiki topic page via \`save_doc\` (see docs/patterns/WIKI.md - update in place, cite record ids).
 - Durable state lives in the OS, not the chat transcript.

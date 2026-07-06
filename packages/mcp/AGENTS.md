@@ -14,6 +14,10 @@ Stdio auth uses `COS_TOKEN` env. HTTP auth uses `Authorization: Bearer cos_...` 
 - `whoami` - read-only; returns `{ principal: { id, name, kind }, grants: [{ scopePath, role }] }` for the authenticated principal.
 - `get_context({scope})` - markdown context bundle for a scope. Viewer. Includes a Workbench section when the scope or nearest ancestor has one, with repo, folder, and MCP URL when configured.
 - `verify_workbench({cwd, scope?})` - read-only warning helper; checks whether client cwd matches the expected workbench folder. Viewer when scope is explicit; otherwise uses the principal's single direct grant.
+- `register_session({scope, title, engine, model?, token_id?, worktree_ref?})` - register a cooperative scoped work session. Editor/agent.
+- `update_session({session_id, status?, title?, worktree_ref?})` - heartbeat or update a session. Bare calls bump heartbeat only. Editor/agent on the session scope.
+- `complete_session({session_id, summary?})` - mark a session completed and emit wrap-up event. Editor/agent on the session scope.
+- `list_sessions({scope, status?, include_descendants?, idle_window_ms?, limit?})` - list scoped sessions with read-time stale flags. Viewer.
 - `get_tree({scope?})` - indented subtree paths. Viewer.
 - `log_change({scope, title, body_md, data?})` - create changelog. Editor/agent.
 - `log_decision({scope, title, body_md, data?})` - create decision. Editor/agent.
@@ -52,7 +56,7 @@ All protected tools: unauthenticated calls return a clear error. AccessDenied is
 - The v1 HTTP rate limiter is in-memory per process and keyed by token fingerprint; it is a guardrail, not distributed quota.
 
 ## Files
-- `src/server.ts` - `createServer({db, principalId, mcpPublicUrl?})`, all tool registration with zod schemas + thin handlers. `get_context` delegates formatting to `@companyos/api`.
+- `src/server.ts` - `createServer({db, principalId, mcpPublicUrl?})`, all tool registration with zod schemas + thin handlers. `get_context` delegates formatting to `@companyos/api`; session tools delegate to the sessions module.
 - `src/http.ts` - `createHttpHandler({db})`, standard Request/Response streamable HTTP wrapper with per-request bearer auth, origin/body/rate guardrails.
 - `src/index.ts` - reexports `createServer`, `createHttpHandler`, and `ping`.
 - `src/stdio.ts` - executable entry: reads `DATABASE_URL` + `COS_TOKEN`, auths, wires `StdioServerTransport`.

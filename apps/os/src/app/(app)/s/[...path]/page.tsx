@@ -5,6 +5,7 @@ import { DocsView } from "@/modules/docs";
 import { CanvasView } from "@/modules/canvas";
 import { ConnectPanel } from "@/modules/connect";
 import { WorkLogView } from "@/modules/worklog";
+import { SessionsView } from "@/modules/sessions";
 import { getDashboard } from "@companyos/api";
 import { AskOSButton } from "@/modules/agent";
 import { addMemberToScope, changeMemberRole, revokeMember } from "../../_components/actions";
@@ -95,6 +96,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
   const isOverview = currentTab === "overview";
   const isActivity = currentTab === "activity";
   const isWorkLog = currentTab === "work-log";
+  const isSessions = currentTab === "sessions";
   const isDocs = currentTab === "docs";
   const isCanvas = currentTab === "canvas";
   const isMembers = currentTab === "members";
@@ -104,6 +106,9 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
   workLogSince.setDate(workLogSince.getDate() - 30);
   const initialWorkLogRecords = isWorkLog
     ? await api.listRecords({ scopePath, includeDescendants: true, since: workLogSince, limit: 100 }, actor)
+    : [];
+  const initialSessions = isSessions
+    ? await api.listSessions({ scopePath, includeDescendants: true }, actor)
     : [];
 
   return (
@@ -159,6 +164,12 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
             className={`${isWorkLog ? "border-b-2 border-[var(--primary)] font-medium text-[var(--primary)]" : "text-[var(--muted-foreground)]"} pb-[var(--space-2)]`}
           >
             Work Log
+          </a>
+          <a
+            href={makeTabHref("sessions")}
+            className={`${isSessions ? "border-b-2 border-[var(--primary)] font-medium text-[var(--primary)]" : "text-[var(--muted-foreground)]"} pb-[var(--space-2)]`}
+          >
+            Sessions
           </a>
           <a
             href={makeTabHref("docs")}
@@ -299,6 +310,11 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
         <WorkLogView scopePath={scopePath} initialRecords={initialWorkLogRecords} />
       )}
 
+      {/* Sessions tab (M6-07) */}
+      {isSessions && (
+        <SessionsView scopePath={scopePath} initialSessions={initialSessions} />
+      )}
+
       {/* Docs tab (M3-02) */}
       {isDocs && (
         <DocsView scopePath={scopePath} initialDocSlug={docParam} initialAccess={access} />
@@ -323,7 +339,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
       )}
 
       {/* Overview + Activity legacy combined when not dashboard (keep full original layout for overview+activity non-tabbed fallback if any) */}
-      {!isDashboard && !isOverview && !isActivity && !isWorkLog && !isDocs && !isCanvas && !isConnect && (
+      {!isDashboard && !isOverview && !isActivity && !isWorkLog && !isSessions && !isDocs && !isCanvas && !isConnect && (
         <div className="space-y-[var(--space-4)]">
           <div className="grid grid-cols-1 gap-[var(--space-4)] lg:grid-cols-2">
             <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">

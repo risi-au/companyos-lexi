@@ -46,6 +46,7 @@ import {
   revokeConnectionToken,
   revokePrincipalAccess,
   revokeScopeAccess,
+  listSessions,
   type LLMConfig,
   type RunTurnInput,
 } from "@companyos/api";
@@ -171,6 +172,10 @@ export const api = {
     revokeScopeAccess(db, input, actorPrincipalId),
   revokePrincipalAccess: (input: Parameters<typeof revokePrincipalAccess>[1], actorPrincipalId: string) =>
     revokePrincipalAccess(db, input, actorPrincipalId),
+
+  // Sessions registry (M6-07)
+  listSessions: (input: Parameters<typeof listSessions>[1], actorPrincipalId: string) =>
+    listSessions(db, input, actorPrincipalId),
 };
 
 export { db }; // only for auth wiring internally
