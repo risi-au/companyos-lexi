@@ -84,6 +84,9 @@ importers:
       '@companyos/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@companyos/mcp':
+        specifier: workspace:*
+        version: link:../../packages/mcp
       '@companyos/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -219,6 +222,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.12.1
         version: 1.29.0(zod@3.25.76)
+      drizzle-orm:
+        specifier: ^0.44.2
+        version: 0.44.7(@electric-sql/pglite@0.2.5)(kysely@0.29.2)(postgres@3.4.9)
       zod:
         specifier: ^3.23.8
         version: 3.25.76
@@ -226,9 +232,6 @@ importers:
       '@electric-sql/pglite':
         specifier: 0.2.5
         version: 0.2.5
-      drizzle-orm:
-        specifier: ^0.44.2
-        version: 0.44.7(@electric-sql/pglite@0.2.5)(kysely@0.29.2)(postgres@3.4.9)
       typescript:
         specifier: ^5.8.3
         version: 5.9.3

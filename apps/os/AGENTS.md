@@ -9,11 +9,12 @@ Next.js (app router) tenant UI + thin HTTP API surface for agents/engines (n8n, 
 
 ## Purpose
 - Human UI (React + design tokens from packages/ui)
-- Thin HTTP API v1 for token-authenticated agent access (M2-05): metrics write, records log, context bundle, capability run reporting (stub), Plane webhooks.
+- Thin HTTP API for token-authenticated agent access: API v1 routes (M2-05) plus remote MCP at `/api/mcp` (M6-01).
 - All logic delegated to @companyos/api services; routes only parse + authz + forward + error shape.
 - Agent tokens (cos_*) use kernel authenticateToken + requireAccess inside services.
 
 ## API surface (bearer cos_ token)
+- GET/POST/DELETE /api/mcp: remote streamable MCP HTTP transport. Requires `Authorization: Bearer cos_...` on every request; route delegates to `@companyos/mcp` `createHttpHandler` and `src/lib/agent-auth.ts`.
 - POST /api/v1/metrics/write { scope, points: [...] } → writeMetrics (editor)
 - POST /api/v1/records/log { scope, kind, title, body_md?, data? } → createRecord (editor)
 - GET /api/v1/context?scope=... → getContextBundle markdown (viewer)
@@ -25,6 +26,7 @@ Auth helper: src/lib/agent-auth.ts (bearer → principal, consistent {error, req
 
 ## Files
 - src/app/api/v1/.../route.ts — thin handlers only
+- src/app/api/mcp/route.ts - thin mount for `@companyos/mcp` HTTP handler
 - src/lib/agent-auth.ts — shared auth + error helpers for agent routes
 - src/lib/api.ts — bindings + current actor for human UI paths
 - src/modules/* — local UI components only (no direct db)
