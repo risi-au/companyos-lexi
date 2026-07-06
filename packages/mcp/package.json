@@ -22,11 +22,11 @@
     "@companyos/api": "workspace:*",
     "@companyos/db": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.12.1",
+    "drizzle-orm": "^0.44.2",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.2.5",
-    "drizzle-orm": "^0.44.2",
     "typescript": "^5.8.3",
     "vitest": "^3.2.1"
   }

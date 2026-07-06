@@ -1,8 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
+import { and, eq } from "drizzle-orm";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
@@ -10,6 +11,7 @@ import * as dbMod from "@companyos/db";
 const schema: any = (dbMod as any).schema ?? dbMod;
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import {
@@ -18,9 +20,11 @@ import {
   createRecord,
   listRecords,
   writeMetrics,
+  issueToken,
+  revokeToken,
   GitHubClient,
 } from "@companyos/api";
-import { createServer, ping } from "./index";
+import { createHttpHandler, createServer, ping } from "./index";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -167,12 +171,25 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "save_report",
       "sync_skills",
       "update_task",
+      "whoami",
       "write_metrics",
     ].sort());
 
     // ping
     const p = await mcpClient.callTool({ name: "ping", arguments: {} });
     expect((p as any).content?.[0]?.text).toBe("pong");
+
+    const who = await mcpClient.callTool({ name: "whoami", arguments: {} });
+    expect((who as any).isError).toBeFalsy();
+    const whoJson = JSON.parse((who as any).content?.[0]?.text || "{}");
+    expect(whoJson.principal).toMatchObject({
+      id: rootPrincipalId,
+      name: expect.stringMatching(/^Root /),
+      kind: "human",
+    });
+    expect(whoJson.grants).toEqual(
+      expect.arrayContaining([{ scopePath: testScope, role: "editor" }])
+    );
 
     // get_tree (use explicit scope; default root edge returns simple tree)
     const tree = await mcpClient.callTool({ name: "get_tree", arguments: { scope: testScope } });
@@ -712,5 +729,190 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     const { mcpClient: agentClient } = await makeRoundtrip(agentPrincipalId);
     const agSave = await agentClient.callTool({ name: "save_dashboard", arguments: { scope: testScope, spec: validSpec } });
     expect((agSave as any).isError).toBeFalsy();
+  });
+
+  function mcpPostHeaders(token?: string, extra?: HeadersInit): Headers {
+    const headers = new Headers(extra);
+    headers.set("accept", "application/json, text/event-stream");
+    headers.set("content-type", "application/json");
+    if (token) headers.set("authorization", `Bearer ${token}`);
+    return headers;
+  }
+
+  function initializeBody(id = 1): string {
+    return JSON.stringify({
+      jsonrpc: "2.0",
+      id,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-03-26",
+        capabilities: {},
+        clientInfo: { name: "vitest-http", version: "0.0.0" },
+      },
+    });
+  }
+
+  async function tokenRowByName(name: string) {
+    const [row] = await db
+      .select()
+      .from(schema.tokens)
+      .where(and(eq(schema.tokens.principalId, agentPrincipalId), eq(schema.tokens.name, name)))
+      .limit(1);
+    return row as any;
+  }
+
+  async function makeHttpClient(token: string) {
+    const handler = createHttpHandler({
+      db,
+      allowedOrigins: ["https://client.test"],
+      rateLimit: { maxRequests: 1000 },
+    });
+    const fetchImpl = async (url: string | URL, init?: RequestInit): Promise<Response> => {
+      return handler(new Request(url, init));
+    };
+    const transport = new StreamableHTTPClientTransport(new URL("https://companyos.test/api/mcp"), {
+      fetch: fetchImpl,
+      requestInit: {
+        headers: {
+          authorization: `Bearer ${token}`,
+          origin: "https://client.test",
+        },
+      },
+    });
+    const mcpClient = new Client({ name: "http-test-client", version: "0.0.0" });
+    await mcpClient.connect(transport);
+    return { mcpClient, transport };
+  }
+
+  it("HTTP auth matrix covers valid, invalid, revoked, expired, and absent tokens", async () => {
+    const handler = createHttpHandler({ db, allowedOrigins: ["https://client.test"] });
+    const valid = await issueToken(db, { principalId: agentPrincipalId, name: "http-valid" }, rootPrincipalId);
+    const revoked = await issueToken(db, { principalId: agentPrincipalId, name: "http-revoked" }, rootPrincipalId);
+    const revokedRow = await tokenRowByName("http-revoked");
+    await revokeToken(db, revokedRow.id, rootPrincipalId);
+    const expired = await issueToken(
+      db,
+      { principalId: agentPrincipalId, name: "http-expired", expiresAt: new Date(Date.now() - 60_000) },
+      rootPrincipalId
+    );
+
+    const postInit = (token?: string) =>
+      handler(new Request("https://companyos.test/api/mcp", {
+        method: "POST",
+        headers: mcpPostHeaders(token, { origin: "https://client.test" }),
+        body: initializeBody(),
+      }));
+
+    await expect((await postInit(valid)).status).toBe(200);
+    await expect((await postInit("cos_invalid")).status).toBe(401);
+    await expect((await postInit(revoked)).status).toBe(401);
+    await expect((await postInit(expired)).status).toBe(401);
+    await expect((await postInit()).status).toBe(401);
+  });
+
+  it("HTTP MCP roundtrip supports whoami, get_context, save_report, and subtree authorization", async () => {
+    const token = await issueToken(db, { principalId: agentPrincipalId, name: "http-roundtrip" }, rootPrincipalId);
+    const { mcpClient } = await makeHttpClient(token);
+
+    const who = await mcpClient.callTool({ name: "whoami", arguments: {} });
+    const whoJson = JSON.parse((who as any).content?.[0]?.text || "{}");
+    expect(whoJson.principal).toMatchObject({
+      id: agentPrincipalId,
+      kind: "agent",
+    });
+    expect(whoJson.grants).toEqual(
+      expect.arrayContaining([
+        { scopePath: testScope, role: "agent" },
+        { scopePath: subScope, role: "agent" },
+      ])
+    );
+
+    const context = await mcpClient.callTool({ name: "get_context", arguments: { scope: testScope } });
+    expect((context as any).isError).toBeFalsy();
+    expect((context as any).content?.[0]?.text || "").toContain(`path: ${testScope}`);
+
+    const report = await mcpClient.callTool({
+      name: "save_report",
+      arguments: { scope: subScope, title: "HTTP report", body_md: "Saved over remote MCP HTTP." },
+    });
+    expect((report as any).isError).toBeFalsy();
+    expect((report as any).content?.[0]?.text || "").toMatch(/Created report/);
+
+    const other = "other-http-" + Date.now();
+    await createScope(db, { slug: other, name: "Other HTTP", type: "project" }, rootPrincipalId);
+    await grantRole(db, { principalId: rootPrincipalId, scopePath: other, role: "editor" }, rootPrincipalId);
+    const denied = await mcpClient.callTool({
+      name: "save_report",
+      arguments: { scope: other, title: "Denied", body_md: "no" },
+    });
+    expect((denied as any).isError).toBe(true);
+    expect((denied as any).content?.[0]?.text || "").toMatch(/Access denied/);
+  });
+
+  it("revoked HTTP token fails on the very next request and last_used_at bumps on auth", async () => {
+    const token = await issueToken(db, { principalId: agentPrincipalId, name: "http-revoke-next" }, rootPrincipalId);
+    const before = await tokenRowByName("http-revoke-next");
+    expect(before.lastUsedAt).toBeNull();
+
+    const { mcpClient } = await makeHttpClient(token);
+    const who = await mcpClient.callTool({ name: "whoami", arguments: {} });
+    expect((who as any).isError).toBeFalsy();
+
+    const after = await tokenRowByName("http-revoke-next");
+    expect(after.lastUsedAt).toBeInstanceOf(Date);
+
+    await revokeToken(db, after.id, rootPrincipalId);
+    await expect(mcpClient.callTool({ name: "whoami", arguments: {} })).rejects.toThrow(/401|Unauthorized/i);
+  });
+
+  it("HTTP guardrails reject query-string tokens, bad origins, oversize bodies, and rate bursts without leaking tokens", async () => {
+    const token = await issueToken(db, { principalId: agentPrincipalId, name: "http-guardrails" }, rootPrincipalId);
+    const handler = createHttpHandler({
+      db,
+      allowedOrigins: ["https://client.test"],
+      maxBodyBytes: 64,
+      rateLimit: { windowMs: 60_000, maxRequests: 2 },
+    });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const queryToken = await handler(new Request(`https://companyos.test/api/mcp?access_token=${encodeURIComponent(token)}`, {
+        method: "POST",
+        headers: mcpPostHeaders(undefined, { origin: "https://client.test" }),
+        body: initializeBody(),
+      }));
+      const queryText = await queryToken.text();
+      expect(queryToken.status).toBe(401);
+      expect(queryText).not.toContain(token);
+
+      const badOrigin = await handler(new Request("https://companyos.test/api/mcp", {
+        method: "POST",
+        headers: mcpPostHeaders(token, { origin: "https://evil.test" }),
+        body: initializeBody(),
+      }));
+      expect(badOrigin.status).toBe(403);
+      expect(await badOrigin.text()).not.toContain(token);
+
+      const oversized = await handler(new Request("https://companyos.test/api/mcp", {
+        method: "POST",
+        headers: mcpPostHeaders(token, { origin: "https://client.test" }),
+        body: JSON.stringify({ payload: "x".repeat(200) }),
+      }));
+      expect(oversized.status).toBe(413);
+
+      const limited = await handler(new Request("https://companyos.test/api/mcp", {
+        method: "POST",
+        headers: mcpPostHeaders(token, { origin: "https://client.test" }),
+        body: initializeBody(99),
+      }));
+      expect(limited.status).toBe(429);
+
+      const logged = [...logSpy.mock.calls, ...errorSpy.mock.calls].flat().join("\n");
+      expect(logged).not.toContain(token);
+    } finally {
+      logSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
   });
 });

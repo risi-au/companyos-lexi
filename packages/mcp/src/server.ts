@@ -1,5 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { grants as grantsTable, principals as principalsTable, scopes as scopesTable } from "@companyos/db";
 import {
   createRecord,
   getRecord,
@@ -40,6 +42,7 @@ import {
   syncSkills,
   listSkills,
   getSkill,
+  listGrants,
   skillsContextSection,
   type DB,
   AccessDeniedError,
@@ -126,6 +129,73 @@ export function createServer(options: CreateServerOptions) {
     async () => ({
       content: [{ type: "text", text: "pong" }],
     })
+  );
+
+  server.registerTool(
+    "whoami",
+    {
+      title: "Who Am I",
+      description: "Return the authenticated principal and its explicit grants. Requires any valid principal.",
+      inputSchema: z.object({}),
+    },
+    async () => {
+      try {
+        const actor = ensurePrincipal();
+        const [principal] = await db
+          .select({
+            id: principalsTable.id,
+            name: principalsTable.name,
+            kind: principalsTable.kind,
+          })
+          .from(principalsTable)
+          .where(eq(principalsTable.id, actor))
+          .limit(1);
+
+        if (!principal) {
+          return {
+            content: [{ type: "text", text: "Error: authenticated principal not found" }],
+            isError: true,
+          };
+        }
+
+        const grantScopes = await db
+          .select({ scopePath: scopesTable.path })
+          .from(grantsTable)
+          .innerJoin(scopesTable, eq(grantsTable.scopeId, scopesTable.id))
+          .where(eq(grantsTable.principalId, actor))
+          .orderBy(scopesTable.path);
+
+        const ownGrants: { scopePath: string; role: string }[] = [];
+        for (const grantScope of grantScopes) {
+          try {
+            const scopedGrants = await listGrants(db, grantScope.scopePath, actor);
+            const ownGrant = scopedGrants.find((grant) => grant.principalId === actor);
+            if (ownGrant) {
+              ownGrants.push({ scopePath: grantScope.scopePath, role: ownGrant.role });
+            }
+          } catch (e) {
+            if (e instanceof AccessDeniedError) {
+              continue;
+            }
+            throw e;
+          }
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ principal, grants: ownGrants }, null, 2),
+            },
+          ],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
   );
 
   // Helper to ensure auth for protected tools

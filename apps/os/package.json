@@ -17,6 +17,7 @@
     "@blocknote/shadcn": "^0.51.4",
     "@companyos/api": "workspace:*",
     "@companyos/db": "workspace:*",
+    "@companyos/mcp": "workspace:*",
     "@companyos/ui": "workspace:*",
     "@excalidraw/excalidraw": "^0.18.1",
     "better-auth": "^1.6.23",

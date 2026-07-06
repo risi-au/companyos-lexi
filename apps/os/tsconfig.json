@@ -5,6 +5,7 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "plugins": [{ "name": "next" }],
     "paths": {
+      "@companyos/mcp": ["../../packages/mcp/src/index.ts"],
       "@/*": ["./src/*"]
     },
     "incremental": true
