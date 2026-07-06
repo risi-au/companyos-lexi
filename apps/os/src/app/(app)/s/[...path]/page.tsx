@@ -3,6 +3,7 @@ import { api, getCurrentActorPrincipalId } from "@/lib/api";
 import { DashboardRenderer, DashboardEmptyState, RangePicker } from "@/modules/dashboards";
 import { DocsView } from "@/modules/docs";
 import { CanvasView } from "@/modules/canvas";
+import { ConnectPanel } from "@/modules/connect";
 import { getDashboard } from "@companyos/api";
 import { AskOSButton } from "@/modules/agent";
 import { addMemberToScope, changeMemberRole, revokeMember } from "../../_components/actions";
@@ -83,6 +84,9 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
     if (t === "members") {
       return `/s/${scopePath}?tab=members`;
     }
+    if (t === "connect") {
+      return `/s/${scopePath}?tab=connect`;
+    }
     return `/s/${scopePath}?tab=${t}`;
   };
 
@@ -92,6 +96,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
   const isDocs = currentTab === "docs";
   const isCanvas = currentTab === "canvas";
   const isMembers = currentTab === "members";
+  const isConnect = currentTab === "connect";
   const canManageMembers = scope.type === "project" && ["owner", "admin"].includes(access);
 
   return (
@@ -153,6 +158,12 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
             className={`${isCanvas ? "border-b-2 border-[var(--primary)] font-medium text-[var(--primary)]" : "text-[var(--muted-foreground)]"} pb-[var(--space-2)]`}
           >
             Canvas
+          </a>
+          <a
+            href={makeTabHref("connect")}
+            className={`${isConnect ? "border-b-2 border-[var(--primary)] font-medium text-[var(--primary)]" : "text-[var(--muted-foreground)]"} pb-[var(--space-2)]`}
+          >
+            Connect
           </a>
           {canManageMembers && (
             <a
@@ -280,13 +291,21 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
         <CanvasView scopePath={scopePath} initialCanvasSlug={canvasParam} initialAccess={access} />
       )}
 
+      {/* Connect to MCP tab (M6-02) */}
+      {isConnect && (
+        <ConnectPanel
+          scopePath={scopePath}
+          initialAccess={access}
+        />
+      )}
+
       {/* Members tab (M4-01) - only for top-level projects to root/project admins */}
       {isMembers && canManageMembers && (
         <MembersTab scopePath={scopePath} actor={actor} />
       )}
 
       {/* Overview + Activity legacy combined when not dashboard (keep full original layout for overview+activity non-tabbed fallback if any) */}
-      {!isDashboard && !isOverview && !isActivity && !isDocs && !isCanvas && (
+      {!isDashboard && !isOverview && !isActivity && !isDocs && !isCanvas && !isConnect && (
         <div className="space-y-[var(--space-4)]">
           <div className="grid grid-cols-1 gap-[var(--space-4)] lg:grid-cols-2">
             <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
