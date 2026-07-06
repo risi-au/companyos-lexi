@@ -17,6 +17,8 @@ Running the same spec twice should produce only `existing` or `skipped` outcomes
 
 Managed `AGENTS.md` regeneration replaces only the block between `<!-- companyos:managed:start -->` and `<!-- companyos:managed:end -->`. Human content outside those markers must survive byte-for-byte.
 
+The managed block is an operational playbook. It includes the scope path, CompanyOS HTTP endpoint, `MCP_PUBLIC_URL`, token env var name only, session-start checks (`whoami`, `get_context`, stop on MCP/auth failure), folder guard instructions, session-end handover (`log_change`, `complete_task`, `log_decision`, wiki `save_doc` updates when standing truth changes), the git worktree naming convention, the child folder map, and the memory precedence policy that makes CompanyOS authoritative over vendor memory.
+
 ## Tables
 - `workbenches` in `packages/db`: `scope_id` unique, `repo`, `path`, timestamps.
 - Existing kernel tables used: `scopes`, `module_instances`, `principals`, `grants`, `tokens`, `events`.
