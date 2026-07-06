@@ -3,7 +3,7 @@
 Canvas module (M3-03): per-scope Excalidraw scenes stored as jsonb. Slug unique per scope, soft archive, 2MB scene size cap. No revisions in v1. Agents + HTTP + UI use same service. Every write emits event.
 
 ## Purpose
-Excalidraw canvas per scope for process maps etc. Scene = { elements, appState, files? } JSON. save (upsert), get, list (excl archived), archive. Access via kernel grants. 2MB cap with typed error.
+Excalidraw canvas per scope for process maps etc. Scene = Excalidraw JSON scene data ({ elements, appState, files? } plus optional Excalidraw metadata). UI clients sanitize runtime-only/non-serializable appState before save; the API stores JSON and enforces size/access/event contracts. save (upsert), get, list (excl archived), archive. Access via kernel grants. 2MB cap with typed error.
 
 ## Tables (in packages/db)
 - `canvases` (new):
@@ -43,7 +43,7 @@ Uses kernel: getScope, requireAccess (viewer read, editor+agent write), emitEven
 Tests cover: access matrix, save/get/list roundtrip (scene jsonb intact), slug collision suffix, size cap (2MB), archive hides, events, MCP tools, HTTP.
 
 ## Key behaviors
-- Scene jsonb roundtrips exactly.
+- Scene jsonb roundtrips exactly as submitted by the client. UI-submitted scenes must already exclude Excalidraw runtime-only state such as collaborators/cursor/selection/edit-session fields.
 - Every mutation emits event (canvas.saved / canvas.archived).
 - Slug unique + auto suffix on default.
 - Archive soft.

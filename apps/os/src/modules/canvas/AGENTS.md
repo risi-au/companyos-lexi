@@ -7,6 +7,7 @@ Humans draw in Canvas tab (process maps etc). Uses @excalidraw/excalidraw (clien
 
 ## Files
 - `CanvasView.tsx`: two-pane (list left + editor). Client component. New canvas dialog, select, autosave on change (debounced), indicator, archive. Syncs theme class.
+- `scene.ts`: sanitizes Excalidraw scene data for storage and initialData. Uses Excalidraw restore/serialization helpers when available; fallback keeps only JSON-safe database appState keys.
 - `actions.ts`: "use server" wrappers to api.* + revalidate.
 - `index.ts`: export CanvasView.
 - `AGENTS.md`: this.
@@ -16,7 +17,7 @@ Consumes from `@companyos/api` (via lib/api):
 - listCanvases, getCanvas, saveCanvas, archiveCanvas
 - resolveAccess for readOnly
 
-Scene shape: { elements: any[], appState?: any, files?: any } from Excalidraw. Stored as jsonb, size capped 2MB server-side. No images in scene for v1.
+Scene shape: Excalidraw JSON scene data ({ elements, appState?, files? } plus optional Excalidraw metadata). Stored as jsonb, size capped 2MB server-side. UI must sanitize before save and before passing to `<Excalidraw initialData>`: runtime-only/non-serializable appState fields such as `collaborators`, cursor state, selection, and edit-session state are not persisted. No images in scene for v1.
 
 ## Theming
 Excalidraw theme prop "dark" | "light" synced from <html class="dark"> (UserMenu toggle + storage). Import @excalidraw/excalidraw/index.css

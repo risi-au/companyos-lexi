@@ -10,6 +10,7 @@ import {
   archiveCanvasAction,
   getAccessAction,
 } from "./actions";
+import { EMPTY_CANVAS_SCENE, sanitizeSceneForInitialData, sanitizeSceneForStorage } from "./scene";
 import { Plus, Archive, X } from "lucide-react";
 
 // Dynamic import for Excalidraw per current Next.js App Router integration (verified via web/docs):
@@ -113,7 +114,7 @@ export function CanvasView({ scopePath, initialCanvasSlug, initialAccess }: Canv
       try {
         const c = await getCanvasAction(scopePath, slug);
         if (c) {
-          const scene = c.scene || { elements: [], appState: {} };
+          const scene = await sanitizeSceneForInitialData(c.scene || EMPTY_CANVAS_SCENE);
           setCurrentCanvas({ slug: c.slug, name: c.name, scene });
           currentSceneRef.current = scene;
           setLastSaved(new Date(c.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
@@ -172,7 +173,7 @@ export function CanvasView({ scopePath, initialCanvasSlug, initialAccess }: Canv
             scopePath,
             slug: selectedSlug || undefined,
             name: nameForSave || currentCanvas?.name || "Untitled",
-            scene: sceneData,
+            scene: await sanitizeSceneForStorage(sceneData),
           };
           const saved = await saveCanvasAction(toSave);
           if (saved) {
@@ -196,8 +197,7 @@ export function CanvasView({ scopePath, initialCanvasSlug, initialAccess }: Canv
   const handleExcalidrawChange = useCallback(
     (elements: readonly unknown[], appState: unknown, files: unknown) => {
       if (readOnly) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const scene = { elements: [...(elements as any[])], appState: { ...(appState as any) }, files: { ...(files as any) } };
+      const scene = { elements: Array.from(elements), appState, files };
       currentSceneRef.current = scene;
       const name = currentCanvas?.name || "Untitled";
       debouncedSave(scene, name);
@@ -213,14 +213,19 @@ export function CanvasView({ scopePath, initialCanvasSlug, initialAccess }: Canv
       const created = await saveCanvasAction({
         scopePath,
         name: newName.trim(),
-        scene: { elements: [], appState: { viewBackgroundColor: "#ffffff" } },
+        scene: await sanitizeSceneForStorage({
+          elements: [],
+          appState: { viewBackgroundColor: "#ffffff" },
+          files: {},
+        }),
       });
+      const scene = await sanitizeSceneForInitialData(created.scene);
       setNewName("");
       setShowNewDialog(false);
       await refreshList();
       setSelectedSlug(created.slug);
       updateUrlCanvas(created.slug);
-      setCurrentCanvas({ slug: created.slug, name: created.name, scene: created.scene });
+      setCurrentCanvas({ slug: created.slug, name: created.name, scene });
       setSaveState("saved");
       setLastSaved(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
     } catch {
@@ -249,7 +254,7 @@ export function CanvasView({ scopePath, initialCanvasSlug, initialAccess }: Canv
     }
   };
 
-  const initialData = currentCanvas?.scene || { elements: [], appState: {} };
+  const initialData = currentCanvas?.scene || EMPTY_CANVAS_SCENE;
 
   return (
     <div className="flex h-[calc(100vh-220px)] gap-[var(--space-4)]">
