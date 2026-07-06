@@ -178,6 +178,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "save_report",
       "sync_skills",
       "update_task",
+      "verify_workbench",
       "whoami",
       "write_metrics",
     ].sort());
@@ -366,6 +367,34 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     expect(text).toContain("Repo: brissie-digital/mcp-test");
     expect(text).toContain("Folder: sub");
     expect(text).toContain("MCP URL: https://os.example/api/mcp");
+  });
+
+  it("verify_workbench roundtrips as a read-only warning and does not affect other tools", async () => {
+    const [scopeRow] = await db.select().from(schema.scopes).where(eq(schema.scopes.path, testScope)).limit(1);
+    await db.insert(schema.workbenches).values({
+      scopeId: scopeRow.id,
+      repo: "brissie-digital/mcp-test",
+      path: "expected-folder",
+    });
+
+    const { mcpClient } = await makeRoundtrip(rootPrincipalId);
+    const verify = await mcpClient.callTool({
+      name: "verify_workbench",
+      arguments: { scope: testScope, cwd: "C:\\work\\mcp-test\\wrong-folder" },
+    });
+
+    expect((verify as any).isError).toBeFalsy();
+    const verifyJson = JSON.parse((verify as any).content?.[0]?.text || "{}");
+    expect(verifyJson).toMatchObject({
+      ok: false,
+      expectedRepo: "brissie-digital/mcp-test",
+      expectedPath: "expected-folder",
+    });
+    expect(verifyJson.message).toContain(`for scope ${testScope}`);
+
+    const tree = await mcpClient.callTool({ name: "get_tree", arguments: { scope: testScope } });
+    expect((tree as any).isError).toBeFalsy();
+    expect((tree as any).content?.[0]?.text || "").toContain(testScope);
   });
 
   // === M1-07 task MCP roundtrips (mock injected, unconfigured error) ===
