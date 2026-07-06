@@ -16,6 +16,10 @@ live stays MANUAL by design (staging sign-off is a human gate per docs/VPS.md).
 
 - docs/VPS.md (environments, promotion process, smoke checklist), docs/DEPLOYMENT.md.
 - `.github/workflows/release.yml` (M5-01) — gates + build/push both images on `v*` tags.
+- 2026-07-06 update: `release.yml` also builds rolling `:main` images from green pushes to
+  `main` for fast staging iteration. When this SSH auto-deploy job is eventually built, it
+  should support deploying either a `v*` release tag or the rolling `main` tag, depending on
+  the workflow trigger. Live promotion remains tag-only.
 - Staging: VPS user `aios@159.13.38.87`, rootless Docker, app at `~/app`
   (compose + `.env` already in place from the manual v0.5.1 deploy), public URL
   https://cos.risi.au via Cloudflare tunnel.

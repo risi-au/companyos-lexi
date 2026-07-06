@@ -17,10 +17,15 @@ Same images, same env-var contract, same migrations. The only deltas: `.env` val
 ## Promotion flow
 
 1. Develop + test locally. Task branches → architect-reviewed merge to `main`. `main` is always CI-green and deployable.
-2. When a state is tested and wanted live: tag it — `git tag v0.x.y && git push --tags`. The Release workflow builds and publishes `ghcr.io/risi-au/companyos-{os,migrate}:<tag>` (gates re-run first; a red gate publishes nothing).
-3. **Staging first (added 2026-07-03):** every tag deploys to the staging environment (VPS user `aios`, https://cos.risi.au) and passes the smoke checklist in docs/VPS.md before it may be promoted.
-4. Live moves tag-to-tag only, and only with tags signed off on staging. Deploy = `docker compose pull && up -d` with the pinned tag (M5-02 automates this; until then manual per infra/README.md + docs/VPS.md).
-5. Rollback = redeploy the previous tag (+ `git revert` on main for the fix-forward).
+2. **Fast staging path:** every push to `main` runs the Release workflow gates and, if green,
+   builds `ghcr.io/risi-au/companyos-{os,migrate}:main`. This rolling tag is overwritten on
+   each push and may be manually deployed to staging for quick fixes/testing with
+   `COMPANYOS_TAG=main`; no version bump is required.
+3. **Release path:** when a state is tested and wanted live: tag it — `git tag v0.x.y && git push --tags`. The Release workflow builds and publishes `ghcr.io/risi-au/companyos-{os,migrate}:<tag>` (gates re-run first; a red gate publishes nothing).
+4. **Staging first (added 2026-07-03):** release tags deploy to the staging environment (VPS user `aios`, https://cos-staging.risi.au) and pass the smoke checklist in docs/VPS.md before they may be promoted.
+5. Live moves tag-to-tag only, and only with `vX.Y.Z` tags signed off on staging. The rolling
+   `main` tag is staging-only and must never be deployed to live. Deploy = `docker compose pull && up -d` with the pinned tag (M5-02 automates staging; until then manual per infra/README.md + docs/VPS.md).
+6. Rollback = redeploy the previous tag (+ `git revert` on main for the fix-forward).
 
 Environments, credentials, and the step-by-step process live in **docs/VPS.md**.
 
@@ -34,5 +39,6 @@ Environments, credentials, and the step-by-step process live in **docs/VPS.md**.
 
 - `main` — protected by discipline (single-maintainer): only reviewed merges, CI must be green.
 - `task/*` — implementer branches, deleted after merge.
-- Tags `v*` — the only deployable artifacts; release notes generated from merged task titles.
-- CI on every push/PR (typecheck, lint, test). Deploy workflow triggers on tags (added in M5).
+- Tags `v*` — immutable release artifacts intended for staging sign-off and possible live promotion; release notes generated from merged task titles.
+- Image tag `main` — mutable rolling GHCR artifact built from pushes to `main`; staging-only fast path, never a live artifact.
+- CI on every push/PR (typecheck, lint, test). Release workflow triggers on `main` pushes and `v*` tags (added in M5).

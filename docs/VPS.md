@@ -2,7 +2,7 @@
 
 *Connection details, environment layout, and the strict local → staging → live promotion
 process. Maintained by the architect; update whenever an environment or step changes.*
-*Last updated: 2026-07-03.*
+*Last updated: 2026-07-06.*
 
 ## Environments
 
@@ -11,7 +11,7 @@ process. Maintained by the architect; update whenever an environment or step cha
 | Where | dev machine, Docker Desktop | VPS `159.13.38.87`, user `aios`, rootless Docker/Podman | same VPS, separate user (TBD — will move off-box later) |
 | URL | http://localhost:3000 | **https://cos-staging.risi.au** (tunnel → `127.0.0.1:3000`) | **https://cos.risi.au** (reserved) |
 | Compose | `infra/docker-compose.dev.yml` | `infra/docker-compose.prod.yml` @ `~/app` | `infra/docker-compose.prod.yml` @ `~/app` |
-| Runs | `main` / task branches | **tagged releases only** | tagged releases only, after staging sign-off |
+| Runs | `main` / task branches | rolling `main` images for fast fixes/testing, or `vX.Y.Z` release tags for promotion candidates | tagged releases only, after staging sign-off |
 | Data | seed/test data | throwaway test data (playground) | real tenant data |
 | Purpose | develop + unit/integration tests | live-environment testing before promotion | production |
 
@@ -53,32 +53,41 @@ see other users' homes. Treat it as disposable.
 ## Promotion process (strict — no skipping stages)
 
 ```
-local dev  ──merge──▶  main  ──tag v*──▶  GHCR images  ──deploy──▶  staging  ──sign-off──▶  live
+local dev  --merge-->  main  --build :main-->  staging fast path
+                         \--tag v*-->  release images  --deploy-->  staging  --sign-off-->  live
 ```
 
 1. **Local**: develop on `task/*` branches; architect reviews; merge to `main` only with
    root `pnpm typecheck && pnpm lint && pnpm test` green. CI re-checks every push.
-2. **Tag**: when a state should be tested live, tag `vX.Y.Z` and push the tag. GitHub Actions
-   (`release.yml`) re-runs all gates, then builds and pushes
-   `ghcr.io/risi-au/companyos-os:<tag>` + `ghcr.io/risi-au/companyos-migrate:<tag>`.
-   A red gate publishes nothing.
-3. **Deploy to staging** (from `~/app` on the VPS, as `aios`):
+2. **Build images**: GitHub Actions (`release.yml`) re-runs all gates before any image build.
+   A push to `main` builds and overwrites the rolling fast-path images
+   `ghcr.io/risi-au/companyos-os:main` + `ghcr.io/risi-au/companyos-migrate:main`.
+   A `vX.Y.Z` tag builds immutable release images with that tag. A red gate publishes nothing.
+3. **Choose the staging track**:
+   - Fast path: for small fixes and quick testing, the architect manually deploys
+     `COMPANYOS_TAG=main` to staging. No version bump is required, and the tag is overwritten
+     on every push to `main`.
+   - Release path: when a state is intended to eventually reach `live`, tag `vX.Y.Z`, deploy
+     that tag to staging, and run the full smoke/sign-off process before live promotion.
+4. **Deploy to staging** (from `~/app` on the VPS, as `aios`):
    ```bash
-   # set COMPANYOS_TAG=<new tag> in .env first (or pass inline)
+   # set COMPANYOS_TAG=main or COMPANYOS_TAG=<new release tag> in .env first (or pass inline)
    docker compose --env-file .env -f docker-compose.prod.yml pull
    docker compose --env-file .env -f docker-compose.prod.yml up -d
    docker compose --env-file .env -f docker-compose.prod.yml logs migrate   # must end successfully
    ```
-4. **Staging smoke test** (minimum before any promotion):
+5. **Staging smoke test** (minimum before any promotion):
    - `https://cos-staging.risi.au` loads and login works
    - migrations completed (`logs migrate`), app healthy (`docker compose ps`)
    - one end-to-end flow of whatever the release changed (e.g. new MCP tool roundtrip)
    - no error spam in `docker compose logs os --since 10m`
-5. **Promote to live**: same images, same steps, live user's `~/app` with its own `.env`.
-   Only tags that passed staging sign-off may be deployed live. (Live env not provisioned
-   yet — this section gains real values when it is.)
-6. **Rollback** (staging or live): set `COMPANYOS_TAG` back to the previous tag,
-   `pull && up -d`. Migrations are forward-only; a rollback must stay within one version.
+6. **Promote to live**: same tagged release images, same steps, live user's `~/app` with its
+   own `.env`. Only `vX.Y.Z` tags that passed staging sign-off may be deployed live; the
+   rolling `main` tag is never a live promotion artifact. (Live env not provisioned yet —
+   this section gains real values when it is.)
+7. **Rollback** (staging or live): set `COMPANYOS_TAG` back to the previous known-good tag
+   (`main` is also valid for staging fast-path re-deploys), then `pull && up -d`. Migrations
+   are forward-only; a rollback must stay within one version.
 
 ## GHCR access on the VPS
 
@@ -87,7 +96,9 @@ Images are private. `docker login ghcr.io` once per VPS user with a GitHub PAT t
 
 ## Current state
 
-- **Staging**: first deploy pending v0.5.2 multi-arch images (2026-07-03).
+- **Staging**: manual deployment supports `COMPANYOS_TAG=main` for rolling fast-path fixes
+  and `COMPANYOS_TAG=vX.Y.Z` for release validation. SSH auto-deploy remains tracked in
+  docs/tasks/M5-02-staging-deploy-automation.md.
 - Hostname convention: staging = `*-cos-staging.risi.au` flat names (Cloudflare free-tier
   certs don't cover multi-level subdomains); clean `cos.risi.au` names reserved for live.
 - n8n on staging expects hostname `n8n-cos-staging.risi.au` — tunnel route + compose port

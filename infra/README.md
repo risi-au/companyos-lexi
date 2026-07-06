@@ -9,7 +9,7 @@ One-command dev stack for CompanyOS (Postgres + LiteLLM + n8n) and the productio
 - **n8n:2.25.3**: automation runner. Port 5678 in dev.
 - **Plane CE**: run via official setup.sh (not inlined here).
 
-All config is via env (12-factor). Prod uses tagged GHCR images for the OS app and migration runner. TLS/ingress is handled outside this repo by the VPS Cloudflare tunnel or another external proxy.
+All config is via env (12-factor). Prod uses GHCR images for the OS app and migration runner: `vX.Y.Z` tags for release promotion, plus the rolling `main` tag for quick staging-only iteration. TLS/ingress is handled outside this repo by the VPS Cloudflare tunnel or another external proxy.
 
 ## Prerequisites
 
@@ -86,7 +86,10 @@ Volumes live in Docker named volume `postgres_data` (inspect with `docker volume
 
 ## Production (VPS)
 
-Production runs tagged releases only. `infra/docker-compose.prod.yml` pulls the OS and migrate images from GHCR, starts Postgres/LiteLLM/n8n, runs migrations once, then starts the OS app. It includes no Caddy, no cloudflared, and no reverse proxy.
+Live production runs tagged releases only. The staging VPS may also use the rolling `main`
+image tag for fast iteration. `infra/docker-compose.prod.yml` pulls the OS and migrate
+images from GHCR, starts Postgres/LiteLLM/n8n, runs migrations once, then starts the OS app.
+It includes no Caddy, no cloudflared, and no reverse proxy.
 
 ### First deploy
 
@@ -122,6 +125,13 @@ Production runs tagged releases only. `infra/docker-compose.prod.yml` pulls the 
    COMPANYOS_TAG=v0.x.y docker compose --env-file .env -f infra/docker-compose.prod.yml pull
    COMPANYOS_TAG=v0.x.y docker compose --env-file .env -f infra/docker-compose.prod.yml up -d
    ```
+
+### Quick staging iteration
+
+`COMPANYOS_TAG=main` is valid on staging for fast fixes and testing. It points at the rolling
+GHCR images built from every green push to `main`, and is overwritten by the next push. Use
+`vX.Y.Z` values for tested releases intended to pass staging sign-off and eventually reach
+live; live remains tag-only.
 
 ### Rollback
 

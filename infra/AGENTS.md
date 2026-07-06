@@ -1,12 +1,13 @@
 # infra AGENTS.md
 
 Module: infra
-Purpose: Development and production Docker Compose bundles for the shared data/model/automation layer, plus production runbook. Enables local boot of Postgres, LiteLLM, and n8n; prod runs tagged multi-arch (amd64+arm64) OS images from GHCR with Plane CE side-by-side.
+Purpose: Development and production Docker Compose bundles for the shared data/model/automation layer, plus production runbook. Enables local boot of Postgres, LiteLLM, and n8n; prod runs multi-arch (amd64+arm64) OS images from GHCR with Plane CE side-by-side.
 
 ## Contract / invariants
 - Single `docker compose -f infra/docker-compose.dev.yml up -d` boots postgres + litellm + n8n for dev.
-- `infra/docker-compose.prod.yml` runs postgres, litellm, n8n, one-shot migrate, and os from tagged GHCR images.
+- `infra/docker-compose.prod.yml` runs postgres, litellm, n8n, one-shot migrate, and os from GHCR images.
 - Prod OS images are `ghcr.io/risi-au/companyos-os:${COMPANYOS_TAG}` and `ghcr.io/risi-au/companyos-migrate:${COMPANYOS_TAG}`. `COMPANYOS_TAG` has no default and must fail fast when unset.
+- `COMPANYOS_TAG=main` is a supported rolling-tag value for fast staging iteration only. It is distinct from semver `vX.Y.Z` release tags, which remain the only live-promotion artifacts.
 - Prod ingress/TLS is external to this repo. The OS app binds only `127.0.0.1:${OS_PORT:-3000}:3000`; no Caddy, cloudflared, or reverse proxy belongs here.
 - Three logical DBs created: companyos (OS), plane (tasks), litellm (keys/spend).
 - LiteLLM exposes only role aliases (`cheap` | `analysis` | `reasoning`); raw provider models never referenced from code.
