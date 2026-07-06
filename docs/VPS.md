@@ -94,11 +94,13 @@ local dev  --merge-->  main  --build :main-->  staging fast path
 Images are private. `docker login ghcr.io` once per VPS user with a GitHub PAT that has
 `read:packages` (classic PAT; fine-grained PATs don't cover GHCR). Store nothing in the repo.
 
+Staging auto-deploy uses GitHub Actions SSH secrets; see `infra/README.md` "Staging auto-deploy".
+
 ## Current state
 
 - **Staging**: manual deployment supports `COMPANYOS_TAG=main` for rolling fast-path fixes
-  and `COMPANYOS_TAG=vX.Y.Z` for release validation. SSH auto-deploy remains tracked in
-  docs/tasks/M5-02-staging-deploy-automation.md.
+  and `COMPANYOS_TAG=vX.Y.Z` for release validation. The release workflow also includes a
+  staging auto-deploy job once the required GitHub secrets are configured.
 - Hostname convention: staging = `*-cos-staging.risi.au` flat names (Cloudflare free-tier
   certs don't cover multi-level subdomains); clean `cos.risi.au` names reserved for live.
 - n8n on staging expects hostname `n8n-cos-staging.risi.au` — tunnel route + compose port
