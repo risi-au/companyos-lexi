@@ -170,6 +170,8 @@ describe("provisioning module", () => {
 
   beforeEach(async () => {
     process.env.COMPANYOS_URL = "https://companyos.test";
+    process.env.MCP_PUBLIC_URL = "https://mcp.companyos.test/mcp";
+    process.env.COMPANYOS_TOKEN = "cos_env_secret_should_not_render";
     process.env.PLANE_WEBHOOK_URL = "https://companyos.test/api/v1/webhooks/plane";
     process.env.PLANE_WEBHOOK_SECRET = "whsec_test";
 
@@ -231,6 +233,50 @@ describe("provisioning module", () => {
     const [agent] = await db.select().from(schema.principals).where(eq(schema.principals.name, `${slug} Agent`)).limit(1);
     expect(await countRows(schema.tokens, eq(schema.tokens.principalId, agent.id))).toBe(1);
     expect(await countRows(schema.grants, eq(schema.grants.principalId, agent.id))).toBe(1);
+  });
+
+  it("fresh provision renders the enriched AGENTS.md playbook without token values", async () => {
+    const slug = `prov-agents-playbook-${Date.now()}`;
+    const github = makeMockGitHub();
+    const spec = {
+      scopePath: slug,
+      subprojects: [{ slug: "seo", name: "SEO" }],
+      agent: { name: `${slug} Agent`, tokenName: "Workbench token" },
+      workbench: {},
+    };
+    const memoryPrecedence = `## Memory precedence
+- CompanyOS (get_context, list_records, tasks, docs) = authoritative for all
+  client/scope facts.
+- Vendor memory (Claude/OpenAI) = personal preferences only.
+- On conflict: follow CompanyOS; log_decision if the OS record should be updated.
+- Never assume vendor memory knows the current scope — always call get_context at
+  session start.`;
+
+    const result = await provisionScope(db, { plane: makeMockPlane(), github: github.client }, spec, rootPrincipalId);
+    const rootAgents = github.getFile(slug, "AGENTS.md") || "";
+
+    expect(rootAgents).toContain("- MCP_PUBLIC_URL: `https://mcp.companyos.test/mcp`");
+    expect(rootAgents).toContain("### MCP Connection");
+    expect(rootAgents).toContain("- Token env var: `COMPANYOS_TOKEN` (if missing or expired, mint at Connect to MCP on this scope's page in the OS)");
+    expect(rootAgents).toContain("### Session Start Checklist");
+    expect(rootAgents).toContain("Call `whoami`.");
+    expect(rootAgents).toContain(`Call \`get_context("${slug}")\`.`);
+    expect(rootAgents).toContain("If MCP is unreachable or auth fails: STOP and tell the user - never proceed on assumed OS state.");
+    expect(rootAgents).toContain("### Session End / Handover");
+    expect(rootAgents).toContain("Use `log_change` incrementally during work.");
+    expect(rootAgents).toContain("call `complete_task` and `log_decision` where applicable.");
+    expect(rootAgents).toContain("update the affected wiki topic page via `save_doc` (see docs/patterns/WIKI.md - update in place, cite record ids).");
+    expect(rootAgents).toContain("Durable state lives in the OS, not the chat transcript.");
+    expect(rootAgents).toContain("### Git Worktree Convention");
+    expect(rootAgents).toContain("named `<scope-slug>/<session-slug>`");
+    expect(rootAgents).toContain("Merge via PR to main.");
+    expect(rootAgents).toContain("### Folder Guard");
+    expect(rootAgents).toContain("Your cwd must be under `<workbench.path>`; if it isn't, stop and ask the user.");
+    expect(rootAgents).toContain("Call `verify_workbench` (if available) after `get_context` when doing file work.");
+    expect(rootAgents).toContain(memoryPrecedence);
+    expect(rootAgents).not.toContain("CompanyOS MCP endpoint:");
+    expect(rootAgents).not.toContain(result.agentToken!.plaintext);
+    expect(rootAgents).not.toContain(process.env.COMPANYOS_TOKEN!);
   });
 
   it("AGENTS.md regeneration preserves human content outside managed markers", async () => {
