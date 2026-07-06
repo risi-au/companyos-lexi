@@ -4,6 +4,7 @@ import { type DB } from "../../kernel/events";
 import { requireAccess } from "../../kernel/grants";
 import { getScope } from "../../kernel/scopes";
 import { ScopeNotFoundError } from "../../errors";
+import { estimateTokens, logUsageEventSafely } from "../usage/service";
 
 export type SearchKind = "record" | "doc";
 
@@ -112,7 +113,7 @@ export async function search(
     hits.push(...rows);
   }
 
-  return hits
+  const result = hits
     .sort((a, b) => {
       const rankDiff = Number(b.rank ?? 0) - Number(a.rank ?? 0);
       if (rankDiff !== 0) return rankDiff;
@@ -124,4 +125,26 @@ export async function search(
       void rank;
       return rest;
     });
+
+  const returnedText = result.map((hit) => `${hit.type}\t${hit.title}\t${hit.scopePath}\t${hit.snippet}`).join("\n");
+  const estimate = estimateTokens(returnedText);
+  await logUsageEventSafely(db, {
+    scopeId: scope.id,
+    principalId: actorPrincipalId,
+    source: "search",
+    operation: "search",
+    outputTokensEst: estimate.tokens,
+    totalTokensEst: estimate.tokens,
+    byteOut: estimate.bytes,
+    success: true,
+    metadata: {
+      estimated: true,
+      resultCount: result.length,
+      requestedLimit: limit,
+      kinds: Array.from(kinds),
+      snippetBudgetWords: 35,
+    },
+  });
+
+  return result;
 }

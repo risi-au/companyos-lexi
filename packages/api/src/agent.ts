@@ -9,6 +9,15 @@ import {
 } from "./index";
 import { ScopeNotFoundError } from "./errors";
 import { skillsContextSection } from "./modules/skills/service";
+import {
+  contextProfileConfig,
+  estimateTokens,
+  logUsageEventSafely,
+  measureSection,
+  resolveContextProfile,
+  type ContextProfileConfig,
+  type UsageSectionMeasurement,
+} from "./modules/usage/service";
 import { documents, grants, scopes, workbenches } from "@companyos/db";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { createHmac, timingSafeEqual } from "crypto";
@@ -49,6 +58,14 @@ function ancestorPaths(scopePath: string): string[] {
 
 function joinWorkbenchPath(basePath: string, relativePath: string): string {
   return [basePath, relativePath].filter(Boolean).join("/");
+}
+
+function capItems<T>(items: T[], limit: number): T[] {
+  return limit <= 0 ? [] : items.slice(0, limit);
+}
+
+function sectionMarkdown(title: string, body: string): string {
+  return `**${title}**\n${body.trimEnd()}\n`;
 }
 
 export async function findNearestWorkbench(db: DB, scopePath: string) {
@@ -216,27 +233,32 @@ export async function getContextBundle(
     throw new ScopeNotFoundError(scopePath);
   }
 
+  const resolvedProfile = await resolveContextProfile(db, scopePath);
+  const profileConfig = contextProfileConfig(resolvedProfile.config as unknown as Record<string, unknown>) as Required<ContextProfileConfig>;
+  const sections: UsageSectionMeasurement[] = [];
+
   // Access checked downstream
-  const mods = await listModules(db, scopePath, actorPrincipalId);
-  const children = await getChildren(db, scopePath);
+  const mods = profileConfig.includeModules ? await listModules(db, scopePath, actorPrincipalId) : [];
+  const children = profileConfig.includeChildren ? capItems(await getChildren(db, scopePath), profileConfig.childLimit) : [];
   const childPaths = children.map((c: any) => c.path).join("\n");
 
-  const recentCh = await listRecords(db, { scopePath, kind: "changelog", limit: 10 }, actorPrincipalId);
-  const recentDec = await listRecords(db, { scopePath, kind: "decision", limit: 10 }, actorPrincipalId);
+  const recentLimit = profileConfig.recentRecordCount;
+  const recentCh = await listRecords(db, { scopePath, kind: "changelog", limit: recentLimit }, actorPrincipalId);
+  const recentDec = await listRecords(db, { scopePath, kind: "decision", limit: recentLimit }, actorPrincipalId);
   const combined = [...recentCh, ...recentDec]
     .sort((a: any, b: any) => (b.createdAt?.getTime?.() || 0) - (a.createdAt?.getTime?.() || 0))
-    .slice(0, 10);
+    .slice(0, recentLimit);
 
   let recordsMd = "";
   for (const r of combined) {
-    const bodyStart = (r.bodyMd || "").slice(0, 200).replace(/\n/g, " ");
+    const bodyStart = (r.bodyMd || "").slice(0, profileConfig.recentRecordPreviewChars).replace(/\n/g, " ");
     const date = formatDate(r.createdAt);
-    recordsMd += `- [${r.kind}] ${r.title} (${date})\n  ${bodyStart}${ (r.bodyMd || "").length > 200 ? "..." : "" }\n`;
+    recordsMd += `- [${r.kind}] ${r.title} (${date})\n  ${bodyStart}${ (r.bodyMd || "").length > profileConfig.recentRecordPreviewChars ? "..." : "" }\n`;
   }
   if (!recordsMd) recordsMd = "(no recent changelog/decision records)\n";
-  const skillsMd = await skillsContextSection(db, scopePath);
-  const workbench = await findNearestWorkbench(db, scopePath);
-  const wiki = await findNearestWiki(db, scopePath);
+  const skillsMd = profileConfig.includeSkills ? await skillsContextSection(db, scopePath) : "";
+  const workbench = profileConfig.includeWorkbench ? await findNearestWorkbench(db, scopePath) : null;
+  const wiki = profileConfig.includeKnowledge ? await findNearestWiki(db, scopePath) : null;
 
   const moduleList = mods.length
     ? mods.map((m: any) => `- ${m.moduleType}`).join("\n")
@@ -252,33 +274,64 @@ ${config.mcpPublicUrl ? `MCP URL: ${config.mcpPublicUrl}\n` : ""}`
 **Knowledge**
 Wiki scope: ${wiki.scopePath}
 Docs:
-${wiki.docs.map((doc) => `- ${doc.slug} - ${doc.title}`).join("\n")}
+${capItems(wiki.docs, profileConfig.wikiDocLimit).map((doc) => `- ${doc.slug} - ${doc.title}`).join("\n")}
 Use search(scope, query) for older records and docs beyond the recent records shown here.
 `
     : "";
 
-  const md = `# Context for ${scopePath}
-
-**Identity**
-- name: ${sc.name}
+  const identitySection = sectionMarkdown("Identity", `- name: ${sc.name}
 - path: ${sc.path}
 - type: ${sc.type}
-- status: ${sc.status}
+- status: ${sc.status}`);
+  sections.push(measureSection("identity", identitySection));
 
-**Modules**
-${moduleList}
+  const modulesSection = profileConfig.includeModules ? sectionMarkdown("Modules", moduleList) : "";
+  if (modulesSection) sections.push(measureSection("modules", modulesSection, mods.length));
 
-**Children**
-${childPaths || "(none)"}
-${workbenchMd}
-${knowledgeMd}
+  const childrenSection = profileConfig.includeChildren ? sectionMarkdown("Children", childPaths || "(none)") : "";
+  if (childrenSection) sections.push(measureSection("children", childrenSection, children.length));
 
-**Recent changelog/decision records (last 10)**
-${recordsMd}
+  const workbenchSection = workbenchMd.trim() ? `${workbenchMd}\n` : "";
+  if (workbenchSection) sections.push(measureSection("workbench", workbenchSection));
+
+  const knowledgeSection = knowledgeMd.trim() ? `${knowledgeMd}\n` : "";
+  if (knowledgeSection) sections.push(measureSection("knowledge", knowledgeSection, wiki?.docs.length ?? 0));
+
+  const recordsSection = sectionMarkdown(`Recent changelog/decision records (last ${recentLimit})`, `${recordsMd}
 Use list_records / get_record for full history and other kinds.
+`);
+  sections.push(measureSection("recent_records", recordsSection, combined.length));
+
+  if (skillsMd) sections.push(measureSection("skills", skillsMd));
+
+  const md = `# Context for ${scopePath}
+
+${identitySection}
+${modulesSection}
+${childrenSection}
+${workbenchSection}${knowledgeSection}
+${recordsSection}
 
 ${skillsMd}
 `;
+
+  const estimate = estimateTokens(md);
+  await logUsageEventSafely(db, {
+    scopeId: sc.id,
+    principalId: actorPrincipalId,
+    source: "context",
+    operation: "get_context",
+    outputTokensEst: estimate.tokens,
+    totalTokensEst: estimate.tokens,
+    byteOut: estimate.bytes,
+    success: true,
+    metadata: {
+      estimated: true,
+      profileId: resolvedProfile.profile?.id ?? null,
+      profilePreset: profileConfig.preset,
+      sections,
+    },
+  });
 
   return md;
 }

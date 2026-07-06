@@ -48,6 +48,9 @@ export * from "./modules/workbench-events/service";
 // Search module (M6-09)
 export * from "./modules/search/service";
 
+// Usage observability module (M7-03)
+export * from "./modules/usage/service";
+
 // Agent HTTP / n8n support (M2-05)
 export * from "./agent";
 

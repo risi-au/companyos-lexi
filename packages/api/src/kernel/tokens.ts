@@ -66,6 +66,14 @@ export async function authenticateToken(
   db: DB,
   plaintext: string
 ): Promise<Principal | null> {
+  const authenticated = await authenticateTokenWithMetadata(db, plaintext);
+  return authenticated?.principal ?? null;
+}
+
+export async function authenticateTokenWithMetadata(
+  db: DB,
+  plaintext: string
+): Promise<{ principal: Principal; tokenId: string } | null> {
   if (!plaintext || !plaintext.startsWith(TOKEN_PREFIX)) {
     return null;
   }
@@ -106,7 +114,7 @@ export async function authenticateToken(
     .where(eq(principals.id, token.principalId))
     .limit(1)) as Principal[];
 
-  return principal ?? null;
+  return principal ? { principal, tokenId: token.id } : null;
 }
 
 export async function revokeToken(

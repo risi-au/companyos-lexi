@@ -48,6 +48,10 @@ import {
   revokeScopeAccess,
   listSessions,
   findNearestWiki,
+  queryUsage,
+  usageRecommendations,
+  getContextProfile,
+  setContextProfile,
   type LLMConfig,
   type RunTurnInput,
 } from "@companyos/api";
@@ -178,6 +182,16 @@ export const api = {
   listSessions: (input: Parameters<typeof listSessions>[1], actorPrincipalId: string) =>
     listSessions(db, input, actorPrincipalId),
   findNearestWiki: (scopePath: string) => findNearestWiki(db, scopePath),
+
+  // Usage observability (M7-03)
+  queryUsage: (input: Parameters<typeof queryUsage>[1], actorPrincipalId: string) =>
+    queryUsage(db, input, actorPrincipalId),
+  usageRecommendations: (input: Parameters<typeof usageRecommendations>[1], actorPrincipalId: string) =>
+    usageRecommendations(db, input, actorPrincipalId),
+  getContextProfile: (input: Parameters<typeof getContextProfile>[1], actorPrincipalId: string) =>
+    getContextProfile(db, input, actorPrincipalId),
+  setContextProfile: (input: Parameters<typeof setContextProfile>[1], actorPrincipalId: string) =>
+    setContextProfile(db, input, actorPrincipalId),
 };
 
 export { db }; // only for auth wiring internally

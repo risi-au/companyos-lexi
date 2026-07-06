@@ -19,6 +19,9 @@ Stdio auth uses `COS_TOKEN` env. HTTP auth uses `Authorization: Bearer cos_...` 
 - `update_session({session_id, status?, title?, worktree_ref?})` - heartbeat or update a session. Bare calls bump heartbeat only. Editor/agent on the session scope.
 - `complete_session({session_id, summary?})` - mark a session completed and emit wrap-up event. Editor/agent on the session scope.
 - `list_sessions({scope, status?, include_descendants?, idle_window_ms?, limit?})` - list scoped sessions with read-time stale flags. Viewer.
+- `query_usage({scope?, since?, group_by?, operation?, session_id?, principal_id?, token_id?, connection_id?, limit?})` - admin-gated usage summaries for estimated CompanyOS MCP/context overhead. Returns grouped rows and recent redacted events.
+- `get_context_profile({scope})` - admin-gated effective context profile for a scope.
+- `set_context_profile({scope, name, preset?, config?, is_default?})` - admin-gated context profile create/update. Presets: lean, standard, deep. Emits `usage.profile_updated` in the API service.
 - `get_tree({scope?})` - indented subtree paths. Viewer.
 - `log_change({scope, title, body_md, data?})` - create changelog. Editor/agent.
 - `log_decision({scope, title, body_md, data?})` - create decision. Editor/agent.
@@ -55,10 +58,11 @@ All protected tools: unauthenticated calls return a clear error. AccessDenied is
 - HTTP origin validation is configured by `MCP_ALLOWED_ORIGINS` (comma-separated) or derived from `MCP_PUBLIC_URL` / `COMPANYOS_URL`.
 - HTTP body/rate guardrails: `MCP_MAX_BODY_BYTES`, `MCP_RATE_LIMIT_WINDOW_MS`, `MCP_RATE_LIMIT_MAX`.
 - The v1 HTTP rate limiter is in-memory per process and keyed by token fingerprint; it is a guardrail, not distributed quota.
+- Remote HTTP tool calls log redacted usage events by default. `USAGE_LOG_MCP_HTTP=0` disables HTTP usage logging and `USAGE_SAMPLE_RATE` can sample noisy environments. Logging is fail-open and never stores raw request/response bodies or bearer tokens.
 
 ## Files
 - `src/server.ts` - `createServer({db, principalId, mcpPublicUrl?})`, all tool registration with zod schemas + thin handlers. `get_context` delegates formatting to `@companyos/api`; session tools delegate to the sessions module.
-- `src/http.ts` - `createHttpHandler({db})`, standard Request/Response streamable HTTP wrapper with per-request bearer auth, origin/body/rate guardrails.
+- `src/http.ts` - `createHttpHandler({db})`, standard Request/Response streamable HTTP wrapper with per-request bearer auth, origin/body/rate guardrails, and redacted fail-open usage logging.
 - `src/index.ts` - reexports `createServer`, `createHttpHandler`, and `ping`.
 - `src/stdio.ts` - executable entry: reads `DATABASE_URL` + `COS_TOKEN`, auths, wires `StdioServerTransport`.
 - `src/ping.test.ts` - in-memory and HTTP roundtrips with PGlite; tools, auth matrix, grants, revocation, `last_used_at`, token leak paths.

@@ -1,6 +1,6 @@
 import "server-only";
 import { createDb } from "@companyos/db";
-import { authenticateToken } from "@companyos/api";
+import { authenticateTokenWithMetadata } from "@companyos/api";
 import type { Principal } from "@companyos/db";
 
 const db = createDb();
@@ -10,6 +10,7 @@ export { db }; // for thin route handlers (agent token paths)
 export interface AgentPrincipal {
   principalId: string;
   principal: Principal;
+  tokenId?: string;
 }
 
 /**
@@ -24,13 +25,13 @@ export async function authenticateAgentRequest(req: Request): Promise<AgentPrinc
     throw e;
   }
   const token = authz.slice(7).trim();
-  const principal = await authenticateToken(db, token);
-  if (!principal) {
+  const authenticated = await authenticateTokenWithMetadata(db, token);
+  if (!authenticated) {
     const e = new Error("Invalid or expired token") as Error & { status?: number };
     e.status = 401;
     throw e;
   }
-  return { principalId: principal.id, principal };
+  return { principalId: authenticated.principal.id, principal: authenticated.principal, tokenId: authenticated.tokenId };
 }
 
 export function jsonError(error: string, status = 400, extra?: Record<string, unknown>) {

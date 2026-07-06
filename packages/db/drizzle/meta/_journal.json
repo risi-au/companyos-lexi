@@ -120,6 +120,13 @@
       "when": 1783298600000,
       "tag": "0016_search_fts_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1783382400000,
+      "tag": "0017_usage_observability",
+      "breakpoints": true
     }
   ]
 }

@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
@@ -107,5 +107,15 @@ describe("search module", () => {
     expect(docOnly.every((h) => h.type === "doc")).toBe(true);
 
     await expect(search(db, { scopePath: clientA, query: "checkout" }, noAccessPrincipalId)).rejects.toThrow(AccessDeniedError);
+
+    const usageRows = await db
+      .select()
+      .from(schema.usageEvents)
+      .where(and(eq(schema.usageEvents.operation, "search"), eq(schema.usageEvents.principalId, viewerPrincipalId)));
+    expect(usageRows.length).toBeGreaterThan(0);
+    const audit = JSON.stringify(usageRows);
+    expect(audit).toContain("resultCount");
+    expect(audit).not.toContain("checkout migration");
+    expect(audit).not.toContain("gateway reconciliation");
   });
 });

@@ -52,3 +52,59 @@ export async function revokePrincipalAccessAction(principalId: string) {
   revalidatePath("/admin/mcp");
   return result;
 }
+
+export interface QueryUsageActionInput {
+  scope?: string;
+  since?: string;
+  groupBy?: "operation" | "scope" | "principal" | "token" | "connection" | "session" | "source" | "model" | "success";
+  operation?: string;
+  sessionId?: string;
+  principalId?: string;
+  tokenId?: string;
+  connectionId?: string;
+}
+
+export async function queryUsageAction(input: QueryUsageActionInput) {
+  const actor = await getCurrentActorPrincipalId();
+  if (!actor) throw new Error("Not authenticated");
+  const scope = input.scope?.trim() || "root";
+  const [usage, recommendations, profile] = await Promise.all([
+    api.queryUsage(
+      {
+        scope,
+        since: input.since ? new Date(input.since) : null,
+        groupBy: input.groupBy || "operation",
+        operation: input.operation?.trim() || null,
+        sessionId: input.sessionId?.trim() || null,
+        principalId: input.principalId?.trim() || null,
+        tokenId: input.tokenId?.trim() || null,
+        connectionId: input.connectionId?.trim() || null,
+        limit: 500,
+      },
+      actor
+    ),
+    api.usageRecommendations({ scopePath: scope, since: input.since ? new Date(input.since) : null }, actor),
+    api.getContextProfile({ scopePath: scope }, actor),
+  ]);
+  return { usage, recommendations, profile };
+}
+
+export async function setContextProfileAction(input: {
+  scope: string;
+  name: string;
+  preset: "lean" | "standard" | "deep";
+}) {
+  const actor = await getCurrentActorPrincipalId();
+  if (!actor) throw new Error("Not authenticated");
+  const result = await api.setContextProfile(
+    {
+      scopePath: input.scope.trim() || "root",
+      name: input.name.trim() || input.preset,
+      preset: input.preset,
+      isDefault: true,
+    },
+    actor
+  );
+  revalidatePath("/admin/mcp");
+  return result;
+}
