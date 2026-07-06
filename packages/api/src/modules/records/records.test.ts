@@ -12,6 +12,7 @@ import {
   createScope,
   grantRole,
   createRecord,
+  createSystemRecord,
   getRecord,
   listRecords,
   updateRecord,
@@ -168,6 +169,23 @@ describe("records module (PGlite + migrations)", () => {
       await expect(
         createRecord(db, { scopePath: sp, kind: "report", title: "X" }, noAccessPrincipalId)
       ).rejects.toThrow(AccessDeniedError);
+    });
+
+    it("system writer creates without grants and emits the standard record.created event", async () => {
+      const sp = "rec-system-" + Date.now();
+      await createScope(db, { slug: sp, name: "System", type: "project" }, rootPrincipalId);
+
+      const rec = await createSystemRecord(
+        db,
+        { scopePath: sp, kind: "changelog", title: "Webhook stub", bodyMd: "Detected upstream activity.", data: { source: "github" } },
+        noAccessPrincipalId
+      );
+
+      expect(rec.authorId).toBe(noAccessPrincipalId);
+      expect(rec.data).toEqual({ source: "github" });
+      const evs = await listEvents(db, { scopePath: sp, type: "record.created", limit: 5 });
+      expect(evs[0]?.principalId).toBe(noAccessPrincipalId);
+      expect((evs[0] as any)?.payload).toEqual({ kind: "changelog", title: "Webhook stub", recordId: rec.id });
     });
   });
 

@@ -38,6 +38,7 @@ Implements the kernel: scope tree ops, grants/authz, token issuance+auth, event 
 - (M3-03) Canvas: saveCanvas/getCanvas/listCanvases/archiveCanvas + size cap + events; exported for MCP/HTTP/UI.
 - (M3-04) Resident agent: runTurn (tool loop over LiteLLM + services), listConversations, getConversationMessages; agent_conversations + agent_messages tables. Injected LLM config; mocked in tests. Events: agent.turn_completed.
 - (M4-05) Capabilities: registerCapability/reportRun/listCapabilities/listCapabilityRuns; persisted `capabilities` + `capability_runs`; admin-gated registration, editor/agent run reporting, viewer listing. Events: capability.registered, capability.run_reported.
+- (M7-02) Workbench events: `verifyGitHubWebhookSignature`, `resolveWorkbenchScopes`, and `handleGitHubWebhook` ingest signed GitHub push/PR webhooks, map repo+paths to deepest workbench scopes, emit `workbench.*` events, and create GitHub-sourced changelog stubs only when no recent agent wrap-up references the PR/commit range. Configure `GITHUB_WEBHOOK_SECRET` in `apps/os` and enable GitHub Pushes/Pull requests.
 
 ## How to test
 From repo root:

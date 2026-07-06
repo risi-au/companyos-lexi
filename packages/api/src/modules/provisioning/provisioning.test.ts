@@ -263,7 +263,8 @@ describe("provisioning module", () => {
     expect(rootAgents).toContain(`Call \`get_context("${slug}")\`.`);
     expect(rootAgents).toContain("If MCP is unreachable or auth fails: STOP and tell the user - never proceed on assumed OS state.");
     expect(rootAgents).toContain("### Session End / Handover");
-    expect(rootAgents).toContain("Use `log_change` incrementally during work.");
+    expect(rootAgents).toContain("Use `log_change` incrementally during work; include PR URLs, PR numbers, and commit SHAs when available.");
+    expect(rootAgents).toContain("Call `complete_session` on wrap-up for any session registered at start; include PR URLs, PR numbers, and commit SHAs when available.");
     expect(rootAgents).toContain("call `complete_task` and `log_decision` where applicable.");
     expect(rootAgents).toContain("update the affected wiki topic page via `save_doc` (see docs/patterns/WIKI.md - update in place, cite record ids).");
     expect(rootAgents).toContain("Durable state lives in the OS, not the chat transcript.");
