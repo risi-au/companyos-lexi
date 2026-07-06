@@ -42,6 +42,9 @@ export * from "./modules/connect/service";
 // Sessions module (M6-07)
 export * from "./modules/sessions/service";
 
+// Search module (M6-09)
+export * from "./modules/search/service";
+
 // Agent HTTP / n8n support (M2-05)
 export * from "./agent";
 

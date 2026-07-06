@@ -113,6 +113,13 @@
       "when": 1783298500000,
       "tag": "0015_sessions_registry",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1783298600000,
+      "tag": "0016_search_fts_indexes",
+      "breakpoints": true
     }
   ]
 }

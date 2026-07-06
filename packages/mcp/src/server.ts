@@ -48,6 +48,7 @@ import {
   completeSession,
   listSessions,
   SessionNotFoundError,
+  search,
   type DB,
   AccessDeniedError,
   AlertValidationError,
@@ -683,6 +684,41 @@ export function createServer(options: CreateServerOptions) {
         const header = "id\tkind\ttitle\tdate\n";
         return {
           content: [{ type: "text", text: header + (lines.join("\n") || "(no records)") }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // search
+  server.registerTool(
+    "search",
+    {
+      title: "Search",
+      description:
+        "Search records and docs in a scope subtree using Postgres full-text search. Compact tab-delimited output with snippets. Viewer required.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+        query: z.string().min(1).describe("Search query, web-search style"),
+        kinds: z.array(z.enum(["record", "doc"])).optional().describe("Optional hit types to include"),
+        limit: z.number().int().min(1).max(50).optional().describe("Max results, default 10 clamped to 50"),
+      }),
+    },
+    async ({ scope, query, kinds, limit }) => {
+      try {
+        const actor = ensurePrincipal();
+        const hits = await search(db, { scopePath: scope, query, kinds, limit }, actor);
+        const lines = hits.map((h: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+          const ref = h.type === "doc" ? h.slug || "" : h.kind || "";
+          return `${h.type}\t${h.id}\t${ref}\t${h.title}\t${h.scopePath}\t${formatDate(h.date)}\t${h.snippet || ""}`;
+        });
+        const header = "type\tid\tref\ttitle\tscope\tdate\tsnippet\n";
+        return {
+          content: [{ type: "text", text: header + (lines.join("\n") || "(no results)") }],
         };
       } catch (e) {
         return {
