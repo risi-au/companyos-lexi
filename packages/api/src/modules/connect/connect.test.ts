@@ -12,14 +12,19 @@ const schema: any = (dbMod as any).schema ?? dbMod;
 
 import {
   AccessDeniedError,
+  authenticateToken,
   createScope,
   getScope,
   grantRole,
+  issueToken,
+  listConnections,
   listConnectionTokens,
   listEvents,
   mintConnectionToken,
   resolveAccess,
   revokeConnectionToken,
+  revokePrincipalAccess,
+  revokeScopeAccess,
 } from "../../index";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -244,5 +249,100 @@ describe("connect module", () => {
 
     expect(after.length).toBe(before.length + 1);
     expect(row).toBeTruthy();
+  });
+
+  it("lists admin connections for a scope subtree without leaking sibling client tokens", async () => {
+    const parent = await mintConnectionToken(db, { scopePath, name: "Parent admin list", role: "viewer" }, editorId);
+    const child = await mintConnectionToken(db, { scopePath: childPath, name: "Child admin list", role: "viewer" }, editorId);
+    await mintConnectionToken(db, { scopePath: otherScopePath, name: "Sibling admin list", role: "viewer" }, rootPrincipalId);
+
+    const branchRows = await listConnections(db, { scopePath }, adminId);
+    expect(branchRows.map((row) => row.tokenId)).toEqual(expect.arrayContaining([parent.tokenId, child.tokenId]));
+    expect(branchRows.some((row) => row.scopePath === otherScopePath)).toBe(false);
+    expect(branchRows.every((row) => row.scopePath === scopePath || row.scopePath === childPath)).toBe(true);
+    expect(branchRows[0]).toHaveProperty("mintedByName");
+    expect(branchRows[0]).toHaveProperty("scopePath");
+
+    await expect(listConnections(db, {}, adminId)).rejects.toThrow(AccessDeniedError);
+    const fleetRows = await listConnections(db, {}, rootPrincipalId);
+    expect(fleetRows.some((row) => row.tokenId === parent.tokenId)).toBe(true);
+    expect(fleetRows.some((row) => row.scopePath === otherScopePath)).toBe(true);
+  });
+
+  it("filters admin connections by principal, activity, and expiry", async () => {
+    const soon = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const old = await mintConnectionToken(db, { scopePath, name: "Old token", role: "viewer" }, editorId);
+    const active = await mintConnectionToken(db, { scopePath, name: "Active token", role: "viewer", expiresAt: soon }, editorId);
+
+    await db
+      .update(schema.tokens)
+      .set({ lastUsedAt: new Date() })
+      .where(eq(schema.tokens.id, active.tokenId));
+
+    const activeRows = await listConnections(db, { scopePath, activeSince: new Date(Date.now() - 60_000) }, adminId);
+    expect(activeRows.map((row) => row.tokenId)).toContain(active.tokenId);
+    expect(activeRows.map((row) => row.tokenId)).not.toContain(old.tokenId);
+
+    const expiringRows = await listConnections(db, {
+      scopePath,
+      principalId: active.principalId,
+      expiringWithin: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
+    }, adminId);
+    expect(expiringRows.map((row) => row.tokenId)).toEqual([active.tokenId]);
+  });
+
+  it("bulk-revokes a subtree only, leaves siblings active, and emits one connection.bulk_revoked", async () => {
+    const parent = await mintConnectionToken(db, { scopePath, name: "Parent revoke", role: "viewer" }, editorId);
+    const child = await mintConnectionToken(db, { scopePath: childPath, name: "Child revoke", role: "viewer" }, editorId);
+    const sibling = await mintConnectionToken(db, { scopePath: otherScopePath, name: "Sibling safe", role: "viewer" }, rootPrincipalId);
+
+    const result = await revokeScopeAccess(db, { scopePath }, adminId);
+    expect(result.revokedCount).toBe(2);
+    expect(result.scopePaths).toEqual([childPath, scopePath].sort());
+
+    expect(await authenticateToken(db, parent.token)).toBeNull();
+    expect(await authenticateToken(db, child.token)).toBeNull();
+    expect(await authenticateToken(db, sibling.token)).toMatchObject({ id: sibling.principalId });
+
+    const events = await listEvents(db, { scopePath, type: "connection.bulk_revoked", limit: 10 });
+    const bulk = events.find((event: any) => event.payload?.scopePath === scopePath);
+    expect(bulk?.payload).toMatchObject({
+      scopePath,
+      revokedCount: 2,
+      scopePaths: expect.arrayContaining([scopePath, childPath]),
+    });
+  });
+
+  it("offboards a principal across connection tokens and gates every granted scope", async () => {
+    const minted = await mintConnectionToken(db, { scopePath, name: "Offboard primary", role: "agent" }, editorId);
+    await grantRole(db, { principalId: minted.principalId, scopePath: childPath, role: "viewer" }, rootPrincipalId);
+    const secondPlaintext = await issueToken(db, { principalId: minted.principalId, name: "Offboard child" }, rootPrincipalId);
+    const [childScope] = await db.select().from(schema.scopes).where(eq(schema.scopes.path, childPath)).limit(1);
+    const [secondToken] = await db
+      .select()
+      .from(schema.tokens)
+      .where(and(eq(schema.tokens.principalId, minted.principalId), eq(schema.tokens.name, "Offboard child")))
+      .limit(1);
+    await db.insert(schema.connections).values({
+      tokenId: secondToken.id,
+      scopeId: childScope.id,
+      mintedBy: rootPrincipalId,
+    });
+
+    await expect(revokePrincipalAccess(db, { principalId: minted.principalId }, viewerId)).rejects.toThrow(AccessDeniedError);
+
+    const result = await revokePrincipalAccess(db, { principalId: minted.principalId }, adminId);
+    expect(result.revokedCount).toBe(2);
+    expect(result.scopePaths).toEqual([childPath, scopePath].sort());
+    expect(await authenticateToken(db, minted.token)).toBeNull();
+    expect(await authenticateToken(db, secondPlaintext)).toBeNull();
+
+    const events = await listEvents(db, { type: "connection.bulk_revoked", limit: 20 });
+    const bulk = events.find((event: any) => event.payload?.principalId === minted.principalId);
+    expect(bulk?.payload).toMatchObject({
+      principalId: minted.principalId,
+      revokedCount: 2,
+      scopePaths: expect.arrayContaining([scopePath, childPath]),
+    });
   });
 });

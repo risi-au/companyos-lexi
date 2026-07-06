@@ -42,7 +42,10 @@ import {
   getConversationMessages,
   mintConnectionToken,
   listConnectionTokens,
+  listConnections,
   revokeConnectionToken,
+  revokePrincipalAccess,
+  revokeScopeAccess,
   type LLMConfig,
   type RunTurnInput,
 } from "@companyos/api";
@@ -162,6 +165,12 @@ export const api = {
     listConnectionTokens(db, input, actorPrincipalId),
   revokeConnectionToken: (input: Parameters<typeof revokeConnectionToken>[1], actorPrincipalId: string) =>
     revokeConnectionToken(db, input, actorPrincipalId),
+  listConnections: (input: Parameters<typeof listConnections>[1], actorPrincipalId: string) =>
+    listConnections(db, input, actorPrincipalId),
+  revokeScopeAccess: (input: Parameters<typeof revokeScopeAccess>[1], actorPrincipalId: string) =>
+    revokeScopeAccess(db, input, actorPrincipalId),
+  revokePrincipalAccess: (input: Parameters<typeof revokePrincipalAccess>[1], actorPrincipalId: string) =>
+    revokePrincipalAccess(db, input, actorPrincipalId),
 };
 
 export { db }; // only for auth wiring internally
