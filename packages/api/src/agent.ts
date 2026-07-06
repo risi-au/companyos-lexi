@@ -8,6 +8,8 @@ import {
 } from "./index";
 import { ScopeNotFoundError } from "./errors";
 import { skillsContextSection } from "./modules/skills/service";
+import { scopes, workbenches } from "@companyos/db";
+import { eq, inArray } from "drizzle-orm";
 import { createHmac, timingSafeEqual } from "crypto";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -18,6 +20,53 @@ function formatDate(d: Date | string | null | undefined): string {
   return dt.toISOString().slice(0, 10);
 }
 
+export interface ContextBundleConfig {
+  mcpPublicUrl?: string | null;
+}
+
+interface WorkbenchCandidate {
+  scopePath: string;
+  repo: string;
+  path: string;
+}
+
+function ancestorPaths(scopePath: string): string[] {
+  const parts = scopePath.split("/").filter(Boolean);
+  return parts.map((_, idx) => parts.slice(0, parts.length - idx).join("/"));
+}
+
+function joinWorkbenchPath(basePath: string, relativePath: string): string {
+  return [basePath, relativePath].filter(Boolean).join("/");
+}
+
+async function findNearestWorkbench(db: DB, scopePath: string) {
+  const candidates = ancestorPaths(scopePath);
+  if (!candidates.length) return null;
+
+  const rows: WorkbenchCandidate[] = await db
+    .select({
+      scopePath: scopes.path,
+      repo: workbenches.repo,
+      path: workbenches.path,
+    })
+    .from(scopes)
+    .innerJoin(workbenches, eq(workbenches.scopeId, scopes.id))
+    .where(inArray(scopes.path, candidates));
+
+  for (const candidate of candidates) {
+    const row = rows.find((r: WorkbenchCandidate) => r.scopePath === candidate);
+    if (row) {
+      const relative = scopePath === candidate ? "" : scopePath.slice(candidate.length + 1);
+      return {
+        repo: row.repo,
+        path: joinWorkbenchPath(row.path || "", relative),
+      };
+    }
+  }
+
+  return null;
+}
+
 /**
  * Returns the same markdown context bundle as MCP get_context tool.
  * Requires viewer on the scope.
@@ -25,7 +74,8 @@ function formatDate(d: Date | string | null | undefined): string {
 export async function getContextBundle(
   db: DB,
   scopePath: string,
-  actorPrincipalId: string
+  actorPrincipalId: string,
+  config: ContextBundleConfig = {}
 ): Promise<string> {
   const sc = await getScope(db, scopePath);
   if (!sc) {
@@ -51,10 +101,17 @@ export async function getContextBundle(
   }
   if (!recordsMd) recordsMd = "(no recent changelog/decision records)\n";
   const skillsMd = await skillsContextSection(db, scopePath);
+  const workbench = await findNearestWorkbench(db, scopePath);
 
   const moduleList = mods.length
     ? mods.map((m: any) => `- ${m.moduleType}`).join("\n")
     : "(none attached)";
+  const workbenchMd = workbench
+    ? `
+**Workbench**
+Repo: ${workbench.repo} · Folder: ${workbench.path || "."} · Clone the repo and work inside this folder.
+${config.mcpPublicUrl ? `MCP URL: ${config.mcpPublicUrl}\n` : ""}`
+    : "";
 
   const md = `# Context for ${scopePath}
 
@@ -69,6 +126,7 @@ ${moduleList}
 
 **Children**
 ${childPaths || "(none)"}
+${workbenchMd}
 
 **Recent changelog/decision records (last 10)**
 ${recordsMd}

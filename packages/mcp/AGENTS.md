@@ -12,7 +12,7 @@ Stdio auth uses `COS_TOKEN` env. HTTP auth uses `Authorization: Bearer cos_...` 
 ## Tools
 - `ping` - no auth, returns "pong". Connectivity only.
 - `whoami` - read-only; returns `{ principal: { id, name, kind }, grants: [{ scopePath, role }] }` for the authenticated principal.
-- `get_context({scope})` - markdown context bundle for a scope. Viewer.
+- `get_context({scope})` - markdown context bundle for a scope. Viewer. Includes a Workbench section when the scope or nearest ancestor has one, with repo, folder, and MCP URL when configured.
 - `get_tree({scope?})` - indented subtree paths. Viewer.
 - `log_change({scope, title, body_md, data?})` - create changelog. Editor/agent.
 - `log_decision({scope, title, body_md, data?})` - create decision. Editor/agent.
@@ -51,7 +51,7 @@ All protected tools: unauthenticated calls return a clear error. AccessDenied is
 - The v1 HTTP rate limiter is in-memory per process and keyed by token fingerprint; it is a guardrail, not distributed quota.
 
 ## Files
-- `src/server.ts` - `createServer({db, principalId})`, all tool registration with zod schemas + thin handlers.
+- `src/server.ts` - `createServer({db, principalId, mcpPublicUrl?})`, all tool registration with zod schemas + thin handlers. `get_context` delegates formatting to `@companyos/api`.
 - `src/http.ts` - `createHttpHandler({db})`, standard Request/Response streamable HTTP wrapper with per-request bearer auth, origin/body/rate guardrails.
 - `src/index.ts` - reexports `createServer`, `createHttpHandler`, and `ping`.
 - `src/stdio.ts` - executable entry: reads `DATABASE_URL` + `COS_TOKEN`, auths, wires `StdioServerTransport`.

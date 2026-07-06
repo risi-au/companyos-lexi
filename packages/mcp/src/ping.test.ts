@@ -116,10 +116,15 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     ] }, rootPrincipalId);
   });
 
-  async function makeRoundtrip(principalIdForServer: string | null, planeClient: any = null, githubClient: any = undefined) {
+  async function makeRoundtrip(
+    principalIdForServer: string | null,
+    planeClient: any = null,
+    githubClient: any = undefined,
+    mcpPublicUrl: string | null = null
+  ) {
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const mcpClient = new Client({ name: "test-client", version: "0.0.0" });
-    const server = createServer({ db, principalId: principalIdForServer, planeClient, githubClient });
+    const server = createServer({ db, principalId: principalIdForServer, planeClient, githubClient, mcpPublicUrl });
 
     await Promise.all([
       mcpClient.connect(clientTransport),
@@ -343,6 +348,24 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     expect(text).toContain("Initial setup");
     expect(text).toContain("Choose Postgres");
     expect(text).toMatch(/use list_records \/ get_record/i);
+  });
+
+  it("get_context markdown includes workbench section when bundle has workbench info", async () => {
+    const [scopeRow] = await db.select().from(schema.scopes).where(eq(schema.scopes.path, testScope)).limit(1);
+    await db.insert(schema.workbenches).values({
+      scopeId: scopeRow.id,
+      repo: "brissie-digital/mcp-test",
+      path: "",
+    });
+
+    const { mcpClient } = await makeRoundtrip(rootPrincipalId, null, undefined, "https://os.example/api/mcp");
+    const ctx = await mcpClient.callTool({ name: "get_context", arguments: { scope: subScope } });
+    const text = (ctx as any).content?.[0]?.text || "";
+
+    expect(text).toContain("**Workbench**");
+    expect(text).toContain("Repo: brissie-digital/mcp-test");
+    expect(text).toContain("Folder: sub");
+    expect(text).toContain("MCP URL: https://os.example/api/mcp");
   });
 
   // === M1-07 task MCP roundtrips (mock injected, unconfigured error) ===

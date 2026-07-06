@@ -30,7 +30,7 @@ Access: services enforce via requireAccess (viewer read, editor for writes). Too
 
 LLM: plain fetch to ${base}/v1/chat/completions. No SDK. Config injected by boundary (env at HTTP/server-action; mock fixture in tests).
 
-System prompt: concise identity + scope context + durable-in-records rule.
+System prompt: concise identity + scope context + durable-in-records rule. Prefetched context may include nearest workbench repo/folder and MCP public URL when the boundary injects it.
 
 Streaming: not in v1.
 

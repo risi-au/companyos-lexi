@@ -7,9 +7,7 @@ import {
   getRecord,
   listRecords,
   getScope,
-  getChildren,
   getSubtree,
-  listModules,
   requireAccess,
   createTask,
   completeTask,
@@ -43,7 +41,7 @@ import {
   listSkills,
   getSkill,
   listGrants,
-  skillsContextSection,
+  getContextBundle,
   type DB,
   AccessDeniedError,
   AlertValidationError,
@@ -62,6 +60,7 @@ export interface CreateServerOptions {
   principalId: string | null;
   planeClient?: PlaneClient | null;
   githubClient?: GitHubClient | null;
+  mcpPublicUrl?: string | null;
 }
 
 function formatError(e: unknown): string {
@@ -231,59 +230,7 @@ export function createServer(options: CreateServerOptions) {
     async ({ scope }) => {
       try {
         const actor = ensurePrincipal();
-        const sc = await getScope(db, scope);
-        if (!sc) {
-          return {
-            content: [{ type: "text", text: `Scope not found: ${scope}` }],
-            isError: true,
-          };
-        }
-
-        // Access will be checked by downstream calls
-        const mods = await listModules(db, scope, actor);
-        const children = await getChildren(db, scope);
-        const childPaths = children.map((c: any) => c.path).join("\n"); // eslint-disable-line @typescript-eslint/no-explicit-any
-
-        // last 10 of changelog + decision
-        const recentCh = await listRecords(db, { scopePath: scope, kind: "changelog", limit: 10 }, actor);
-        const recentDec = await listRecords(db, { scopePath: scope, kind: "decision", limit: 10 }, actor);
-        const combined = [...recentCh, ...recentDec]
-          .sort((a: any, b: any) => (b.createdAt?.getTime?.() || 0) - (a.createdAt?.getTime?.() || 0)) // eslint-disable-line @typescript-eslint/no-explicit-any
-          .slice(0, 10);
-
-        let recordsMd = "";
-        for (const r of combined) {
-          const bodyStart = (r.bodyMd || "").slice(0, 200).replace(/\n/g, " ");
-          const date = formatDate(r.createdAt);
-          recordsMd += `- [${r.kind}] ${r.title} (${date})\n  ${bodyStart}${ (r.bodyMd || "").length > 200 ? "..." : "" }\n`;
-        }
-        if (!recordsMd) recordsMd = "(no recent changelog/decision records)\n";
-        const skillsMd = await skillsContextSection(db, scope);
-
-        const moduleList = mods.length
-          ? mods.map((m) => `- ${m.moduleType}`).join("\n")
-          : "(none attached)";
-
-        const md = `# Context for ${scope}
-
-**Identity**
-- name: ${sc.name}
-- path: ${sc.path}
-- type: ${sc.type}
-- status: ${sc.status}
-
-**Modules**
-${moduleList}
-
-**Children**
-${childPaths || "(none)"}
-
-**Recent changelog/decision records (last 10)**
-${recordsMd}
-Use list_records / get_record for full history and other kinds.
-
-${skillsMd}
-`;
+        const md = await getContextBundle(db, scope, actor, { mcpPublicUrl: options.mcpPublicUrl });
 
         return { content: [{ type: "text", text: md }] };
       } catch (e) {

@@ -73,6 +73,44 @@ describe("agent HTTP support (M2-05: context, report, plane lookup)", () => {
     expect(md).toContain("Modules");
   });
 
+  it("getContextBundle includes workbench repo, path, and MCP URL for a scoped workbench", async () => {
+    const [scRow] = await db.select().from(schema.scopes).where(eq(schema.scopes.path, demoScopePath)).limit(1);
+    await db.insert(schema.workbenches).values({
+      scopeId: scRow.id,
+      repo: "brissie-digital/demo",
+      path: "marketing",
+    });
+
+    const md = await getContextBundle(db, demoScopePath, agentId, { mcpPublicUrl: "https://os.example/api/mcp" });
+
+    expect(md).toContain("**Workbench**");
+    expect(md).toContain("Repo: brissie-digital/demo");
+    expect(md).toContain("Folder: marketing");
+    expect(md).toContain("MCP URL: https://os.example/api/mcp");
+  });
+
+  it("getContextBundle inherits nearest ancestor workbench with descendant sub-path", async () => {
+    const child = await createScope(db, { parentPath: demoScopePath, slug: "seo", name: "SEO", type: "subproject" }, rootId);
+    await grantRole(db, { principalId: agentId, scopePath: child.path, role: "editor" }, rootId);
+    const [scRow] = await db.select().from(schema.scopes).where(eq(schema.scopes.path, demoScopePath)).limit(1);
+    await db.insert(schema.workbenches).values({
+      scopeId: scRow.id,
+      repo: "brissie-digital/demo",
+      path: "",
+    });
+
+    const md = await getContextBundle(db, child.path, agentId);
+
+    expect(md).toContain("**Workbench**");
+    expect(md).toContain("Repo: brissie-digital/demo");
+    expect(md).toContain("Folder: seo");
+  });
+
+  it("getContextBundle omits workbench section when no ancestor has one", async () => {
+    const md = await getContextBundle(db, demoScopePath, agentId);
+    expect(md).not.toContain("**Workbench**");
+  });
+
   it("getContextBundle enforces viewer (via services)", async () => {
     const [no] = await db.insert(schema.principals).values({ kind: "human", name: "nope", status: "active" }).returning();
     await expect(getContextBundle(db, demoScopePath, no.id)).rejects.toThrow(/Access denied|denied/i);
