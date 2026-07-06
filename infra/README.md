@@ -133,6 +133,24 @@ GHCR images built from every green push to `main`, and is overwritten by the nex
 `vX.Y.Z` values for tested releases intended to pass staging sign-off and eventually reach
 live; live remains tag-only.
 
+### Staging auto-deploy
+
+`.github/workflows/release.yml` deploys staging after the release job publishes images. The
+deploy target is `COMPANYOS_TAG=main` for green pushes to `main`, or the pushed `v*` tag for
+release validation. Live promotion is still manual and tag-only.
+
+The repository must define these GitHub Actions secrets before the `deploy-staging` job can
+run:
+
+- `STAGING_SSH_HOST`
+- `STAGING_SSH_USER`
+- `STAGING_SSH_KEY`
+
+Do not commit deploy keys or environment secrets. The staging user's `~/app/.env` remains the
+source of truth for runtime config; the deploy job updates only `COMPANYOS_TAG`, keeping
+`.env.bak`, then runs `docker compose pull && docker compose up -d`, waits for `migrate`, and
+smoke-tests the local app plus `https://cos.risi.au`.
+
 ### Rollback
 
 1. Set `COMPANYOS_TAG` back to the previous known-good tag.

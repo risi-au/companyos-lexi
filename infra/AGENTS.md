@@ -1,13 +1,15 @@
 # infra AGENTS.md
 
 Module: infra
-Purpose: Development and production Docker Compose bundles for the shared data/model/automation layer, plus production runbook. Enables local boot of Postgres, LiteLLM, and n8n; prod runs multi-arch (amd64+arm64) OS images from GHCR with Plane CE side-by-side.
+Purpose: Development and production Docker Compose bundles for the shared data/model/automation layer, plus production runbook. Enables local boot of Postgres, LiteLLM, and n8n; prod runs multi-arch (amd64+arm64) OS images from GHCR with Plane CE side-by-side, and the release pipeline auto-deploys published images to staging.
 
 ## Contract / invariants
 - Single `docker compose -f infra/docker-compose.dev.yml up -d` boots postgres + litellm + n8n for dev.
 - `infra/docker-compose.prod.yml` runs postgres, litellm, n8n, one-shot migrate, and os from GHCR images.
 - Prod OS images are `ghcr.io/risi-au/companyos-os:${COMPANYOS_TAG}` and `ghcr.io/risi-au/companyos-migrate:${COMPANYOS_TAG}`. `COMPANYOS_TAG` has no default and must fail fast when unset.
 - `COMPANYOS_TAG=main` is a supported rolling-tag value for fast staging iteration only. It is distinct from semver `vX.Y.Z` release tags, which remain the only live-promotion artifacts.
+- `.github/workflows/release.yml` publishes OS/migrate images, then deploys staging with `COMPANYOS_TAG=main` or the pushed `v*` tag after the release job succeeds.
+- Staging deploy automation uses only GitHub Actions secrets named `STAGING_SSH_HOST`, `STAGING_SSH_USER`, and `STAGING_SSH_KEY`; no keys or host credentials are stored in the repo.
 - Prod ingress/TLS is external to this repo. The OS app binds only `127.0.0.1:${OS_PORT:-3000}:3000`; no Caddy, cloudflared, or reverse proxy belongs here.
 - Three logical DBs created: companyos (OS), plane (tasks), litellm (keys/spend).
 - LiteLLM exposes only role aliases (`cheap` | `analysis` | `reasoning`); raw provider models never referenced from code.
@@ -24,6 +26,7 @@ Purpose: Development and production Docker Compose bundles for the shared data/m
 - `apps/os/Dockerfile` - two final targets: `os` (Next standalone runtime) and `migrate` (Drizzle migration runner).
 - (root) `package.json` scripts: `infra:up`, `infra:down`, `db:migrate`, `db:seed`.
 - `.env.example` - all referenced vars with placeholders.
+- `.github/workflows/release.yml` - gates, builds/pushes GHCR images, deploys staging over SSH, and smoke-tests staging.
 - `packages/db/` scripts execute drizzle-kit for migrate (delegated).
 
 ## Ports (host)
@@ -36,7 +39,7 @@ Purpose: Development and production Docker Compose bundles for the shared data/m
 - `pnpm typecheck`, `pnpm lint`, `pnpm test` (from root) - must pass.
 - `pnpm --filter @companyos/os build` must pass and produce `.next/standalone`.
 - Scripts defined and delegating correctly.
-- YAML valid (manual review in implementer sandbox); images pinned; healthchecks present.
+- YAML valid (manual review or actionlint in implementer sandbox); images pinned; healthchecks present; staging deploy summary reports tag, image digests, migrate result, and smoke status.
 - Config uses only env var refs.
 - README covers dev, first deploy, upgrade, rollback, and Plane side-by-side.
 - db scripts run drizzle-kit for migrate path.
@@ -45,7 +48,7 @@ Purpose: Development and production Docker Compose bundles for the shared data/m
 ## Do not
 - Do not run `docker` or `docker compose` commands in environments where Docker is absent.
 - Do not inline full Plane compose (use official setup.sh + external DB config).
-- Do not add Caddy, cloudflared, reverse proxies, SSH deploy automation, or `latest` image tags here.
+- Do not add Caddy, cloudflared, reverse proxies, SSH deploy automation inside infra compose/runbook mechanics, or `latest` image tags here. Staging deploy automation belongs in `.github/workflows/release.yml`.
 - Do not touch docs/, root README/AGENTS, legacy/ unless a task brief explicitly allows it.
 - Never commit real keys.
 
