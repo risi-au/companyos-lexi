@@ -141,6 +141,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     const tools = await mcpClient.listTools();
     const names = (tools.tools || []).map((t: any) => t.name).sort();
     expect(names).toEqual([
+      "complete_session",
       "complete_task",
       "create_task",
       "get_canvas",
@@ -159,6 +160,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "list_docs",
       "list_metric_names",
       "list_records",
+      "list_sessions",
       "list_skills",
       "list_tasks",
       "list_widget_types",
@@ -168,6 +170,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "provision_scope",
       "query_metrics",
       "register_capability",
+      "register_session",
       "report_run",
       "revert_dashboard",
       "revert_doc",
@@ -177,6 +180,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "save_note",
       "save_report",
       "sync_skills",
+      "update_session",
       "update_task",
       "verify_workbench",
       "whoami",
@@ -395,6 +399,57 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     const tree = await mcpClient.callTool({ name: "get_tree", arguments: { scope: testScope } });
     expect((tree as any).isError).toBeFalsy();
     expect((tree as any).content?.[0]?.text || "").toContain(testScope);
+  });
+
+  it("sessions MCP tools roundtrip register, heartbeat, list, and complete", async () => {
+    const { mcpClient } = await makeRoundtrip(agentPrincipalId);
+
+    const registered = await mcpClient.callTool({
+      name: "register_session",
+      arguments: {
+        scope: testScope,
+        title: "MCP session",
+        engine: "codex",
+        model: "gpt-5",
+        worktree_ref: "mcp/session",
+      },
+    });
+    expect((registered as any).isError).toBeFalsy();
+    const session = JSON.parse((registered as any).content?.[0]?.text || "{}");
+    expect(session).toMatchObject({
+      title: "MCP session",
+      engine: "codex",
+      model: "gpt-5",
+      status: "running",
+      worktreeRef: "mcp/session",
+    });
+
+    const heartbeat = await mcpClient.callTool({
+      name: "update_session",
+      arguments: { session_id: session.id },
+    });
+    expect((heartbeat as any).isError).toBeFalsy();
+    const heartbeatJson = JSON.parse((heartbeat as any).content?.[0]?.text || "{}");
+    expect(new Date(heartbeatJson.lastHeartbeat).getTime()).toBeGreaterThanOrEqual(
+      new Date(session.lastHeartbeat).getTime()
+    );
+
+    const listed = await mcpClient.callTool({
+      name: "list_sessions",
+      arguments: { scope: testScope, include_descendants: true },
+    });
+    expect((listed as any).isError).toBeFalsy();
+    const sessions = JSON.parse((listed as any).content?.[0]?.text || "[]");
+    expect(sessions.some((row: any) => row.id === session.id && row.scopePath === testScope && row.stale === false))
+      .toBe(true);
+
+    const completed = await mcpClient.callTool({
+      name: "complete_session",
+      arguments: { session_id: session.id, summary: "Wrapped through MCP" },
+    });
+    expect((completed as any).isError).toBeFalsy();
+    const completedJson = JSON.parse((completed as any).content?.[0]?.text || "{}");
+    expect(completedJson.status).toBe("completed");
   });
 
   // === M1-07 task MCP roundtrips (mock injected, unconfigured error) ===

@@ -43,6 +43,11 @@ import {
   listGrants,
   getContextBundle,
   verifyWorkbench,
+  registerSession,
+  updateSession,
+  completeSession,
+  listSessions,
+  SessionNotFoundError,
   type DB,
   AccessDeniedError,
   AlertValidationError,
@@ -82,6 +87,9 @@ function formatError(e: unknown): string {
   }
   if (e instanceof RecordNotFoundError) {
     return `Record not found: ${e.id}`;
+  }
+  if (e instanceof SessionNotFoundError) {
+    return `Session not found: ${e.id}`;
   }
   if (e instanceof DashboardValidationError) {
     return `Dashboard validation failed: ${e.errors.map((er: { path?: (string | number)[]; message: string }) => `${(er.path || []).join(".")}: ${er.message}`).join("; ")}`;
@@ -259,6 +267,154 @@ export function createServer(options: CreateServerOptions) {
       try {
         const actor = ensurePrincipal();
         const result = await verifyWorkbench(db, { cwd, scopePath: scope }, actor);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  const sessionStatusSchema = z.enum(["running", "waiting", "idle", "completed", "error"]);
+
+  server.registerTool(
+    "register_session",
+    {
+      title: "Register Session",
+      description:
+        "Register a cooperative agent/client work session on a scope. Requires editor/agent. Returns the created session row.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+        title: z.string().min(1).describe("Short human-readable session title"),
+        engine: z.string().min(1).describe("Open-ended engine/client name, e.g. codex, claude-code"),
+        model: z.string().optional().describe("Optional model name"),
+        token_id: z.string().optional().describe("Optional CompanyOS token id associated with this session"),
+        worktree_ref: z.string().optional().describe("Optional worktree/folder reference"),
+      }),
+    },
+    async ({ scope, title, engine, model, token_id, worktree_ref }) => {
+      try {
+        const actor = ensurePrincipal();
+        const result = await registerSession(
+          db,
+          {
+            scopePath: scope,
+            title,
+            engine,
+            model: model ?? null,
+            tokenId: token_id ?? null,
+            worktreeRef: worktree_ref ?? null,
+          },
+          actor
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "update_session",
+    {
+      title: "Update Session",
+      description:
+        "Heartbeat or update a session. A call with only session_id bumps last_heartbeat without emitting session.updated. Requires editor/agent on the session scope.",
+      inputSchema: z.object({
+        session_id: z.string().min(1).describe("Session uuid"),
+        status: sessionStatusSchema.optional(),
+        title: z.string().optional(),
+        worktree_ref: z.string().nullable().optional(),
+      }),
+    },
+    async ({ session_id, status, title, worktree_ref }) => {
+      try {
+        const actor = ensurePrincipal();
+        const result = await updateSession(
+          db,
+          {
+            sessionId: session_id,
+            status,
+            title,
+            worktreeRef: worktree_ref,
+          },
+          actor
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "complete_session",
+    {
+      title: "Complete Session",
+      description: "Mark a session completed and emit session.completed. Requires editor/agent on the session scope.",
+      inputSchema: z.object({
+        session_id: z.string().min(1).describe("Session uuid"),
+        summary: z.string().optional().describe("Optional wrap-up summary"),
+      }),
+    },
+    async ({ session_id, summary }) => {
+      try {
+        const actor = ensurePrincipal();
+        const result = await completeSession(db, { sessionId: session_id, summary }, actor);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "list_sessions",
+    {
+      title: "List Sessions",
+      description:
+        "List sessions for a scope, optionally including descendants. Viewer. Staleness is computed at read time.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+        status: sessionStatusSchema.optional(),
+        include_descendants: z.boolean().optional(),
+        idle_window_ms: z.number().int().min(0).optional(),
+        limit: z.number().int().min(1).max(500).optional(),
+      }),
+    },
+    async ({ scope, status, include_descendants, idle_window_ms, limit }) => {
+      try {
+        const actor = ensurePrincipal();
+        const result = await listSessions(
+          db,
+          {
+            scopePath: scope,
+            status,
+            includeDescendants: include_descendants,
+            idleWindowMs: idle_window_ms,
+            limit,
+          },
+          actor
+        );
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
