@@ -11,6 +11,7 @@ import {
   createScope,
   grantRole,
   getContextBundle,
+  verifyWorkbench,
   reportCapabilityRun,
   findScopeByPlaneProject,
   listEvents,
@@ -109,6 +110,81 @@ describe("agent HTTP support (M2-05: context, report, plane lookup)", () => {
   it("getContextBundle omits workbench section when no ancestor has one", async () => {
     const md = await getContextBundle(db, demoScopePath, agentId);
     expect(md).not.toContain("**Workbench**");
+  });
+
+  it("verifyWorkbench returns ok:false with expected repo/path on cwd mismatch", async () => {
+    const [scRow] = await db.select().from(schema.scopes).where(eq(schema.scopes.path, demoScopePath)).limit(1);
+    await db.insert(schema.workbenches).values({
+      scopeId: scRow.id,
+      repo: "airbuddy-repo",
+      path: "digital-marketing/meta-ads",
+    });
+
+    const result = await verifyWorkbench(
+      db,
+      { cwd: "C:\\dev\\airbuddy\\digital-marketing\\google-ads", scopePath: demoScopePath },
+      agentId
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      expectedRepo: "airbuddy-repo",
+      expectedPath: "digital-marketing/meta-ads",
+    });
+    expect(result.message).toContain(`for scope ${demoScopePath}`);
+  });
+
+  it("verifyWorkbench accepts POSIX and Windows cwd separators when suffix segments match", async () => {
+    const [scRow] = await db.select().from(schema.scopes).where(eq(schema.scopes.path, demoScopePath)).limit(1);
+    await db.insert(schema.workbenches).values({
+      scopeId: scRow.id,
+      repo: "airbuddy-repo",
+      path: "digital-marketing/meta-ads",
+    });
+
+    await expect(
+      verifyWorkbench(
+        db,
+        { cwd: "/work/airbuddy/digital-marketing/meta-ads", scopePath: demoScopePath },
+        agentId
+      )
+    ).resolves.toEqual({ ok: true });
+
+    await expect(
+      verifyWorkbench(
+        db,
+        { cwd: "C:\\work\\airbuddy\\digital-marketing\\meta-ads", scopePath: demoScopePath },
+        agentId
+      )
+    ).resolves.toEqual({ ok: true });
+  });
+
+  it("verifyWorkbench auto-resolves a single direct grant when scopePath is omitted", async () => {
+    const [scRow] = await db.select().from(schema.scopes).where(eq(schema.scopes.path, demoScopePath)).limit(1);
+    await db.insert(schema.workbenches).values({
+      scopeId: scRow.id,
+      repo: "brissie-digital/demo",
+      path: "marketing",
+    });
+
+    const result = await verifyWorkbench(db, { cwd: "D:\\clients\\demo\\marketing" }, agentId);
+
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("verifyWorkbench requires explicit scopePath when the principal has multiple direct grants", async () => {
+    const child = await createScope(db, { parentPath: demoScopePath, slug: "meta-ads", name: "Meta Ads", type: "subproject" }, rootId);
+    await grantRole(db, { principalId: agentId, scopePath: child.path, role: "viewer" }, rootId);
+
+    await expect(verifyWorkbench(db, { cwd: "/work/demo/meta-ads" }, agentId)).rejects.toThrow(
+      /multiple scope grants.*explicit scopePath/i
+    );
+  });
+
+  it("verifyWorkbench returns ok:true with note when no workbench is registered", async () => {
+    const result = await verifyWorkbench(db, { cwd: "/work/demo", scopePath: demoScopePath }, agentId);
+
+    expect(result).toEqual({ ok: true, note: "no workbench registered" });
   });
 
   it("getContextBundle enforces viewer (via services)", async () => {

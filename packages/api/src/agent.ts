@@ -4,11 +4,12 @@ import {
   listModules,
   listRecords,
   emitEvent,
+  requireAccess,
   type DB,
 } from "./index";
 import { ScopeNotFoundError } from "./errors";
 import { skillsContextSection } from "./modules/skills/service";
-import { scopes, workbenches } from "@companyos/db";
+import { grants, scopes, workbenches } from "@companyos/db";
 import { eq, inArray } from "drizzle-orm";
 import { createHmac, timingSafeEqual } from "crypto";
 
@@ -39,7 +40,7 @@ function joinWorkbenchPath(basePath: string, relativePath: string): string {
   return [basePath, relativePath].filter(Boolean).join("/");
 }
 
-async function findNearestWorkbench(db: DB, scopePath: string) {
+export async function findNearestWorkbench(db: DB, scopePath: string) {
   const candidates = ancestorPaths(scopePath);
   if (!candidates.length) return null;
 
@@ -65,6 +66,92 @@ async function findNearestWorkbench(db: DB, scopePath: string) {
   }
 
   return null;
+}
+
+export interface VerifyWorkbenchInput {
+  cwd: string;
+  scopePath?: string | null;
+}
+
+export interface VerifyWorkbenchResult {
+  ok: boolean;
+  expectedRepo?: string;
+  expectedPath?: string;
+  message?: string;
+  note?: string;
+}
+
+function normalizePathSegments(pathValue: string): string[] {
+  return pathValue
+    .replace(/^[A-Za-z]:[\\/]/, "")
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter(Boolean);
+}
+
+function endsWithPathSegments(cwd: string, expectedPath: string): boolean {
+  const cwdSegments = normalizePathSegments(cwd);
+  const expectedSegments = normalizePathSegments(expectedPath);
+  if (expectedSegments.length === 0) return true;
+  if (cwdSegments.length < expectedSegments.length) return false;
+
+  const offset = cwdSegments.length - expectedSegments.length;
+  return expectedSegments.every((segment, idx) => cwdSegments[offset + idx] === segment);
+}
+
+async function resolveVerifyWorkbenchScope(
+  db: DB,
+  scopePath: string | null | undefined,
+  actorPrincipalId: string
+): Promise<string> {
+  if (scopePath) {
+    await requireAccess(db, actorPrincipalId, scopePath, "viewer");
+    return scopePath;
+  }
+
+  const grantScopes = await db
+    .select({ scopePath: scopes.path })
+    .from(grants)
+    .innerJoin(scopes, eq(grants.scopeId, scopes.id))
+    .where(eq(grants.principalId, actorPrincipalId))
+    .orderBy(scopes.path);
+
+  if (grantScopes.length === 0) {
+    throw new Error("no scope grant found for this principal");
+  }
+  if (grantScopes.length > 1) {
+    throw new Error("multiple scope grants found for this principal; pass an explicit scopePath");
+  }
+
+  const onlyGrant = grantScopes[0];
+  if (!onlyGrant) {
+    throw new Error("no scope grant found for this principal");
+  }
+  return onlyGrant.scopePath;
+}
+
+export async function verifyWorkbench(
+  db: DB,
+  input: VerifyWorkbenchInput,
+  actorPrincipalId: string
+): Promise<VerifyWorkbenchResult> {
+  const scopePath = await resolveVerifyWorkbenchScope(db, input.scopePath, actorPrincipalId);
+  const workbench = await findNearestWorkbench(db, scopePath);
+  if (!workbench) {
+    return { ok: true, note: "no workbench registered" };
+  }
+
+  if (endsWithPathSegments(input.cwd, workbench.path)) {
+    return { ok: true };
+  }
+
+  const expected = [workbench.repo, workbench.path].filter(Boolean).join("/");
+  return {
+    ok: false,
+    expectedRepo: workbench.repo,
+    expectedPath: workbench.path,
+    message: `cwd does not match expected workbench ${expected} for scope ${scopePath}`,
+  };
 }
 
 /**

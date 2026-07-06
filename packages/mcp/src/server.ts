@@ -42,6 +42,7 @@ import {
   getSkill,
   listGrants,
   getContextBundle,
+  verifyWorkbench,
   type DB,
   AccessDeniedError,
   AlertValidationError,
@@ -233,6 +234,34 @@ export function createServer(options: CreateServerOptions) {
         const md = await getContextBundle(db, scope, actor, { mcpPublicUrl: options.mcpPublicUrl });
 
         return { content: [{ type: "text", text: md }] };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // verify_workbench
+  server.registerTool(
+    "verify_workbench",
+    {
+      title: "Verify Workbench",
+      description:
+        "Warn whether the client cwd matches the expected workbench folder for the authenticated principal's scope. Read-only and non-blocking.",
+      inputSchema: z.object({
+        cwd: z.string().min(1).describe("Client working directory path"),
+        scope: z.string().optional().describe("Optional explicit scope path"),
+      }),
+    },
+    async ({ cwd, scope }) => {
+      try {
+        const actor = ensurePrincipal();
+        const result = await verifyWorkbench(db, { cwd, scopePath: scope }, actor);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
       } catch (e) {
         return {
           content: [{ type: "text", text: `Error: ${formatError(e)}` }],

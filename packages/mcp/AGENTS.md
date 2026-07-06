@@ -13,6 +13,7 @@ Stdio auth uses `COS_TOKEN` env. HTTP auth uses `Authorization: Bearer cos_...` 
 - `ping` - no auth, returns "pong". Connectivity only.
 - `whoami` - read-only; returns `{ principal: { id, name, kind }, grants: [{ scopePath, role }] }` for the authenticated principal.
 - `get_context({scope})` - markdown context bundle for a scope. Viewer. Includes a Workbench section when the scope or nearest ancestor has one, with repo, folder, and MCP URL when configured.
+- `verify_workbench({cwd, scope?})` - read-only warning helper; checks whether client cwd matches the expected workbench folder. Viewer when scope is explicit; otherwise uses the principal's single direct grant.
 - `get_tree({scope?})` - indented subtree paths. Viewer.
 - `log_change({scope, title, body_md, data?})` - create changelog. Editor/agent.
 - `log_decision({scope, title, body_md, data?})` - create decision. Editor/agent.
