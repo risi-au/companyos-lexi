@@ -5,7 +5,7 @@ Purpose: Development and production Docker Compose bundles for the shared data/m
 
 ## Contract / invariants
 - Single `docker compose -f infra/docker-compose.dev.yml up -d` boots postgres + litellm + n8n for dev.
-- `infra/docker-compose.prod.yml` runs postgres, litellm, n8n, one-shot migrate, and os from GHCR images.
+- `infra/docker-compose.prod.yml` runs postgres, litellm, n8n, one-shot migrate, os from GHCR images, and an opt-in brain cron sidecar (`COMPOSE_PROFILES=brain`).
 - Prod OS images are `ghcr.io/risi-au/companyos-os:${COMPANYOS_TAG}` and `ghcr.io/risi-au/companyos-migrate:${COMPANYOS_TAG}`. `COMPANYOS_TAG` has no default and must fail fast when unset.
 - `COMPANYOS_TAG=main` is a supported rolling-tag value for fast staging iteration only. It is distinct from semver `vX.Y.Z` release tags, which remain the only live-promotion artifacts.
 - `.github/workflows/release.yml` publishes OS/migrate images, then deploys staging with `COMPANYOS_TAG=main` or the pushed `v*` tag after the release job succeeds.
@@ -19,7 +19,7 @@ Purpose: Development and production Docker Compose bundles for the shared data/m
 
 ## Files
 - `docker-compose.dev.yml` - postgres:17 + litellm + n8n. Healthchecks, volumes, init script.
-- `docker-compose.prod.yml` - prod stack: postgres, litellm, n8n, migrate, os. Migrate gates OS startup with `service_completed_successfully`.
+- `docker-compose.prod.yml` - prod stack: postgres, litellm, n8n, migrate, os, brain-cron. Migrate gates OS startup with `service_completed_successfully`; brain-cron calls `/api/v1/brain/run` for nightly ingest and weekly lint using `BRAIN_ENGINE_TOKEN` and only starts under the `brain` compose profile.
 - `postgres-init.sql` - init-db script creating the three DBs.
 - `litellm.config.yaml` - model aliases + os.environ key refs. Enables per-key spend tracking via DB.
 - `README.md` - exact dev bring-up order, prod first deploy/upgrade/rollback, reset, ports, Plane side-by-side instructions.

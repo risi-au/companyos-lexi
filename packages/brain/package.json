@@ -1,0 +1,25 @@
+{
+  "name": "@companyos/brain",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@companyos/api": "workspace:*"
+  },
+  "devDependencies": {
+    "@companyos/db": "workspace:*",
+    "@electric-sql/pglite": "0.2.5",
+    "drizzle-orm": "^0.44.2",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.1"
+  }
+}

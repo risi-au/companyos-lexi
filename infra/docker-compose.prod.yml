@@ -95,6 +95,9 @@ services:
       - INSTANCE_NAME=${INSTANCE_NAME:-CompanyOS}
       - LITELLM_BASE_URL=http://litellm:4000
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY is required}
+      - BRAIN_LITELLM_API_KEY=${BRAIN_LITELLM_API_KEY:-}
+      - BRAIN_RUN_TOKEN_CEILING=${BRAIN_RUN_TOKEN_CEILING:-24000}
+      - BRAIN_MONTHLY_TOKEN_BUDGET=${BRAIN_MONTHLY_TOKEN_BUDGET:-1000000}
       - LITELLM_EMBED_KEY=${LITELLM_EMBED_KEY:-}
       - EMBEDDING_DIMENSIONS=${EMBEDDING_DIMENSIONS:-1536}
       - PLANE_BASE_URL=${PLANE_BASE_URL:-}
@@ -107,6 +110,34 @@ services:
         condition: service_completed_successfully
       litellm:
         condition: service_healthy
+    networks:
+      - companyos-prod
+
+  # Opt-in: enable with COMPOSE_PROFILES=brain once BRAIN_ENGINE_TOKEN (root-admin
+  # cos_ token) is minted. Interpolation is parse-time, so the token must fail-open.
+  brain-cron:
+    image: alpine:3.20
+    container_name: companyos-brain-cron-prod
+    restart: unless-stopped
+    profiles:
+      - brain
+    environment:
+      - BRAIN_ENGINE_TOKEN=${BRAIN_ENGINE_TOKEN:-}
+      - BRAIN_INGEST_CRON=${BRAIN_INGEST_CRON:-0 2 * * *}
+      - BRAIN_LINT_CRON=${BRAIN_LINT_CRON:-0 3 * * 0}
+    depends_on:
+      os:
+        condition: service_started
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        cat > /etc/crontabs/root <<EOF
+        $${BRAIN_INGEST_CRON} wget -qO- --header="Authorization: Bearer $${BRAIN_ENGINE_TOKEN}" --header="Content-Type: application/json" --post-data='{"mode":"ingest"}' http://os:3000/api/v1/brain/run >/proc/1/fd/1 2>/proc/1/fd/2
+        $${BRAIN_LINT_CRON} wget -qO- --header="Authorization: Bearer $${BRAIN_ENGINE_TOKEN}" --header="Content-Type: application/json" --post-data='{"mode":"lint"}' http://os:3000/api/v1/brain/run >/proc/1/fd/1 2>/proc/1/fd/2
+        EOF
+        crond -f -l 8
     networks:
       - companyos-prod
 
