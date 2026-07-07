@@ -1,10 +1,17 @@
 import "server-only";
-import { handleGitHubWebhook, verifyGitHubWebhookSignature } from "@companyos/api";
+import { GitHubClient, handleGitHubWebhook, verifyGitHubWebhookSignature } from "@companyos/api";
 import { db, jsonError } from "@/lib/agent-auth";
 
 export const runtime = "nodejs";
 
 const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || "";
+
+function githubClientFromEnv(): GitHubClient | null {
+  const token = process.env.GITHUB_TOKEN;
+  const org = process.env.GITHUB_ORG;
+  if (!token || !org) return null;
+  return new GitHubClient({ token, org, baseUrl: process.env.GITHUB_API_URL || undefined });
+}
 
 export async function POST(req: Request) {
   const rawBody = await req.text();
@@ -33,7 +40,16 @@ export async function POST(req: Request) {
   }
 
   try {
-    const result = await handleGitHubWebhook(db, { event, deliveryId, payload });
+    const skillsRepo = process.env.SKILLS_REPO;
+    const githubOrg = process.env.GITHUB_ORG;
+    const result = await handleGitHubWebhook(db, {
+      event,
+      deliveryId,
+      payload,
+      skillsSync: skillsRepo && githubOrg
+        ? { org: githubOrg, repo: skillsRepo, client: githubClientFromEnv() }
+        : undefined,
+    });
     return Response.json(result, { status: 200 });
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : "GitHub webhook failed", 400);

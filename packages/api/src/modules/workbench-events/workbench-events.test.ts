@@ -78,6 +78,33 @@ function prPayload(
   };
 }
 
+class FakeSkillsGitHubClient {
+  listFilesCalls = 0;
+  getFileCalls: string[] = [];
+
+  async listFiles() {
+    this.listFilesCalls += 1;
+    return [{ path: "wiki-maintenance/SKILL.md", sha: "skill-sha-1" }];
+  }
+
+  async getFile(_repo: string, filePath: string) {
+    this.getFileCalls.push(filePath);
+    if (filePath !== "wiki-maintenance/SKILL.md") return null;
+    return {
+      sha: "skill-sha-1",
+      contentUtf8: [
+        "---",
+        "name: wiki-maintenance",
+        "description: Brain wiki maintenance",
+        "scope_pattern: \"**\"",
+        "domains: [brain]",
+        "---",
+        "Maintain the wiki.",
+      ].join("\n"),
+    };
+  }
+}
+
 describe("workbench-events module", () => {
   let client: PGlite;
   let db: any;
@@ -196,6 +223,37 @@ describe("workbench-events module", () => {
     const records = await listRecords(db, { scopePath: scopes.website, kind: "changelog", limit: 10 }, rootPrincipalId);
     expect(events.filter((event: any) => event.payload.deliveryId === deliveryId)).toHaveLength(1);
     expect(records.filter((record: any) => record.data?.deliveryId === deliveryId)).toHaveLength(1);
+  });
+
+  it("syncs skills on a default-branch skills repo push without a workbench match", async () => {
+    const deliveryId = `delivery-${suffix()}`;
+    const github = new FakeSkillsGitHubClient();
+    const result = await handleGitHubWebhook(db, {
+      event: "push",
+      deliveryId,
+      payload: pushPayload("acme/companyos-skills", "main", ["wiki-maintenance/SKILL.md"], ["skillcommit1"]),
+      skillsSync: { org: "acme", repo: "companyos-skills", client: github as any },
+    });
+
+    expect(result.skillsSync?.synced).toBe(true);
+    expect(result.ignored).toBeUndefined();
+    expect(github.listFilesCalls).toBe(1);
+    expect(github.getFileCalls).toEqual(["wiki-maintenance/SKILL.md"]);
+
+    const rows = await db.select().from(schema.skillsIndex).where(eq(schema.skillsIndex.name, "wiki-maintenance"));
+    expect(rows[0]?.body).toContain("Maintain the wiki.");
+    const events = await listEvents(db, { scopePath: "root", limit: 20 });
+    expect(events.some((event: any) => event.type === "skills.synced" && event.payload.repo === "companyos-skills")).toBe(true);
+    expect(events.some((event: any) => event.type === "skills.repo_push_synced" && event.payload.deliveryId === deliveryId)).toBe(true);
+
+    const duplicate = await handleGitHubWebhook(db, {
+      event: "push",
+      deliveryId,
+      payload: pushPayload("acme/companyos-skills", "main", ["wiki-maintenance/SKILL.md"], ["skillcommit1"]),
+      skillsSync: { org: "acme", repo: "companyos-skills", client: github as any },
+    });
+    expect(duplicate.duplicate).toBe(true);
+    expect(github.listFilesCalls).toBe(1);
   });
 
   it("creates separate stubs for separate merged PRs in the same scope", async () => {
