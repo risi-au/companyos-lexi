@@ -20,6 +20,7 @@ import {
   grantRole,
   createRecord,
   listRecords,
+  saveDoc,
   writeMetrics,
   issueToken,
   revokeToken,
@@ -172,6 +173,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "provision_scope",
       "query_metrics",
       "query_usage",
+      "recall_memory",
       "register_capability",
       "register_session",
       "report_run",
@@ -469,6 +471,31 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     expect(text).toContain("type\tid\tref\ttitle\tscope\tdate\tsnippet");
     expect(text).toContain("Initial setup");
     expect(text).toContain(testScope);
+  });
+
+  it("recall_memory MCP tool is listed and callable over scoped wiki docs", async () => {
+    await saveDoc(db, {
+      scopePath: testScope,
+      slug: "memory-playbook",
+      title: "Memory Playbook",
+      bodyMd: "---\nconfidence: medium\n---\nDistilled memory playbook for retention loops.",
+    }, rootPrincipalId);
+
+    const { mcpClient } = await makeRoundtrip(agentPrincipalId);
+    const tools = await mcpClient.listTools();
+    const recallTool = (tools.tools || []).find((tool: any) => tool.name === "recall_memory");
+    expect(recallTool?.description).toBe("Query the OS's distilled memory before trawling records; returns wiki knowledge for your scope plus company-wide patterns.");
+
+    const result = await mcpClient.callTool({
+      name: "recall_memory",
+      arguments: { scope: testScope, query: "retention loops" },
+    });
+    expect((result as any).isError).toBeFalsy();
+    const text = (result as any).content?.[0]?.text || "";
+    expect(text).toContain("source\tid\tslug\ttitle\tscope\tupdated\tconfidence\tsnippet");
+    expect(text).toContain("memory-playbook");
+    expect(text).toContain(testScope);
+    expect(text).toContain("medium");
   });
 
   // === M1-07 task MCP roundtrips (mock injected, unconfigured error) ===

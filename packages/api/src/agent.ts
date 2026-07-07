@@ -9,6 +9,7 @@ import {
 } from "./index";
 import { ScopeNotFoundError } from "./errors";
 import { skillsContextSection } from "./modules/skills/service";
+import { getRootCriticalFacts } from "./modules/memory/service";
 import {
   contextProfileConfig,
   estimateTokens,
@@ -66,6 +67,15 @@ function capItems<T>(items: T[], limit: number): T[] {
 
 function sectionMarkdown(title: string, body: string): string {
   return `**${title}**\n${body.trimEnd()}\n`;
+}
+
+const CRITICAL_FACTS_MAX_CHARS = 1200;
+
+function truncateCriticalFacts(body: string | null): string {
+  const value = (body || "").trim();
+  if (!value) return "";
+  if (value.length <= CRITICAL_FACTS_MAX_CHARS) return value;
+  return `${value.slice(0, CRITICAL_FACTS_MAX_CHARS).trimEnd()}\n...`;
 }
 
 export async function findNearestWorkbench(db: DB, scopePath: string) {
@@ -259,6 +269,7 @@ export async function getContextBundle(
   const skillsMd = profileConfig.includeSkills ? await skillsContextSection(db, scopePath) : "";
   const workbench = profileConfig.includeWorkbench ? await findNearestWorkbench(db, scopePath) : null;
   const wiki = profileConfig.includeKnowledge ? await findNearestWiki(db, scopePath) : null;
+  const criticalFacts = truncateCriticalFacts(await getRootCriticalFacts(db));
 
   const moduleList = mods.length
     ? mods.map((m: any) => `- ${m.moduleType}`).join("\n")
@@ -285,6 +296,9 @@ Use search(scope, query) for older records and docs beyond the recent records sh
 - status: ${sc.status}`);
   sections.push(measureSection("identity", identitySection));
 
+  const criticalFactsSection = criticalFacts ? sectionMarkdown("Critical Facts", criticalFacts) : "";
+  if (criticalFactsSection) sections.push(measureSection("critical_facts", criticalFactsSection));
+
   const modulesSection = profileConfig.includeModules ? sectionMarkdown("Modules", moduleList) : "";
   if (modulesSection) sections.push(measureSection("modules", modulesSection, mods.length));
 
@@ -307,6 +321,7 @@ Use list_records / get_record for full history and other kinds.
   const md = `# Context for ${scopePath}
 
 ${identitySection}
+${criticalFactsSection}
 ${modulesSection}
 ${childrenSection}
 ${workbenchSection}${knowledgeSection}

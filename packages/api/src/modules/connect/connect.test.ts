@@ -179,6 +179,7 @@ describe("connect module", () => {
     expect(parentList[0]).toMatchObject({
       name: "Client token",
       role: "viewer",
+      memoryAccess: "on",
       mintedBy: editorId,
       canRevoke: true,
       revoked: false,
@@ -263,6 +264,7 @@ describe("connect module", () => {
     expect(branchRows.every((row) => row.scopePath === scopePath || row.scopePath === childPath)).toBe(true);
     expect(branchRows[0]).toHaveProperty("mintedByName");
     expect(branchRows[0]).toHaveProperty("scopePath");
+    expect(branchRows[0]).toHaveProperty("memoryAccess", "on");
 
     await expect(listConnections(db, {}, adminId)).rejects.toThrow(AccessDeniedError);
     const fleetRows = await listConnections(db, {}, rootPrincipalId);

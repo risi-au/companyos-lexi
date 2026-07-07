@@ -17,9 +17,9 @@ Expose scoped MCP token mint/list/revoke services for the OS UI and future MCP/A
 All functions take `db: DB` first and are re-exported from `@companyos/api`.
 
 - `mintConnectionToken(db, { scopePath, name, role, expiresAt? }, actor)`: actor must resolve to editor-or-better and rank at least the requested role. Requested role is limited to `agent | viewer`. Creates a dedicated agent principal, grants only the target scope, issues a token, inserts `connections`, emits `connection.minted`, returns `{ token, storeNow: true, tokenId, principalId, expiresAt }`.
-- `listConnectionTokens(db, { scopePath }, actor)`: viewer-or-better. Lists connection tokens for exactly that scope with name, principal name, minted-by name, role, created/expiry/last-used, revoked, and `canRevoke`.
+- `listConnectionTokens(db, { scopePath }, actor)`: viewer-or-better. Lists connection tokens for exactly that scope with name, principal name, minted-by name, role, derived `memoryAccess: "on"`, created/expiry/last-used, revoked, and `canRevoke`.
 - `revokeConnectionToken(db, { tokenId }, actor)`: editor can revoke only own mints; admin/owner can revoke any connection on the token scope. Emits `connection.revoked`.
-- `listConnections(db, { scopePath?, principalId?, activeSince?, expiringWithin? }, actor)`: admin/owner on the requested scope subtree, or root admin/owner for fleet-wide listing. Returns admin rows with `scopePath` and no UI-specific `canRevoke`.
+- `listConnections(db, { scopePath?, principalId?, activeSince?, expiringWithin? }, actor)`: admin/owner on the requested scope subtree, or root admin/owner for fleet-wide listing. Returns admin rows with `scopePath`, derived `memoryAccess: "on"`, and no UI-specific `canRevoke`.
 - `revokeScopeAccess(db, { scopePath }, actor)`: admin/owner on `scopePath`. Revokes all non-revoked connection tokens minted for that scope or descendants in one transaction and emits one `connection.bulk_revoked` event.
 - `revokePrincipalAccess(db, { principalId }, actor)`: offboards one principal by revoking every non-revoked token for that principal. The actor must be admin/owner on every scope where that principal has a grant. Emits one `connection.bulk_revoked` event.
 
@@ -47,6 +47,7 @@ Tests cover mint escalation denial, subtree boundaries, admin listing filters, r
 
 ## Do / Don't
 - Do use kernel `grantRole`, `issueToken`, `revokeToken`, `resolveAccess`, and `emitEvent`.
+- Do treat scoped memory access as default-on and derived from the connection token's existing grant plus the memory service allowlist; do not persist a separate flag.
 - Do not change kernel schema or token helper signatures.
 - Do not store plaintext tokens in any table, event, log, or module state.
 - Do not revoke grants when revoking tokens.

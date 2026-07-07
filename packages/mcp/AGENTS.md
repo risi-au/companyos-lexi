@@ -13,6 +13,8 @@ Stdio auth uses `COS_TOKEN` env. HTTP auth uses `Authorization: Bearer cos_...` 
 - `ping` - no auth, returns "pong". Connectivity only.
 - `whoami` - read-only; returns `{ principal: { id, name, kind }, grants: [{ scopePath, role }] }` for the authenticated principal.
 - `get_context({scope})` - markdown context bundle for a scope. Viewer. Includes a Workbench section when the scope or nearest ancestor has one, with repo, folder, and MCP URL when configured. Includes a Knowledge section (nearest ancestor wiki's doc index + owning scope path) when a `wiki` doc exists anywhere in the ancestor chain.
+- `get_context({scope})` also includes root `critical-facts` in every context profile, capped by the API service.
+- `recall_memory({query, scope?, limit?})` - query distilled wiki memory before external research or record trawling. Returns raw wiki/page snippets for the effective scope subtree plus root `critical-facts`/`pattern-*` pages only. No LLM synthesis and no grant widening.
 - `search({scope, query, kinds?, limit?, mode?})` - keyword/semantic/hybrid search over records + docs in the scope subtree. Viewer. `mode` defaults to `hybrid`; semantic/hybrid fall back to keyword when embeddings are unavailable. Compact tab-delimited output with snippets.
 - `verify_workbench({cwd, scope?})` - read-only warning helper; checks whether client cwd matches the expected workbench folder. Viewer when scope is explicit; otherwise uses the principal's single direct grant.
 - `register_session({scope, title, engine, model?, token_id?, worktree_ref?})` - register a cooperative scoped work session. Editor/agent.
@@ -95,4 +97,4 @@ Acceptance coverage:
 - Update this AGENTS.md on behavior change.
 
 ## Usage Notes For Agents
-Use `get_context` at session start for scoped memory. Use `log_*` / `save_*` at end of work to persist. Always use full paths for scope. Prefer structured data in optional `data` for machine consumption alongside markdown bodies.
+Use `get_context` at session start for scoped context, then `recall_memory` before external research or broad record trawling. Use `log_*` / `save_*` at end of work to persist. Always use full paths for scope. Prefer structured data in optional `data` for machine consumption alongside markdown bodies.

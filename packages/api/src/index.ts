@@ -49,6 +49,9 @@ export * from "./modules/workbench-events/service";
 // Search module (M6-09)
 export * from "./modules/search/service";
 
+// Scoped memory module (M8-03)
+export * from "./modules/memory/service";
+
 // Usage observability module (M7-03)
 export * from "./modules/usage/service";
 

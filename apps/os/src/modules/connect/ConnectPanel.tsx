@@ -17,6 +17,7 @@ interface ConnectionRow {
   principalName: string;
   mintedByName: string;
   role: "agent" | "viewer";
+  memoryAccess: "on";
   createdAt: string | Date;
   expiresAt: string | Date | null;
   lastUsedAt: string | Date | null;
@@ -312,12 +313,13 @@ Header: ${authHeader}`,
           <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No connections minted for this scope.</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[820px] text-left text-[var(--font-size-sm)]">
+            <table className="w-full min-w-[900px] text-left text-[var(--font-size-sm)]">
               <thead className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
                 <tr>
                   <th className="pb-[var(--space-2)] font-medium">Name</th>
                   <th className="pb-[var(--space-2)] font-medium">Minted by</th>
                   <th className="pb-[var(--space-2)] font-medium">Role</th>
+                  <th className="pb-[var(--space-2)] font-medium">Memory</th>
                   <th className="pb-[var(--space-2)] font-medium">Created</th>
                   <th className="pb-[var(--space-2)] font-medium">Expiry</th>
                   <th className="pb-[var(--space-2)] font-medium">Last used</th>
@@ -334,6 +336,7 @@ Header: ${authHeader}`,
                     </td>
                     <td className="py-[var(--space-2)]">{row.mintedByName}</td>
                     <td className="py-[var(--space-2)] font-mono text-[var(--font-size-xs)]">{row.role}</td>
+                    <td className="py-[var(--space-2)] font-mono text-[var(--font-size-xs)]">{row.memoryAccess}</td>
                     <td className="py-[var(--space-2)] tabular-nums">{formatDate(row.createdAt)}</td>
                     <td className="py-[var(--space-2)] tabular-nums">{formatDate(row.expiresAt)}</td>
                     <td className="py-[var(--space-2)] tabular-nums">{formatDate(row.lastUsedAt)}</td>
