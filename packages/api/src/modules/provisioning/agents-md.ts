@@ -37,7 +37,8 @@ export function renderManagedSection(input: ManagedSectionInput): string {
 2. Call \`get_context("${input.scope.path}")\`.
 3. Call \`recall_memory\` before external research or broad record trawling.
 4. Call \`register_session\` before file work so the OS can track active sessions on this scope.
-5. If MCP is unreachable or auth fails: STOP and tell the user - never proceed on assumed OS state.
+5. Use \`list_credentials\` / \`get_credential\` only when work needs vault values; never store or log retrieved values.
+6. If MCP is unreachable or auth fails: STOP and tell the user - never proceed on assumed OS state.
 
 ### Folder Guard
 - Your cwd must be under \`<workbench.path>\`; if it isn't, stop and ask the user.

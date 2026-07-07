@@ -24,6 +24,8 @@ Stdio auth uses `COS_TOKEN` env. HTTP auth uses `Authorization: Bearer cos_...` 
 - `query_usage({scope?, since?, group_by?, operation?, session_id?, principal_id?, token_id?, connection_id?, limit?})` - admin-gated usage summaries for estimated CompanyOS MCP/context overhead. Returns grouped rows and recent redacted events.
 - `get_context_profile({scope})` - admin-gated effective context profile for a scope.
 - `set_context_profile({scope, name, preset?, config?, is_default?})` - admin-gated context profile create/update. Presets: lean, standard, deep. Emits `usage.profile_updated` in the API service.
+- `list_credentials({scope})` - credential metadata only: names, descriptions, set/updated timestamps, last-accessed timestamps. Viewer.
+- `get_credential({scope, name})` - returns one vault value to agent/editor/admin/owner principals and emits `credential.accessed`. Never use it to store or echo values into records, docs, tasks, logs, or usage metadata.
 - `get_tree({scope?})` - indented subtree paths. Viewer.
 - `log_change({scope, title, body_md, data?})` - create changelog. Editor/agent.
 - `log_decision({scope, title, body_md, data?})` - create decision. Editor/agent.
@@ -70,7 +72,7 @@ All protected tools: unauthenticated calls return a clear error. AccessDenied is
 - `src/http.ts` - `createHttpHandler({db})`, standard Request/Response streamable HTTP wrapper with per-request bearer auth, origin/body/rate guardrails, and redacted fail-open usage logging.
 - `src/index.ts` - reexports `createServer`, `createHttpHandler`, and `ping`.
 - `src/stdio.ts` - executable entry: reads `DATABASE_URL` + `COS_TOKEN`, auths, wires `StdioServerTransport`.
-- `src/ping.test.ts` - in-memory and HTTP roundtrips with PGlite; tools, auth matrix, grants, revocation, `last_used_at`, token leak paths.
+- `src/ping.test.ts` - in-memory and HTTP roundtrips with PGlite; tools, auth matrix, grants, revocation, credential tool access, `last_used_at`, token leak paths.
 - `tsconfig.build.json` - emits to `dist/` (excludes tests).
 - `package.json` - bin: `companyos-mcp` -> `dist/stdio.js`; workspace deps on api/db/sdk/zod.
 
@@ -86,7 +88,7 @@ All protected tools: unauthenticated calls return a clear error. AccessDenied is
 - Roundtrips use SDK transports + PGlite (same migrate pattern as api).
 
 Acceptance coverage:
-- MCP tool roundtrips, including metrics, capabilities, skills, dashboards, docs, canvas, and `whoami`.
+- MCP tool roundtrips, including metrics, capabilities, skills, dashboards, docs, canvas, credentials, and `whoami`.
 - Auth cases: agent write ok in subtree, denied out of subtree, viewer denied writes, null principal auth error.
 - HTTP auth matrix: valid / invalid / revoked / expired / absent.
 - HTTP revocation on next request, `last_used_at` bump, full `whoami -> get_context -> save_report` roundtrip.

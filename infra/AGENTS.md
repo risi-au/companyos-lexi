@@ -26,6 +26,9 @@ Purpose: Development and production Docker Compose bundles for the shared data/m
 - `apps/os/Dockerfile` - two final targets: `os` (Next standalone runtime) and `migrate` (Drizzle migration runner).
 - (root) `package.json` scripts: `infra:up`, `infra:down`, `db:migrate`, `db:seed`.
 - `.env.example` - all referenced vars with placeholders.
+- `COS_VAULT_KEY` is passed through to the prod OS service and documented in
+  `.env.example`; missing values keep the app bootable but disable credential vault
+  reads/writes.
 - `.github/workflows/release.yml` - gates, builds/pushes GHCR images, deploys staging over SSH, and smoke-tests staging.
 - `packages/db/scripts/migrate.mjs` runs migrations via the drizzle-orm programmatic migrator (delegated from root db:migrate; drizzle-kit remains for generate only).
 

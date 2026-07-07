@@ -20,6 +20,7 @@ import {
   ensureDraftIntakeForScope,
   findRelatedHistory,
   findReusePatterns,
+  getDoc,
   getIntakePacket,
   grantRole,
   listEvents,
@@ -151,6 +152,11 @@ describe("intake creation wizard module", () => {
     expect(valid.errors).toBeUndefined();
     expect(valid.intake.status).toBe("needs_review");
     expect(valid.intake.packetMd).toBe("Packet body");
+    expect(valid.intake.answers).toMatchObject({
+      required_credentials: [{ name: "VPS SSH", whatFor: "Deploy", loginMethodNotes: "Owner grants; no value" }],
+      external_systems: [{ name: "CRM", purpose: "Sales trail", notes: "Existing" }],
+    });
+    expect(JSON.stringify(valid.intake.answers)).not.toContain("nope");
 
     const mdOnly = await submitIntakePacket(db, { scopePath: slug, pasteText: "Only markdown" }, agent);
     expect(mdOnly.markdownOnly).toBe(true);
@@ -238,7 +244,7 @@ describe("intake creation wizard module", () => {
         proposed_docs: [{ slug: "launch", title: "Launch", bodyMd: "# Launch" }],
         proposed_tasks: [],
         proposed_wiki_updates: [{ slug: "wiki", title: "WIKI", bodyMd: "# Wiki" }],
-        required_credentials: [],
+        required_credentials: [{ name: "VPS SSH", whatFor: "Deploys", loginMethodNotes: "Rishi holds access" }],
         external_systems: [],
         open_questions: [],
         risk_notes: [],
@@ -252,7 +258,16 @@ describe("intake creation wizard module", () => {
 
     expect(provisioned.intake.status).toBe("provisioned");
     expect(provisioned.recordId).toBeTruthy();
-    expect(provisioned.artifacts).toMatchObject({ docs: expect.any(Array), wiki: expect.any(Array), sourceRefsRecordId: expect.any(String) });
+    expect(provisioned.artifacts).toMatchObject({
+      docs: expect.any(Array),
+      wiki: expect.any(Array),
+      sourceRefsRecordId: expect.any(String),
+      connectionDoc: expect.objectContaining({ slug: "connection" }),
+      requiredCredentials: [{ name: "VPS SSH", whatFor: "Deploys", loginMethodNotes: "Rishi holds access" }],
+    });
+    const connectionDoc = await getDoc(db, { scopePath, slug: "connection" }, admin);
+    expect(connectionDoc?.bodyMd).toContain("{{credential:VPS SSH}}");
+    expect(connectionDoc?.bodyMd).toContain("Rishi holds access");
     const [sourceRefs] = await db.select().from(schema.records).where(eq(schema.records.id, provisioned.artifacts.sourceRefsRecordId as string)).limit(1);
     expect(sourceRefs.title).toBe("source-refs");
     expect(sourceRefs.bodyMd).toContain("Original sales note");

@@ -152,7 +152,7 @@ const PRESET_CONFIGS: Record<"lean" | "standard" | "deep", Required<ContextProfi
   },
 };
 
-const SENSITIVE_KEY = /(authorization|bearer|token|secret|password|prompt|response|body_md|bodyMd|body|markdown|content|plaintext)/i;
+const SENSITIVE_KEY = /(authorization|bearer|token|secret|password|credential|value|prompt|response|body_md|bodyMd|body|markdown|content|plaintext)/i;
 
 function byteLength(value: string): number {
   return new TextEncoder().encode(value).byteLength;

@@ -4,6 +4,7 @@ import { DashboardRenderer, DashboardEmptyState, RangePicker } from "@/modules/d
 import { DocsView } from "@/modules/docs";
 import { CanvasView } from "@/modules/canvas";
 import { ConnectPanel } from "@/modules/connect";
+import { CredentialsPanel, type RequiredCredential } from "@/modules/credentials";
 import { WorkLogView } from "@/modules/worklog";
 import { SessionsView } from "@/modules/sessions";
 import { IntakePanel } from "@/modules/intake";
@@ -17,6 +18,31 @@ type DashboardSpec = NonNullable<Awaited<ReturnType<typeof getDashboard>>>["spec
   range: { default: "7d" | "30d" | "90d" };
   widgets: any[]; // eslint-disable-line @typescript-eslint/no-explicit-any
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeRequiredCredentials(value: unknown): RequiredCredential[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isRecord).map((item) => ({
+    name: String(item.name ?? "").trim(),
+    whatFor: String(item.whatFor ?? "").trim(),
+    loginMethodNotes: String(item.loginMethodNotes ?? "").trim(),
+  })).filter((item) => item.name);
+}
+
+function requiredCredentialsFromIntakes(intakes: Array<{ answers: unknown; artifactLinks?: unknown }>): RequiredCredential[] {
+  const byName = new Map<string, RequiredCredential>();
+  for (const intake of intakes) {
+    const answerCreds = isRecord(intake.answers) ? normalizeRequiredCredentials(intake.answers.required_credentials) : [];
+    const artifactCreds = isRecord(intake.artifactLinks) ? normalizeRequiredCredentials(intake.artifactLinks.requiredCredentials) : [];
+    for (const credential of [...answerCreds, ...artifactCreds]) {
+      if (!byName.has(credential.name.toLowerCase())) byName.set(credential.name.toLowerCase(), credential);
+    }
+  }
+  return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
 
 interface ScopePageProps {
   params: Promise<{ path: string[] }>;
@@ -91,6 +117,9 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
     if (t === "connect") {
       return `/s/${scopePath}?tab=connect`;
     }
+    if (t === "credentials") {
+      return `/s/${scopePath}?tab=credentials`;
+    }
     if (t === "intake") {
       return `/s/${scopePath}?tab=intake`;
     }
@@ -106,6 +135,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
   const isCanvas = currentTab === "canvas";
   const isMembers = currentTab === "members";
   const isConnect = currentTab === "connect";
+  const isCredentials = currentTab === "credentials";
   const isIntake = currentTab === "intake";
   const canManageMembers = scope.type === "project" && ["owner", "admin"].includes(access);
   const workLogSince = new Date();
@@ -116,9 +146,11 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
   const initialSessions = isSessions
     ? await api.listSessions({ scopePath, includeDescendants: true }, actor)
     : [];
-  const initialIntakes = isIntake
+  const credentialIntakes = isIntake || isCredentials
     ? await api.listIntakePackets({ scopePath, limit: 20 }, actor)
     : [];
+  const initialIntakes = isIntake ? credentialIntakes : [];
+  const requiredCredentials = requiredCredentialsFromIntakes(credentialIntakes);
   const framingTemplates = isIntake
     ? await api.listWizardFramingQuestions(actor)
     : [];
@@ -200,6 +232,12 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
             className={`${isConnect ? "border-b-2 border-[var(--primary)] font-medium text-[var(--primary)]" : "text-[var(--muted-foreground)]"} pb-[var(--space-2)]`}
           >
             Connect
+          </a>
+          <a
+            href={makeTabHref("credentials")}
+            className={`${isCredentials ? "border-b-2 border-[var(--primary)] font-medium text-[var(--primary)]" : "text-[var(--muted-foreground)]"} pb-[var(--space-2)]`}
+          >
+            Credentials
           </a>
           <a
             href={makeTabHref("intake")}
@@ -351,14 +389,30 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
         />
       )}
 
-      {isIntake && (
-        <IntakePanel
+      {isCredentials && (
+        <CredentialsPanel
           scopePath={scopePath}
-          initialIntakes={initialIntakes}
-          initialOpenId={wizardParam}
-          access={access}
-          framingTemplates={framingTemplates}
+          initialAccess={access}
+          requiredCredentials={requiredCredentials}
         />
+      )}
+
+      {isIntake && (
+        <div className="space-y-[var(--space-6)]">
+          <IntakePanel
+            scopePath={scopePath}
+            initialIntakes={initialIntakes}
+            initialOpenId={wizardParam}
+            access={access}
+            framingTemplates={framingTemplates}
+          />
+          <CredentialsPanel
+            scopePath={scopePath}
+            initialAccess={access}
+            requiredCredentials={requiredCredentials}
+            setupMode
+          />
+        </div>
       )}
 
       {/* Members tab (M4-01) - only for top-level projects to root/project admins */}
@@ -367,7 +421,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
       )}
 
       {/* Overview + Activity legacy combined when not dashboard (keep full original layout for overview+activity non-tabbed fallback if any) */}
-      {!isDashboard && !isOverview && !isActivity && !isWorkLog && !isSessions && !isDocs && !isCanvas && !isConnect && !isIntake && (
+      {!isDashboard && !isOverview && !isActivity && !isWorkLog && !isSessions && !isDocs && !isCanvas && !isConnect && !isCredentials && !isIntake && (
         <div className="space-y-[var(--space-4)]">
           <div className="grid grid-cols-1 gap-[var(--space-4)] lg:grid-cols-2">
             <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">

@@ -58,6 +58,9 @@ export * from "./modules/brain-surfaces/service";
 // Creation wizard intake (M8-04)
 export * from "./modules/intake/service";
 
+// Credential vault (M8-09)
+export * from "./modules/credentials/service";
+
 // Usage observability module (M7-03)
 export * from "./modules/usage/service";
 

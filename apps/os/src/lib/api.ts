@@ -47,6 +47,9 @@ import {
   revokeConnectionToken,
   revokePrincipalAccess,
   revokeScopeAccess,
+  setCredential,
+  listCredentials,
+  deleteCredential,
   listSessions,
   findNearestWiki,
   queryUsage,
@@ -213,6 +216,14 @@ export const api = {
     revokeScopeAccess(db, input, actorPrincipalId),
   revokePrincipalAccess: (input: Parameters<typeof revokePrincipalAccess>[1], actorPrincipalId: string) =>
     revokePrincipalAccess(db, input, actorPrincipalId),
+
+  // Credential vault (M8-09)
+  setCredential: (input: Parameters<typeof setCredential>[1], actorPrincipalId: string) =>
+    setCredential(db, input, actorPrincipalId),
+  listCredentials: (input: Parameters<typeof listCredentials>[1], actorPrincipalId: string) =>
+    listCredentials(db, input, actorPrincipalId),
+  deleteCredential: (input: Parameters<typeof deleteCredential>[1], actorPrincipalId: string) =>
+    deleteCredential(db, input, actorPrincipalId),
 
   // Sessions registry (M6-07)
   listSessions: (input: Parameters<typeof listSessions>[1], actorPrincipalId: string) =>
