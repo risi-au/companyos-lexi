@@ -61,6 +61,9 @@ export * from "./modules/intake/service";
 // Credential vault (M8-09)
 export * from "./modules/credentials/service";
 
+// Ops health module (M9-01)
+export * from "./modules/health/service";
+
 // Usage observability module (M7-03)
 export * from "./modules/usage/service";
 

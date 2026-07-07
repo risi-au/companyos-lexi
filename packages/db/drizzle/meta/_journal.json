@@ -155,6 +155,13 @@
       "when": 1783482400000,
       "tag": "0022_credential_vault",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1783519200000,
+      "tag": "0023_ops_health",
+      "breakpoints": true
     }
   ]
 }
