@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
+import { vector } from "@electric-sql/pglite/vector";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import path from "path";
@@ -50,7 +51,7 @@ describe("kernel services (PGlite + migrations)", () => {
   let db: any;
 
   beforeAll(async () => {
-    client = new PGlite();
+    client = new PGlite({ extensions: { vector } });
     db = drizzle(client, { schema });
     await migrate(db, { migrationsFolder });
   });
@@ -83,7 +84,7 @@ describe("kernel services (PGlite + migrations)", () => {
 
   it("enum migration applies cleanly on fresh DB and converts existing client/area rows", async () => {
     // Fresh: use separate pglite + migrate, confirm new types work
-    const freshClient = new PGlite();
+    const freshClient = new PGlite({ extensions: { vector } });
     const freshDb = drizzle(freshClient, { schema });
     const migPath = path.resolve(__dirname, "../../db/drizzle");
     await migrate(freshDb, { migrationsFolder: migPath });
@@ -98,7 +99,7 @@ describe("kernel services (PGlite + migrations)", () => {
     await freshClient.close();
 
     // Legacy data test: raw setup old enum + rows, apply 0009 stmts individually
-    const legClient = new PGlite();
+    const legClient = new PGlite({ extensions: { vector } });
     await legClient.exec(`CREATE TYPE "public"."scope_type" AS ENUM('root', 'client', 'project', 'area');`);
     await legClient.exec(`CREATE TABLE "scopes" (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

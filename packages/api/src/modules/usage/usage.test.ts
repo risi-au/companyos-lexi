@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
+import { vector } from "@electric-sql/pglite/vector";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import path from "path";
@@ -42,7 +43,7 @@ describe("usage module", () => {
   let scopePath: string;
 
   beforeAll(async () => {
-    client = new PGlite();
+    client = new PGlite({ extensions: { vector } });
     db = drizzle(client, { schema });
     await migrate(db, { migrationsFolder });
     if (!await getScope(db, "root")) {

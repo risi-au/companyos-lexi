@@ -4,8 +4,8 @@ One-command dev stack for CompanyOS (Postgres + LiteLLM + n8n) and the productio
 
 ## Stack
 
-- **postgres:17** (shared): logical DBs `companyos`, `plane`, `litellm`. Port 5432 in dev.
-- **litellm:main-stable** (ghcr): OpenAI-compatible gateway. Port 4000 in dev. Model aliases: `cheap`, `analysis`, `reasoning`.
+- **pgvector/pgvector:pg17** (shared): Postgres 17 with pgvector; logical DBs `companyos`, `plane`, `litellm`. Port 5432 in dev.
+- **litellm:main-stable** (ghcr): OpenAI-compatible gateway. Port 4000 in dev. Model aliases: `cheap`, `analysis`, `reasoning`, `code`, `embed`.
 - **n8n:2.25.3**: automation runner. Port 5678 in dev.
 - **Plane CE**: run via official setup.sh (not inlined here).
 
@@ -20,6 +20,7 @@ All config is via env (12-factor). Prod uses GHCR images for the OS app and migr
 
 1. Copy `.env.example` to `.env` (gitignored) and fill real keys for providers you use.
    - At minimum: `DATABASE_URL`, `LITELLM_MASTER_KEY`, one of `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, or `MOONSHOT_API_KEY`.
+   - Semantic search uses LiteLLM alias `embed`. `LITELLM_EMBED_MODEL` defaults to `openai/text-embedding-3-small` in compose; override in `.env` to route elsewhere. `LITELLM_EMBED_KEY` is optional (a budget-capped virtual key is recommended; the OS falls back to the master key). All embedding env vars are optional by design — when unset or unreachable, writes still succeed and search degrades to keyword-only. `EMBEDDING_DIMENSIONS` defaults to `1536`; set it before first migration if the embed alias returns a different dimension.
 
 2. Start the core infra (compose auto-loads `.env` for variable interpolation):
    ```
@@ -211,7 +212,7 @@ See root `.env.example`. All vars referenced by compose/config/scripts are liste
 
 ## Notes
 
-- Images pinned: `postgres:17`, `ghcr.io/berriai/litellm:main-stable`, `n8nio/n8n:2.25.3`.
+- Images pinned: `pgvector/pgvector:pg17`, `ghcr.io/berriai/litellm:main-stable`, `n8nio/n8n:2.25.3`.
 - Healthchecks + `depends_on` ensure startup order.
 - Prod migrations run through `ghcr.io/risi-au/companyos-migrate:${COMPANYOS_TAG}`.
 - No Caddy, cloudflared, or reverse proxy is composed here.

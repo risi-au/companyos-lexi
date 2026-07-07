@@ -1,8 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
+import { vector } from "@electric-sql/pglite/vector";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
+import { eq } from "drizzle-orm";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
@@ -18,6 +20,8 @@ import {
   archiveDoc,
   listDocRevisions,
   revertDoc,
+  getBacklinks,
+  getLinkGraph,
   listEvents,
 } from "../../index";
 import {
@@ -51,7 +55,7 @@ describe("docs module (PGlite + migrations)", () => {
   let db: any;
 
   beforeAll(async () => {
-    client = new PGlite();
+    client = new PGlite({ extensions: { vector } });
     db = drizzle(client, { schema });
     await migrate(db, { migrationsFolder });
   });
@@ -102,7 +106,7 @@ describe("docs module (PGlite + migrations)", () => {
     const result: any = await db.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='public' ORDER BY table_name");
     const rows: any[] = Array.isArray(result?.rows) ? result.rows : (Array.isArray(result) ? result : []);
     const tables = rows.map((r: any) => r.table_name || r[0] || (r ? Object.values(r)[0] : undefined));
-    expect(tables).toEqual(expect.arrayContaining(["documents", "document_revisions", "scopes", "principals", "grants", "events"]));
+    expect(tables).toEqual(expect.arrayContaining(["documents", "document_revisions", "doc_links", "embeddings", "scopes", "principals", "grants", "events"]));
   });
 
   describe("saveDoc + getDoc + listDocs (upsert by slug, md roundtrip, default hide archived)", () => {
@@ -164,6 +168,61 @@ describe("docs module (PGlite + migrations)", () => {
 
       const got = await getDoc(db, { scopePath: sp, slug: "my-custom" }, rootPrincipalId);
       expect(got?.bodyMd).toBe("v2");
+    });
+  });
+
+  describe("wikilinks, backlinks, and graph", () => {
+    it("extracts same-wiki and cross-wiki links, updates/removes rows on save, and allows unresolved docs", async () => {
+      const suffix = Date.now();
+      const sp = `doc-links-${suffix}`;
+      const other = `doc-links-other-${suffix}`;
+      await createScope(db, { slug: sp, name: "Doc Links", type: "project" }, rootPrincipalId);
+      await createScope(db, { slug: other, name: "Doc Links Other", type: "project" }, rootPrincipalId);
+      await grantRole(db, { principalId: rootPrincipalId, scopePath: sp, role: "editor" }, rootPrincipalId);
+      await grantRole(db, { principalId: rootPrincipalId, scopePath: other, role: "editor" }, rootPrincipalId);
+
+      const source = await saveDoc(
+        db,
+        { scopePath: sp, slug: "wiki", title: "Wiki", bodyMd: `See [[target]] and [[${other}:missing-target]].` },
+        rootPrincipalId
+      );
+      let links = await db.select().from(schema.docLinks).where(eq(schema.docLinks.fromDocumentId, source.id));
+      expect(links.map((link: any) => link.toSlug).sort()).toEqual(["missing-target", "target"]);
+      expect(links.some((link: any) => link.toSlug === "target" && link.toDocumentId === null)).toBe(true);
+
+      const target = await saveDoc(db, { scopePath: sp, slug: "target", title: "Target", bodyMd: "Resolved." }, rootPrincipalId);
+      links = await db.select().from(schema.docLinks).where(eq(schema.docLinks.fromDocumentId, source.id));
+      expect(links.some((link: any) => link.toSlug === "target" && link.toDocumentId === target.id)).toBe(true);
+      expect(links.some((link: any) => link.toSlug === "missing-target" && link.toDocumentId === null)).toBe(true);
+
+      await saveDoc(db, { scopePath: sp, slug: "wiki", title: "Wiki", bodyMd: "No links now." }, rootPrincipalId);
+      links = await db.select().from(schema.docLinks).where(eq(schema.docLinks.fromDocumentId, source.id));
+      expect(links).toEqual([]);
+    });
+
+    it("returns backlinks and subtree graph with access control", async () => {
+      const suffix = Date.now();
+      const sp = `doc-graph-${suffix}`;
+      await createScope(db, { slug: sp, name: "Doc Graph", type: "project" }, rootPrincipalId);
+      await createScope(db, { parentPath: sp, slug: "child", name: "Child", type: "subproject" }, rootPrincipalId);
+      await grantRole(db, { principalId: rootPrincipalId, scopePath: sp, role: "editor" }, rootPrincipalId);
+      await grantRole(db, { principalId: viewerPrincipalId, scopePath: sp, role: "viewer" }, rootPrincipalId);
+
+      await saveDoc(db, { scopePath: sp, slug: "target", title: "Target", bodyMd: "Landing page." }, rootPrincipalId);
+      await saveDoc(db, { scopePath: sp, slug: "wiki", title: "Wiki", bodyMd: "See [[target]] and [[missing]]." }, rootPrincipalId);
+      await saveDoc(db, { scopePath: `${sp}/child`, slug: "child-page", title: "Child Page", bodyMd: `See [[${sp}:target]].` }, rootPrincipalId);
+
+      const backlinks = await getBacklinks(db, { scopePath: sp, slug: "target" }, viewerPrincipalId);
+      expect(backlinks.map((link) => link.fromSlug).sort()).toEqual(["child-page", "wiki"]);
+
+      const graph = await getLinkGraph(db, { scopePath: sp }, viewerPrincipalId);
+      expect(graph.nodes.some((node) => node.slug === "target" && !node.unresolved)).toBe(true);
+      expect(graph.nodes.some((node) => node.slug === "missing" && node.unresolved)).toBe(true);
+      expect(graph.edges.some((edge) => edge.toSlug === "target" && edge.resolved)).toBe(true);
+      expect(graph.edges.some((edge) => edge.toSlug === "missing" && !edge.resolved)).toBe(true);
+
+      await expect(getBacklinks(db, { scopePath: sp, slug: "target" }, noAccessPrincipalId)).rejects.toThrow(AccessDeniedError);
+      await expect(getLinkGraph(db, { scopePath: sp }, noAccessPrincipalId)).rejects.toThrow(AccessDeniedError);
     });
   });
 
