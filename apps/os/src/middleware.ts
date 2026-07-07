@@ -12,6 +12,7 @@ export function middleware(request: NextRequest) {
   if (
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/v1") ||   // agent API: bearer-token auth in route handlers
+    pathname.startsWith("/api/webhooks") || // GitHub/Plane webhooks: signature auth in route handlers
     pathname.startsWith("/api/mcp") ||  // remote MCP: bearer-token auth in route handler (M6-01)
     pathname.startsWith("/sign-in") ||
     pathname.startsWith("/sign-up") ||
