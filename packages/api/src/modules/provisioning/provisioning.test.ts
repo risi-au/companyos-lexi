@@ -265,6 +265,7 @@ describe("provisioning module", () => {
     expect(rootAgents).toContain("Call `whoami`.");
     expect(rootAgents).toContain(`Call \`get_context("${slug}")\`.`);
     expect(rootAgents).toContain("Call `recall_memory` before external research or broad record trawling.");
+    expect(rootAgents).toContain("Use `list_credentials` / `get_credential` only when work needs vault values; never store or log retrieved values.");
     expect(rootAgents).toContain("If MCP is unreachable or auth fails: STOP and tell the user - never proceed on assumed OS state.");
     expect(rootAgents).toContain("### Session End / Handover");
     expect(rootAgents).toContain("Use `log_change` incrementally during work; include PR URLs, PR numbers, and commit SHAs when available.");

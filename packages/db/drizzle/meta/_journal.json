@@ -148,6 +148,13 @@
       "when": 1783478820000,
       "tag": "0021_intake_wizard_v2",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1783482400000,
+      "tag": "0022_credential_vault",
+      "breakpoints": true
     }
   ]
 }

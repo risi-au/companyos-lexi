@@ -11,6 +11,10 @@ import fs from "fs";
 import * as dbMod from "@companyos/db";
 const schema: any = (dbMod as any).schema ?? dbMod;
 
+function safeJson(value: unknown): string {
+  return JSON.stringify(value, (_key, nested) => typeof nested === "bigint" ? nested.toString() : nested);
+}
+
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -20,12 +24,14 @@ import {
   grantRole,
   createRecord,
   listRecords,
+  listEvents,
   saveDoc,
   writeMetrics,
   issueToken,
   revokeToken,
   mintConnectionToken,
   revokeConnectionToken,
+  setCredential,
   GitHubClient,
 } from "@companyos/api";
 import { createHttpHandler, createServer, ping } from "./index";
@@ -150,6 +156,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "get_canvas",
       "get_context",
       "get_context_profile",
+      "get_credential",
       "get_dashboard",
       "get_doc",
       "get_intake_packet",
@@ -161,6 +168,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "list_alerts",
       "list_capability_runs",
       "list_dashboards",
+      "list_credentials",
       "list_doc_revisions",
       "list_docs",
       "list_intake_packets",
@@ -309,6 +317,47 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     });
     expect(res.isError).toBeFalsy();
     expect((res as any).content?.[0]?.text).toMatch(/Created changelog/);
+  });
+
+  it("credential tools list metadata and return values only to agent-and-above principals", async () => {
+    const previousVaultKey = process.env.COS_VAULT_KEY;
+    process.env.COS_VAULT_KEY = Buffer.alloc(32, 9).toString("base64");
+    try {
+      await grantRole(db, { principalId: rootPrincipalId, scopePath: testScope, role: "admin" }, rootPrincipalId);
+      await setCredential(db, {
+        scopePath: testScope,
+        name: "Deploy token",
+        description: "Deployment API access",
+        value: "plain-secret-mcp-value",
+      }, rootPrincipalId);
+
+      const { mcpClient: agentClient } = await makeRoundtrip(agentPrincipalId);
+      const listed = await agentClient.callTool({ name: "list_credentials", arguments: { scope: testScope } });
+      expect((listed as any).isError).toBeFalsy();
+      const listedText = (listed as any).content?.[0]?.text || "";
+      expect(listedText).toContain("Deploy token");
+      expect(listedText).toContain("Deployment API access");
+      expect(listedText).not.toContain("plain-secret-mcp-value");
+
+      const got = await agentClient.callTool({ name: "get_credential", arguments: { scope: testScope, name: "Deploy token" } });
+      expect((got as any).isError).toBeFalsy();
+      expect((got as any).content?.[0]?.text).toBe("plain-secret-mcp-value");
+
+      const { mcpClient: viewerClient } = await makeRoundtrip(viewerPrincipalId);
+      const denied = await viewerClient.callTool({ name: "get_credential", arguments: { scope: testScope, name: "Deploy token" } });
+      expect((denied as any).isError).toBe(true);
+      expect((denied as any).content?.[0]?.text || "").toMatch(/Access denied.*agent/);
+
+      const audit = await listEvents(db, { scopePath: testScope, type: "credential.accessed", limit: 10 });
+      expect(audit.length).toBeGreaterThan(0);
+      expect(safeJson(audit)).not.toContain("plain-secret-mcp-value");
+    } finally {
+      if (previousVaultKey === undefined) {
+        delete process.env.COS_VAULT_KEY;
+      } else {
+        process.env.COS_VAULT_KEY = previousVaultKey;
+      }
+    }
   });
 
   it("agent denied write outside grant subtree", async () => {

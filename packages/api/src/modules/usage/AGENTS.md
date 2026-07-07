@@ -13,7 +13,7 @@ Usage module (M7-03): privacy-preserving observability for CompanyOS MCP/context
 
 ## Contract
 - `logUsageEvent` writes one redacted row. `logUsageEventSafely` must be used on request paths where observability failure must not break the underlying operation.
-- Metadata is shape/count/id only. Never store raw prompts, raw responses, markdown/document bodies, search queries, bearer tokens, plaintext secrets, or full JSON-RPC payloads.
+- Metadata is shape/count/id only. Never store raw prompts, raw responses, markdown/document bodies, search queries, bearer tokens, plaintext secrets, credential values, or full JSON-RPC payloads. Keys matching token/secret/password/credential/value/prompt/response/body/content are redacted recursively.
 - `queryUsage`, `getContextProfile`, and `setContextProfile` require `admin` on the requested scope.
 - `setContextProfile` emits `usage.profile_updated` for every create/update.
 - Token estimates are approximate, provider-agnostic, and labelled as estimated by API/UI callers. They are not billing-grade.

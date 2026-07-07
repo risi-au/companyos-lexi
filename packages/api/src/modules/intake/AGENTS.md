@@ -8,6 +8,8 @@ already-created scopes.
 - Store the creation reason in `answers.reason`, the external pack snapshot in
   `pack_snapshot`, and selected lead/history references in
   `related_history_selections`.
+- Store scrubbed packet credential metadata in `answers.required_credentials` and
+  `answers.external_systems`; never store secret values from packet extras.
 - Enforce lifecycle and permissions for draft, external return, review, approval,
   dismissal, and explicit provisioning.
 - Emit all `intake.*` events through the kernel event bus so the brain can consume
@@ -30,6 +32,9 @@ already-created scopes.
 - Provisioning writes a `source-refs` system note when related-history selections
   exist. It links source record/doc ids and scope paths; it does not migrate source
   content.
+- Provisioning seeds a `connection` doc when required credentials exist. The doc
+  contains `{{credential:name}}` references, what-for text, and login method notes;
+  it never contains credential values.
 
 ## Tests
 - `intake.test.ts` covers state transitions, permission matrix, paste parsing,

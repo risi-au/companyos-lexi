@@ -43,6 +43,12 @@ export interface RelatedHistorySelection {
   slug?: string;
 }
 
+export interface RequiredCredentialSpec {
+  name: string;
+  whatFor: string;
+  loginMethodNotes: string;
+}
+
 export class IntakeNotFoundError extends Error {
   constructor(id: string) {
     super(`Intake packet not found: ${id}`);
@@ -65,6 +71,19 @@ function canReadRole(role: string | null): boolean {
 
 function isJsonObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeRequiredCredentials(value: unknown): RequiredCredentialSpec[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isJsonObject).map((item) => ({
+    name: String(item.name ?? "").trim(),
+    whatFor: String(item.whatFor ?? item.what_for ?? "").trim(),
+    loginMethodNotes: String(item.loginMethodNotes ?? item.login_method_notes ?? "").trim(),
+  })).filter((item) => item.name);
+}
+
+function requiredCredentialsFromAnswers(answers: unknown): RequiredCredentialSpec[] {
+  return isJsonObject(answers) ? normalizeRequiredCredentials(answers.required_credentials) : [];
 }
 
 function toView(row: IntakePacket & { scopePath: string; scopeName: string }): IntakePacketView {
@@ -356,8 +375,21 @@ export async function submitIntakePacket(
     markdownOnly = parsed.markdownOnly;
   }
 
+  const nextAnswers = {
+    ...(isJsonObject(intake.answers) ? intake.answers : {}),
+    required_credentials: normalizeRequiredCredentials(packet.required_credentials),
+    external_systems: Array.isArray(packet.external_systems)
+      ? packet.external_systems.filter(isJsonObject).map((item) => ({
+          name: String(item.name ?? "").trim(),
+          purpose: String(item.purpose ?? "").trim(),
+          notes: String(item.notes ?? "").trim(),
+        })).filter((item) => item.name)
+      : [],
+  };
+
   await db.update(intakePackets).set({
     ...packetToUpdates(packet),
+    answers: nextAnswers,
     sourceEngine: packet.source_engine ?? null,
     sourceModel: packet.source_model ?? null,
     status: "needs_review",
@@ -726,6 +758,30 @@ function asSeedArray(value: unknown): Array<Record<string, unknown>> {
   return [];
 }
 
+function renderConnectionDoc(requiredCredentials: RequiredCredentialSpec[]): string {
+  const credentialLines = requiredCredentials.length
+    ? requiredCredentials.map((credential) => [
+        `## ${credential.name}`,
+        "",
+        `Credential reference: \`{{credential:${credential.name}}}\``,
+        "",
+        credential.whatFor ? `Use: ${credential.whatFor}` : "Use: Not specified.",
+        "",
+        credential.loginMethodNotes ? `Login notes: ${credential.loginMethodNotes}` : "Login notes: Not specified.",
+      ].join("\n")).join("\n\n")
+    : "No credentials were requested during intake.";
+
+  return [
+    "# Connection",
+    "",
+    "Operational connection notes for this scope. Secret values live in the CompanyOS credential vault and are referenced by name only.",
+    "",
+    credentialLines,
+    "",
+    "Do not paste credential values into this document, records, tasks, chats, or workbench files.",
+  ].join("\n");
+}
+
 export async function provisionFromIntakePacket(
   db: DB,
   deps: ProvisionDeps & { plane: PlaneClient },
@@ -740,6 +796,8 @@ export async function provisionFromIntakePacket(
 
   const result = await provisionScope(db, deps, { ...spec, scopePath: intake.scopePath }, actorPrincipalId);
   const artifacts: Record<string, unknown> = { provisionSteps: result.steps };
+  const requiredCredentials = requiredCredentialsFromAnswers(intake.answers);
+  artifacts.requiredCredentials = requiredCredentials;
 
   const docs = [];
   for (const seed of asSeedArray(intake.proposedDocs)) {
@@ -747,6 +805,16 @@ export async function provisionFromIntakePacket(
     const bodyMd = String(seed.bodyMd ?? seed.body_md ?? "");
     const slug = seed.slug ? String(seed.slug) : undefined;
     docs.push(await saveDoc(db, { scopePath: intake.scopePath, title, slug, bodyMd }, actorPrincipalId));
+  }
+  if (requiredCredentials.length > 0) {
+    const connectionDoc = await saveDoc(db, {
+      scopePath: intake.scopePath,
+      slug: "connection",
+      title: "Connection",
+      bodyMd: renderConnectionDoc(requiredCredentials),
+    }, actorPrincipalId);
+    docs.push(connectionDoc);
+    artifacts.connectionDoc = { id: connectionDoc.id, slug: connectionDoc.slug };
   }
   const wiki = [];
   for (const seed of asSeedArray(intake.proposedWikiUpdates)) {

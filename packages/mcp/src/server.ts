@@ -59,6 +59,8 @@ import {
   updateIntakePacket,
   approveIntakePacket,
   provisionFromIntakePacket,
+  listCredentials,
+  getCredentialValue,
   type DB,
   AccessDeniedError,
   AlertValidationError,
@@ -70,6 +72,8 @@ import {
   DocumentNotFoundError,
   CanvasNotFoundError,
   CanvasSizeError,
+  CredentialNotFoundError,
+  VaultNotConfiguredError,
 } from "@companyos/api";
 
 export interface CreateServerOptions {
@@ -113,6 +117,12 @@ function formatError(e: unknown): string {
   }
   if (e instanceof CanvasSizeError) {
     return `Canvas size error: ${e.message}`;
+  }
+  if (e instanceof CredentialNotFoundError) {
+    return `Credential not found: ${e.credentialName} in ${e.scopePath}`;
+  }
+  if (e instanceof VaultNotConfiguredError) {
+    return e.message;
   }
   if (e instanceof Error) {
     return e.message;
@@ -2028,6 +2038,49 @@ ${JSON.stringify(rec.data || {}, null, 2)}
           actor
         );
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: `Error: ${formatError(e)}` }], isError: true };
+      }
+    }
+  );
+
+  server.registerTool(
+    "list_credentials",
+    {
+      title: "List Credentials",
+      description:
+        "List credential metadata for a scope. Returns names, descriptions, set/updated timestamps, and last-accessed timestamps only; never returns values. Requires viewer grant.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+      }),
+    },
+    async ({ scope }) => {
+      try {
+        const actor = ensurePrincipal();
+        const result = await listCredentials(db, { scopePath: scope }, actor);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: `Error: ${formatError(e)}` }], isError: true };
+      }
+    }
+  );
+
+  server.registerTool(
+    "get_credential",
+    {
+      title: "Get Credential",
+      description:
+        "Fetch one credential value by name for work on a scope. Requires agent/editor/admin/owner grant. Emits credential.accessed; do not store or echo the value.",
+      inputSchema: z.object({
+        scope: z.string().min(1).describe("Scope path"),
+        name: z.string().min(1).describe("Credential name"),
+      }),
+    },
+    async ({ scope, name }) => {
+      try {
+        const actor = ensurePrincipal();
+        const result = await getCredentialValue(db, { scopePath: scope, name }, actor);
+        return { content: [{ type: "text", text: result.value }] };
       } catch (e) {
         return { content: [{ type: "text", text: `Error: ${formatError(e)}` }], isError: true };
       }

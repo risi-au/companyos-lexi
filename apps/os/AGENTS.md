@@ -38,6 +38,7 @@ Auth helper: src/lib/agent-auth.ts (bearer → principal, consistent {error, req
 - src/modules/* — local UI components only (no direct db)
 - src/modules/brain — root-admin brain graph client + engine trigger action
 - src/modules/intake — creation wizard UI, resume card, scope Intake tab, and admin queue actions. Server actions call `@companyos/api` only.
+- src/modules/credentials — scope Credential vault tab and intake setup panel. Values are write-only; server actions call `@companyos/api` only.
 - Does not contain business services (see packages/api)
 
 ## How to test (routes + auth)
@@ -59,6 +60,7 @@ Update this file when API surface or auth wiring changes. (canvas added M3-03)
 - Switcher lists visible top-level projects (via getVisibleTree) + "⌂ overview" first for root-grant users.
 - Selected project section shows header + Dashboard/Overview/Activity/Docs/Canvas (+ Members for project) + Task Manager ↗ (uses api.getPlaneUrl).
 - All links use /s/<path>?tab=... matching scope page tabs. Active states based on path+tab.
+- Scope pages include a Credentials tab for vault metadata/add/update/delete. The Intake tab also renders the same credential setup panel with required credential names from the intake packet.
 - getPlaneUrl added to @companyos/api (packages/api) for isolated URL (current /companyos/projects/${id}/issues ; fallback to PLANE_BASE_URL).
 - No module cross-imports; all nav logic client thin + server layout + api service.
 - "+" button beside the Project label opens NewScopeDialog (in Sidebar.tsx) → createNewScope action; parent select decides placement, type derived server-side (top level = project, nested = subproject).

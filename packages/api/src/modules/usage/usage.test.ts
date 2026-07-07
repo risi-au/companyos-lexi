@@ -93,6 +93,7 @@ describe("usage module", () => {
         authorization: "Bearer cos_secret",
         body_md: "raw markdown body",
         nested: { token: "cos_plaintext" },
+        credential: { name: "VPS SSH", value: "vault-secret-value" },
       },
     });
 
@@ -109,6 +110,7 @@ describe("usage module", () => {
     expect(audit).not.toContain("cos_secret");
     expect(audit).not.toContain("cos_plaintext");
     expect(audit).not.toContain("raw markdown body");
+    expect(audit).not.toContain("vault-secret-value");
 
     await expect(queryUsage(db, { scope: scopePath }, viewerId)).rejects.toThrow(AccessDeniedError);
   });
