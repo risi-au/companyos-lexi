@@ -1,13 +1,13 @@
 # M5-03: Backups + DR drill (nightly pg_dump → encrypted → offsite; documented restore)
 
-status: todo (blocked on: owner choosing/providing offsite object storage credentials)
+status: todo (UNBLOCKED 2026-07-08: owner chose Cloudflare R2; bucket `companyos-backups` + scoped token created; creds live in staging .env)
 module: infra
 branch: task/M5-03
 
 ## Goal
 
-The staging (and later live) database survives losing the VPS: a nightly job dumps all three
-logical DBs (`companyos`, `plane`, `litellm`), encrypts the dump, ships it to offsite object
+The staging (and later live) database survives losing the VPS: a nightly job dumps the
+instance's logical DBs (env-driven list — see decision 7), encrypts the dump, ships it to offsite object
 storage with retention, and a written restore runbook is PROVEN by a drill — restore last
 night's staging backup into a fresh compose stack and pass the smoke checklist.
 
@@ -28,11 +28,13 @@ night's staging backup into a fresh compose stack and pass the smoke checklist.
    under rootless docker on any host, no host crontab dependency. Nightly at 03:00 UTC.
 2. **Encryption: age or openssl enc -aes-256** with a key from env (`BACKUP_ENCRYPTION_KEY`,
    required var). Prefer `openssl` (present in the postgres image) to avoid new binaries.
-3. **Offsite target: S3-compatible object storage** via env
-   (`BACKUP_S3_ENDPOINT/BUCKET/ACCESS_KEY/SECRET_KEY`) — owner provides (Cloudflare R2 is the
-   likely choice, endpoint-agnostic code required). Upload with `curl` AWS SigV4 or a tiny
+3. **Offsite target: S3-compatible object storage** via env — DECIDED 2026-07-08: Cloudflare
+   R2, bucket `companyos-backups` (APAC), scoped Object-Read&Write token. Exact env names as
+   installed in staging .env: `BACKUP_S3_ENDPOINT` (https://<account>.r2.cloudflarestorage.com),
+   `BACKUP_S3_BUCKET`, `BACKUP_S3_ACCESS_KEY_ID`, `BACKUP_S3_SECRET_ACCESS_KEY`. Keep code
+   endpoint-agnostic (any S3-compatible works). Upload with `curl` AWS SigV4 or a tiny
    static client (`mc` single binary) — implementer picks the smallest reliable option and
-   documents it.
+   documents it. Note R2 quirk: no object ACLs; region string is `auto`.
 4. **Retention**: keep 7 daily + 4 weekly; prune after successful upload; never prune on
    upload failure.
 5. **Every run reports**: on completion the sidecar POSTs to the OS HTTP capability endpoint
@@ -41,6 +43,14 @@ night's staging backup into a fresh compose stack and pass the smoke checklist.
    env `BACKUP_REPORT_TOKEN` (optional: skip reporting when unset, log a warning).
 6. **Restore runbook + drill are part of the task**: `infra/RESTORE.md` with exact commands;
    acceptance includes a drill performed on staging (architect runs it, implementer writes it).
+7. **DB list is env-driven**: `BACKUP_DATABASES` (comma-separated), default `companyos,litellm`.
+   Staging has NO plane DB — a hardcoded three-DB list would fail every night. If a listed DB
+   is missing, FAIL the run (explicit config error beats a silently partial backup).
+8. **Include `.env` in the backup artifact**: the tar must contain `~/app/.env` alongside the
+   dumps — it holds COS_VAULT_KEY, without which restored vault credentials are unreadable.
+   The artifact is encrypted before upload, so secrets never land offsite in plaintext.
+9. **Encryption key env name**: `BACKUP_ENCRYPTION_KEY` (already provisioned in staging .env;
+   owner holds an escrow copy in their password manager).
 
 ## Do
 
