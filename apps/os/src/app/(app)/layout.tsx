@@ -23,6 +23,10 @@ export default async function AppLayout({
     redirect("/sign-in");
   }
 
+  if (await api.isTempPasswordChangeRequired(actorId)) {
+    redirect("/change-password");
+  }
+
   // Grant-filtered tree (M4-01)
   const tree = await api.getVisibleTree(actorId);
 

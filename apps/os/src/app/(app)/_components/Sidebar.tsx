@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Activity, BrainCircuit, ExternalLink, Plus } from "lucide-react";
+import { Activity, BrainCircuit, ExternalLink, Plus, Shield } from "lucide-react";
 import type { Scope } from "@companyos/db";
 import { setSelectedProject, createNewScope } from "./actions";
 
@@ -110,6 +110,13 @@ export function Sidebar({ tree, selected, taskManagerUrl, instanceName = "Compan
           >
             <Activity size={16} />
             Ops Health
+          </Link>
+          <Link
+            href="/admin"
+            className={`mt-[var(--space-1)] flex items-center gap-[var(--space-2)] rounded-[var(--radius-sm)] px-[var(--space-2)] py-[var(--space-2)] text-[var(--font-size-sm)] hover:bg-[var(--muted)] ${pathname?.startsWith("/admin") && !pathname?.startsWith("/admin/health") ? "bg-[var(--muted)] font-medium text-[var(--primary)]" : "text-[var(--muted-foreground)]"}`}
+          >
+            <Shield size={16} />
+            Admin
           </Link>
         </div>
       )}

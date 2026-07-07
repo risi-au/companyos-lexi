@@ -4,6 +4,7 @@
  * All page/server components MUST call through these wrappers — never raw @companyos/db queries.
  * This keeps "services only" contract.
  */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import "server-only";
 import { createDb } from "@companyos/db";
 import { createLiteLlmBrainClient, runBrainEngine as runNativeBrainEngine, type BrainRunInput } from "@companyos/brain";
@@ -77,7 +78,28 @@ import {
   listWizardFramingQuestions,
   saveWizardTemplate,
   getOpsHealth,
+  listAdminUsers,
+  createAdminUser,
+  disableAdminUser,
+  resetAdminUserTempPassword,
+  isTempPasswordChangeRequired,
+  completeTempPasswordChange,
+  listAdminGrants,
+  grantAdminRole,
+  revokeAdminGrant,
+  listAdminActivity,
+  listAdminAutomations,
+  listAdminAlerts,
+  getAdminSettings,
+  listGrantablePrincipals,
+  getAdminLiteLlmState,
+  mintAdminLiteLlmKey,
+  revokeAdminLiteLlmKey,
+  setAdminLiteLlmKeyBudget,
   GitHubClient,
+  type BetterAuthAdminApi,
+  type CreateAdminUserInput,
+  type MintLiteLlmKeyInput,
   type LLMConfig,
   type RunTurnInput,
 } from "@companyos/api";
@@ -86,7 +108,7 @@ import {
 const db = createDb();
 
 // Graceful Plane stub when not configured (M2-03: handle Plane-unconfigured gracefully)
-function getPlaneClient(): any { // eslint-disable-line @typescript-eslint/no-explicit-any -- plane or stub boundary
+function getPlaneClient(): any {
   const token = process.env.PLANE_API_TOKEN;
   const baseUrl = process.env.PLANE_BASE_URL || "http://localhost:8090";
   const workspace = process.env.PLANE_WORKSPACE_SLUG || "companyos";
@@ -123,13 +145,46 @@ function getBrainGitHubClient(): GitHubClient | null {
   return new GitHubClient({ token, org, baseUrl: process.env.GITHUB_API_URL || undefined });
 }
 
+function getBetterAuthAdmin(): BetterAuthAdminApi {
+  const authApi = auth.api as unknown as Partial<Record<string, (args: any) => Promise<any>>>;
+  return {
+    createUser: async (input) => {
+      if (authApi.createUser) {
+        return authApi.createUser({ body: input });
+      }
+      if (!authApi.signUpEmail) {
+        throw new Error("Better Auth user creation API is not available");
+      }
+      const result = await authApi.signUpEmail({ body: input });
+      return { user: result.user ?? result };
+    },
+    listUsers: undefined,
+    updateUser: authApi.adminUpdateUser
+      ? (input) => authApi.adminUpdateUser!({ body: { userId: input.userId, data: input.data } })
+      : undefined,
+    disableUser: authApi.banUser
+      ? (input) => authApi.banUser!({ body: { userId: input.userId, banReason: "Disabled by tenant admin" } })
+      : undefined,
+    setUserPassword: authApi.setUserPassword
+      ? (input) => authApi.setUserPassword!({ body: { userId: input.userId, newPassword: input.newPassword } })
+      : undefined,
+  };
+}
+
+function getLiteLlmAdminConfig() {
+  return {
+    baseUrl: process.env.LITELLM_BASE_URL || "http://localhost:4000",
+    masterKey: process.env.LITELLM_MASTER_KEY || null,
+    env: process.env as Record<string, string | undefined>,
+  };
+}
+
 // Re-export bound versions (first arg db pre-filled)
 export const api = {
   // Scopes / tree
   getSubtree: (path: string) => getSubtree(db, path),
   getScope: (path: string) => getScope(db, path),
   getVisibleTree: (principalId: string) => getVisibleTree(db, principalId),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   createScope: (input: any, actor?: string | null) =>
     createScope(db, input, actor),
 
@@ -142,7 +197,6 @@ export const api = {
 
   // Tasks (injects stub/real plane)
   listTasks: (input: Parameters<typeof listTasks>[2], actorPrincipalId: string) =>
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     listTasks(db, getPlaneClient() as any, input, actorPrincipalId),
   getPlaneUrl: (scopePath: string) => getPlaneUrl(db, scopePath),
 
@@ -197,7 +251,6 @@ export const api = {
 
   // Resident agent (M3-04) — env at boundary only; tests pass mocked LLMConfig directly to service
   runTurn: (input: RunTurnInput, actorPrincipalId: string, llm: LLMConfig, planeClient?: unknown) =>
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     runTurn(db, input, actorPrincipalId, llm, planeClient as any),
   listConversations: (input: Parameters<typeof listConversations>[1], actorPrincipalId: string) =>
     listConversations(db, input, actorPrincipalId),
@@ -295,6 +348,44 @@ export const api = {
   // Ops health (M9-01)
   getOpsHealth: (input: Parameters<typeof getOpsHealth>[1], actorPrincipalId: string, deps?: Parameters<typeof getOpsHealth>[3]) =>
     getOpsHealth(db, input, actorPrincipalId, deps),
+
+  // Tenant admin (M5-04)
+  listAdminUsers: (actorPrincipalId: string) =>
+    listAdminUsers(db, getBetterAuthAdmin(), actorPrincipalId),
+  createAdminUser: (input: CreateAdminUserInput, actorPrincipalId: string) =>
+    createAdminUser(db, getBetterAuthAdmin(), input, actorPrincipalId),
+  disableAdminUser: (input: { authUserId: string }, actorPrincipalId: string) =>
+    disableAdminUser(db, getBetterAuthAdmin(), input, actorPrincipalId),
+  resetAdminUserTempPassword: (input: { authUserId: string }, actorPrincipalId: string) =>
+    resetAdminUserTempPassword(db, getBetterAuthAdmin(), input, actorPrincipalId),
+  isTempPasswordChangeRequired: (actorPrincipalId: string) =>
+    isTempPasswordChangeRequired(db, actorPrincipalId),
+  completeTempPasswordChange: (actorPrincipalId: string) =>
+    completeTempPasswordChange(db, actorPrincipalId),
+  listAdminGrants: (actorPrincipalId: string) =>
+    listAdminGrants(db, actorPrincipalId),
+  grantAdminRole: (input: { principalId: string; scopePath: string; role: "owner" | "admin" | "editor" | "viewer" | "agent" }, actorPrincipalId: string) =>
+    grantAdminRole(db, input, actorPrincipalId),
+  revokeAdminGrant: (input: { principalId: string; scopePath: string }, actorPrincipalId: string) =>
+    revokeAdminGrant(db, input, actorPrincipalId),
+  listAdminActivity: (input: { type?: string; limit?: number }, actorPrincipalId: string) =>
+    listAdminActivity(db, input, actorPrincipalId),
+  listAdminAutomations: (actorPrincipalId: string) =>
+    listAdminAutomations(db, actorPrincipalId),
+  listAdminAlerts: (actorPrincipalId: string) =>
+    listAdminAlerts(db, actorPrincipalId),
+  getAdminSettings: (actorPrincipalId: string) =>
+    getAdminSettings(db, actorPrincipalId),
+  listGrantablePrincipals: (actorPrincipalId: string) =>
+    listGrantablePrincipals(db, actorPrincipalId),
+  getAdminLiteLlmState: (actorPrincipalId: string) =>
+    getAdminLiteLlmState(db, getLiteLlmAdminConfig(), actorPrincipalId),
+  mintAdminLiteLlmKey: (input: MintLiteLlmKeyInput, actorPrincipalId: string) =>
+    mintAdminLiteLlmKey(db, getLiteLlmAdminConfig(), input, actorPrincipalId),
+  revokeAdminLiteLlmKey: (input: { key: string; alias?: string | null }, actorPrincipalId: string) =>
+    revokeAdminLiteLlmKey(db, getLiteLlmAdminConfig(), input, actorPrincipalId),
+  setAdminLiteLlmKeyBudget: (input: { key: string; alias?: string | null; budgetUsd: number }, actorPrincipalId: string) =>
+    setAdminLiteLlmKeyBudget(db, getLiteLlmAdminConfig(), input, actorPrincipalId),
 };
 
 export { db }; // only for auth wiring internally
