@@ -36,6 +36,18 @@ reads before working. Records are what happened; the wiki is what is true now.
 - Each topic page ends with a **Sources** section: record ids + dates it was distilled
   from, and links to related pages. This is the backlink graph, in plain markdown.
 
+## Links and backlinks
+
+- Link to another page in the same wiki with `[[slug]]`, for example `[[checkout]]`.
+- Link across wikis with `[[scope-path:slug]]`, for example
+  `[[airbuddy/marketing:meta-ads-strategy]]`.
+- Slugs use the docs module slug format: lowercase letters, numbers, and hyphens.
+- The docs service extracts these links on save into `doc_links`. Targets may be
+  unresolved until the linked page exists; backlink and graph queries resolve them when
+  possible.
+- Do not rely on UI rendering for wikilinks in M8-01. They are a markdown convention and
+  a data contract for the semantic graph.
+
 ## What goes where
 
 | Content                                  | Home                          |

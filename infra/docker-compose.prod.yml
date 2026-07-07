@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17
+    image: pgvector/pgvector:pg17
     container_name: companyos-postgres-prod
     restart: unless-stopped
     environment:
@@ -31,6 +31,7 @@ services:
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
       - MOONSHOT_API_KEY=${MOONSHOT_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - LITELLM_EMBED_MODEL=${LITELLM_EMBED_MODEL:-openai/text-embedding-3-small}
     volumes:
       - ./litellm.config.yaml:/app/config.yaml:ro
     depends_on:
@@ -94,6 +95,8 @@ services:
       - INSTANCE_NAME=${INSTANCE_NAME:-CompanyOS}
       - LITELLM_BASE_URL=http://litellm:4000
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY is required}
+      - LITELLM_EMBED_KEY=${LITELLM_EMBED_KEY:-}
+      - EMBEDDING_DIMENSIONS=${EMBEDDING_DIMENSIONS:-1536}
       - PLANE_BASE_URL=${PLANE_BASE_URL:-}
       - PLANE_API_TOKEN=${PLANE_API_TOKEN:-}
       - PLANE_WORKSPACE_SLUG=${PLANE_WORKSPACE_SLUG:-}

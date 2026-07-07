@@ -28,6 +28,10 @@ model_list:
       model: moonshot/kimi-k2.7-code
       api_key: os.environ/MOONSHOT_API_KEY
       api_base: https://api.moonshot.ai/v1
+  - model_name: embed
+    litellm_params:
+      model: os.environ/LITELLM_EMBED_MODEL
+      api_key: os.environ/OPENAI_API_KEY
 
 litellm_settings:
   set_verbose: false

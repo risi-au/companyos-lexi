@@ -6,6 +6,7 @@ import {
   integer,
   index,
   uniqueIndex,
+  customType,
 } from "drizzle-orm/pg-core";
 
 import { scopes, principals } from "./kernel";
@@ -55,6 +56,65 @@ export const documentRevisions = pgTable(
   }
 );
 
+const vectorColumn = customType<{ data: number[]; driverData: string; config: { dimensions?: number } }>({
+  dataType(config) {
+    const dimensions = config?.dimensions ?? Number(process.env.EMBEDDING_DIMENSIONS || 1536);
+    return `vector(${dimensions})`;
+  },
+  toDriver(value) {
+    return `[${value.map((n) => Number(n)).join(",")}]`;
+  },
+  fromDriver(value) {
+    return String(value)
+      .replace(/^\[|\]$/g, "")
+      .split(",")
+      .filter(Boolean)
+      .map((part) => Number(part));
+  },
+});
+
+export const embeddings = pgTable(
+  "embeddings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    entityType: text("entity_type").notNull(),
+    entityId: uuid("entity_id").notNull(),
+    scopeId: uuid("scope_id")
+      .notNull()
+      .references(() => scopes.id, { onDelete: "cascade" }),
+    contentHash: text("content_hash").notNull(),
+    model: text("model").notNull(),
+    embedding: vectorColumn("embedding", { dimensions: Number(process.env.EMBEDDING_DIMENSIONS || 1536) }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    uniqueEntity: uniqueIndex("embeddings_entity_unique").on(t.entityType, t.entityId),
+    scopeEntityIdx: index("embeddings_scope_entity_idx").on(t.scopeId, t.entityType),
+    updatedIdx: index("embeddings_updated_idx").on(t.updatedAt),
+  })
+);
+
+export const docLinks = pgTable(
+  "doc_links",
+  {
+    fromDocumentId: uuid("from_document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    toScopeId: uuid("to_scope_id")
+      .notNull()
+      .references(() => scopes.id, { onDelete: "cascade" }),
+    toSlug: text("to_slug").notNull(),
+    toDocumentId: uuid("to_document_id").references(() => documents.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    fromIdx: index("doc_links_from_idx").on(t.fromDocumentId),
+    toScopeSlugIdx: index("doc_links_to_scope_slug_idx").on(t.toScopeId, t.toSlug),
+    toDocumentIdx: index("doc_links_to_document_idx").on(t.toDocumentId),
+    uniqueLink: uniqueIndex("doc_links_unique").on(t.fromDocumentId, t.toScopeId, t.toSlug),
+  })
+);
+
 // Typed models (inferred shape preserved manually for TS strict)
 export interface Document {
   id: string;
@@ -81,3 +141,24 @@ export interface DocumentRevision {
   createdAt: Date;
 }
 export type NewDocumentRevision = Pick<DocumentRevision, "documentId" | "title" | "bodyMd" | "savedBy">;
+
+export interface Embedding {
+  id: string;
+  entityType: "doc" | "record" | string;
+  entityId: string;
+  scopeId: string;
+  contentHash: string;
+  model: string;
+  embedding: number[];
+  updatedAt: Date;
+}
+export type NewEmbedding = Pick<Embedding, "entityType" | "entityId" | "scopeId" | "contentHash" | "model" | "embedding">;
+
+export interface DocLink {
+  fromDocumentId: string;
+  toScopeId: string;
+  toSlug: string;
+  toDocumentId: string | null;
+  createdAt: Date;
+}
+export type NewDocLink = Pick<DocLink, "fromDocumentId" | "toScopeId" | "toSlug"> & Partial<Pick<DocLink, "toDocumentId">>;

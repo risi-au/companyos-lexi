@@ -12,6 +12,7 @@ import {
   ScopeNotFoundError,
   RecordNotFoundError,
 } from "../../errors";
+import { enqueueEmbeddingForEntity } from "../../lib/embeddings";
 
 export interface CreateRecordInput {
   scopePath: string;
@@ -55,6 +56,8 @@ async function insertRecord(
     principalId: actorPrincipalId,
     payload: { kind, title, recordId: created.id },
   });
+
+  enqueueEmbeddingForEntity(db, { entityType: "record", entityId: created.id, principalId: actorPrincipalId });
 
   return created;
 }
@@ -245,6 +248,8 @@ export async function updateRecord(
     principalId: actorPrincipalId,
     payload: { recordId: id, title: updated.title },
   });
+
+  enqueueEmbeddingForEntity(db, { entityType: "record", entityId: updated.id, principalId: actorPrincipalId });
 
   return updated;
 }
