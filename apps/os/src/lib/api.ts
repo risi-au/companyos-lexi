@@ -56,6 +56,7 @@ import {
   getBrainGraph,
   getBrainEngineOps,
   assertBrainManualTriggerAllowed,
+  GitHubClient,
   type LLMConfig,
   type RunTurnInput,
 } from "@companyos/api";
@@ -92,6 +93,13 @@ function getBrainLlmClient() {
   const apiKey = process.env.BRAIN_LITELLM_API_KEY || "";
   if (!apiKey) throw new Error("BRAIN_LITELLM_API_KEY is required for manual brain runs");
   return createLiteLlmBrainClient({ baseUrl, apiKey });
+}
+
+function getBrainGitHubClient(): GitHubClient | null {
+  const token = process.env.GITHUB_TOKEN;
+  const org = process.env.GITHUB_ORG;
+  if (!token || !org) return null;
+  return new GitHubClient({ token, org, baseUrl: process.env.GITHUB_API_URL || undefined });
 }
 
 // Re-export bound versions (first arg db pre-filled)
@@ -212,7 +220,7 @@ export const api = {
   assertBrainManualTriggerAllowed: (input: Parameters<typeof assertBrainManualTriggerAllowed>[1], actorPrincipalId: string) =>
     assertBrainManualTriggerAllowed(db, input, actorPrincipalId),
   runBrainEngine: (input: BrainRunInput, actorPrincipalId: string) =>
-    runNativeBrainEngine(db, input, actorPrincipalId, { llm: getBrainLlmClient() }),
+    runNativeBrainEngine(db, input, actorPrincipalId, { llm: getBrainLlmClient(), github: getBrainGitHubClient() }),
 };
 
 export { db }; // only for auth wiring internally
