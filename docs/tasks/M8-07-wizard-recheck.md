@@ -1,7 +1,7 @@
 # M8-07: Creation wizard v2 — briefing, related history, structured framing, pack rewrite
 
-status: todo (design settled 2026-07-07 owner session; supersedes the earlier
-recheck-checklist version of this doc)
+status: done (PR #4 merged 2026-07-07, deployed to staging, content synced; owner
+edits wording live in /admin/intake)
 module: packages/wizard + packages/api (intake, search) + apps/os (wizard UI) +
 companyos-skills repo (scope-intake content)
 branch: task/M8-07

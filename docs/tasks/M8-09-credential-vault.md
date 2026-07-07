@@ -1,6 +1,7 @@
 # M8-09: Credential vault v1 — per-scope encrypted secrets for agents
 
-status: todo (design settled 2026-07-07 owner session; Phase B of the wizard-v2 plan)
+status: done (PR #5 merged 2026-07-07; awaiting COS_VAULT_KEY on staging to activate —
+see HANDOFF-2026-07-08.md in-flight list)
 module: packages/db (migration) + packages/api (credentials module) + packages/mcp +
 apps/os (scope page UI + wizard step)
 branch: task/M8-09

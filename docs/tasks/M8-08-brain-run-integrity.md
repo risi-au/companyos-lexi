@@ -1,6 +1,7 @@
 # M8-08: Brain run integrity — surface parse failures, enforce output contract, auto-sync skills
 
-status: todo
+status: done (PR #3 merged 2026-07-07, deployed to staging; auto-sync verified live;
+insert race under concurrent deliveries fixed in PR #6)
 module: packages/brain + packages/api (workbench-events) + apps/os (brain surfaces)
 branch: task/M8-08
 
