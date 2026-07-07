@@ -134,6 +134,13 @@
       "when": 1783468800000,
       "tag": "0018_semantic_layer",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1783472400000,
+      "tag": "0020_neat_vulcan",
+      "breakpoints": true
     }
   ]
 }

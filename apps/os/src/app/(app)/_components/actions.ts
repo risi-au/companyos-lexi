@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-export async function createNewScope(formData: FormData): Promise<{ path?: string; error?: string }> {
+export async function createNewScope(formData: FormData): Promise<{ path?: string; intakeId?: string; error?: string }> {
   const name = (formData.get("name") as string || "").trim();
   const slug = (formData.get("slug") as string || "").trim() || name.toLowerCase().replace(/[^a-z0-9-]/g, "-");
   const parentPath = (formData.get("parentPath") as string || "").trim() || null;
@@ -26,10 +26,11 @@ export async function createNewScope(formData: FormData): Promise<{ path?: strin
   }
 
   const created = await api.createScope({ slug, name, type, parentPath }, actor);
+  const intake = await api.ensureDraftIntakeForScope({ scopePath: created.path }, actor);
 
   revalidatePath("/");
   revalidatePath(`/s/${created.path}`);
-  return { path: created.path };
+  return { path: created.path, intakeId: intake.id };
 }
 
 export async function addMemberToScope(formData: FormData): Promise<void> {

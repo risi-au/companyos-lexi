@@ -1,6 +1,6 @@
 # M8-05: Brain surfaces (root-admin graph app + engine ops + brain-aware Ask OS)
 
-status: todo (blocked on: M8-02; graph data from M8-01)
+status: done
 module: apps/os (new root-admin surface) + agent module tool additions
 branch: task/M8-05
 

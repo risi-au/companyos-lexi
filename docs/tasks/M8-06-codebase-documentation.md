@@ -1,6 +1,6 @@
 # M8-06: Codebase documentation (workbench repos → technical wiki pages)
 
-status: todo (blocked on: M8-02)
+status: done
 module: packages/brain extension (no new package)
 branch: task/M8-06
 

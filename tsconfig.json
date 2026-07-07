@@ -5,6 +5,7 @@
     { "path": "./packages/brain" },
     { "path": "./packages/db" },
     { "path": "./packages/mcp" },
+    { "path": "./packages/wizard" },
     { "path": "./packages/ui" },
     { "path": "./apps/os" },
     { "path": "./apps/control-plane" }

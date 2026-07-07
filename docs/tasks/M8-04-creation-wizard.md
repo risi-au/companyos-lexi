@@ -1,6 +1,6 @@
 # M8-04: Creation wizard (`packages/wizard`) — intelligent scope onboarding
 
-status: todo (blocked on: M8-02 + M8-03)
+status: done
 module: new package `packages/wizard` + apps/os UI + packages/mcp + central skills repo
 templates + in-OS template editor
 branch: task/M8-04

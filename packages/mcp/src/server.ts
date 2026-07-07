@@ -53,6 +53,12 @@ import {
   queryUsage,
   getContextProfile,
   setContextProfile,
+  submitIntakePacket,
+  listIntakePackets,
+  getIntakePacket,
+  updateIntakePacket,
+  approveIntakePacket,
+  provisionFromIntakePacket,
   type DB,
   AccessDeniedError,
   AlertValidationError,
@@ -1859,6 +1865,171 @@ ${JSON.stringify(rec.data || {}, null, 2)}
           content: [{ type: "text", text: `Error: ${formatError(e)}` }],
           isError: true,
         };
+      }
+    }
+  );
+
+  const intakeStatusSchema = z.enum(["draft", "awaiting_external", "needs_review", "approved", "provisioned", "rejected", "dismissed"]);
+
+  server.registerTool(
+    "submit_intake_packet",
+    {
+      title: "Submit Intake Packet",
+      description:
+        "Submit an external intake packet for an existing CompanyOS scope/intake. External agents must use the provided intake id and must not create scope structure. Requires editor/agent on the intake scope.",
+      inputSchema: z.object({
+        intake_id: z.string().optional().describe("Existing intake id opened by CompanyOS"),
+        scope: z.string().optional().describe("Existing scope path; used only when creating a needs_review intake directly"),
+        paste_text: z.string().optional().describe("Markdown paste-back, optionally ending in a fenced ```json packet``` block"),
+        packet: z.record(z.any()).optional().describe("Structured packet object when returning via MCP"),
+      }),
+    },
+    async ({ intake_id, scope, paste_text, packet }) => {
+      try {
+        const actor = ensurePrincipal();
+        const result = await submitIntakePacket(
+          db,
+          {
+            id: intake_id,
+            scopePath: scope,
+            pasteText: paste_text,
+            packet: packet as Parameters<typeof submitIntakePacket>[1]["packet"],
+          },
+          actor
+        );
+        if (result.errors?.length) {
+          return { content: [{ type: "text", text: `Packet validation failed:\n${result.errors.join("\n")}` }], isError: true };
+        }
+        return { content: [{ type: "text", text: JSON.stringify(result.intake, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: `Error: ${formatError(e)}` }], isError: true };
+      }
+    }
+  );
+
+  server.registerTool(
+    "list_intake_packets",
+    {
+      title: "List Intake Packets",
+      description: "List intake packets. Scoped listing requires viewer; global listing is root-admin only.",
+      inputSchema: z.object({
+        scope: z.string().optional(),
+        statuses: z.array(intakeStatusSchema).optional(),
+        include_descendants: z.boolean().optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+      }),
+    },
+    async ({ scope, statuses, include_descendants, limit }) => {
+      try {
+        const actor = ensurePrincipal();
+        const result = await listIntakePackets(db, { scopePath: scope, statuses, includeDescendants: include_descendants, limit }, actor);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: `Error: ${formatError(e)}` }], isError: true };
+      }
+    }
+  );
+
+  server.registerTool(
+    "get_intake_packet",
+    {
+      title: "Get Intake Packet",
+      description: "Fetch one intake packet by id. Requires viewer on its scope.",
+      inputSchema: z.object({ intake_id: z.string().min(1) }),
+    },
+    async ({ intake_id }) => {
+      try {
+        const actor = ensurePrincipal();
+        const result = await getIntakePacket(db, intake_id, actor);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: `Error: ${formatError(e)}` }], isError: true };
+      }
+    }
+  );
+
+  server.registerTool(
+    "update_intake_packet",
+    {
+      title: "Update Intake Packet",
+      description: "Update a pre-approval intake packet. Requires editor/agent on its scope.",
+      inputSchema: z.object({
+        intake_id: z.string().min(1),
+        answers: z.any().optional(),
+        packet_md: z.string().nullable().optional(),
+        proposed_provision_spec: z.record(z.any()).optional(),
+        proposed_docs: z.any().optional(),
+        proposed_tasks: z.any().optional(),
+        proposed_wiki_updates: z.any().optional(),
+        open_questions: z.any().optional(),
+        risk_notes: z.any().optional(),
+      }),
+    },
+    async (input) => {
+      try {
+        const actor = ensurePrincipal();
+        const result = await updateIntakePacket(
+          db,
+          {
+            id: input.intake_id,
+            answers: input.answers,
+            packetMd: input.packet_md,
+            proposedProvisionSpec: input.proposed_provision_spec,
+            proposedDocs: input.proposed_docs,
+            proposedTasks: input.proposed_tasks,
+            proposedWikiUpdates: input.proposed_wiki_updates,
+            openQuestions: input.open_questions,
+            riskNotes: input.risk_notes,
+          },
+          actor
+        );
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: `Error: ${formatError(e)}` }], isError: true };
+      }
+    }
+  );
+
+  server.registerTool(
+    "approve_intake_packet",
+    {
+      title: "Approve Intake Packet",
+      description:
+        "Admin-gated approval. Agents must not call this without explicit human instruction. Approval alone does not provision anything.",
+      inputSchema: z.object({ intake_id: z.string().min(1) }),
+    },
+    async ({ intake_id }) => {
+      try {
+        const actor = ensurePrincipal();
+        const result = await approveIntakePacket(db, { id: intake_id }, actor);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: `Error: ${formatError(e)}` }], isError: true };
+      }
+    }
+  );
+
+  server.registerTool(
+    "provision_from_intake_packet",
+    {
+      title: "Provision From Intake Packet",
+      description:
+        "Admin-gated explicit provisioning from an approved intake. Agents must not call this without explicit human instruction. Calls provisionScope exactly once.",
+      inputSchema: z.object({ intake_id: z.string().min(1) }),
+    },
+    async ({ intake_id }) => {
+      try {
+        const actor = ensurePrincipal();
+        if (!planeClient) throw new Error("tasks/provisioning engine not configured: Plane client missing");
+        const result = await provisionFromIntakePacket(
+          db,
+          { plane: planeClient, github: githubClient },
+          { id: intake_id },
+          actor
+        );
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: `Error: ${formatError(e)}` }], isError: true };
       }
     }
   );

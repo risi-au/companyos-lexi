@@ -1,6 +1,6 @@
 # M8-01: Semantic layer (pgvector embeddings + wikilinks/backlinks)
 
-status: todo (unblocks all of M8 — see docs/tasks/M8-second-brain-overview.md)
+status: done
 module: packages/db (migration) + packages/api (search upgrade, new embeddings lib, docs
 link extraction) + infra (LiteLLM alias, Postgres image check)
 branch: task/M8-01

@@ -143,6 +143,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     const tools = await mcpClient.listTools();
     const names = (tools.tools || []).map((t: any) => t.name).sort();
     expect(names).toEqual([
+      "approve_intake_packet",
       "complete_session",
       "complete_task",
       "create_task",
@@ -151,6 +152,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "get_context_profile",
       "get_dashboard",
       "get_doc",
+      "get_intake_packet",
       "get_record",
       "get_skill",
       "get_tree",
@@ -161,6 +163,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "list_dashboards",
       "list_doc_revisions",
       "list_docs",
+      "list_intake_packets",
       "list_metric_names",
       "list_records",
       "list_sessions",
@@ -170,6 +173,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "log_change",
       "log_decision",
       "ping",
+      "provision_from_intake_packet",
       "provision_scope",
       "query_metrics",
       "query_usage",
@@ -186,7 +190,9 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "save_report",
       "set_context_profile",
       "search",
+      "submit_intake_packet",
       "sync_skills",
+      "update_intake_packet",
       "update_session",
       "update_task",
       "verify_workbench",
@@ -617,6 +623,81 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     expect(parsed.scopePath).toBe(`${testScope}/provisioned`);
     expect(parsed.steps.some((s: any) => s.key === "github.repo" && s.status === "created")).toBe(true);
     expect(repos.get(testScope)?.files.get("provisioned/AGENTS.md")).toContain("companyos:managed:start");
+  });
+
+  it("intake MCP tools roundtrip submit/list/get/update/approve/provision with existing scope gating", async () => {
+    await grantRole(db, { principalId: rootPrincipalId, scopePath: testScope, role: "admin" }, rootPrincipalId);
+    const plane = {
+      forWorkspace: () => plane,
+      getProjects: async () => [],
+      listWebhooks: async () => [],
+      createWebhook: async () => ({}),
+    };
+    const { mcpClient } = await makeRoundtrip(rootPrincipalId, plane, null);
+
+    const submitted = await mcpClient.callTool({
+      name: "submit_intake_packet",
+      arguments: {
+        scope: testScope,
+        packet: {
+          packet_md: "MCP intake packet",
+          research_sources: [],
+          proposed_provision_spec: { scopePath: testScope, modules: ["docs"] },
+          proposed_docs: [{ slug: "mcp-intake", title: "MCP Intake", bodyMd: "# MCP" }],
+          proposed_tasks: [],
+          proposed_wiki_updates: [],
+          open_questions: [],
+          risk_notes: [],
+        },
+      },
+    });
+    expect((submitted as any).isError).toBeFalsy();
+    const submittedJson = JSON.parse((submitted as any).content?.[0]?.text || "{}");
+    expect(submittedJson.status).toBe("needs_review");
+
+    const listed = await mcpClient.callTool({
+      name: "list_intake_packets",
+      arguments: { scope: testScope, statuses: ["needs_review"] },
+    });
+    const listedJson = JSON.parse((listed as any).content?.[0]?.text || "[]");
+    expect(listedJson.some((row: any) => row.id === submittedJson.id)).toBe(true);
+
+    const got = await mcpClient.callTool({
+      name: "get_intake_packet",
+      arguments: { intake_id: submittedJson.id },
+    });
+    expect(JSON.parse((got as any).content?.[0]?.text || "{}").packetMd).toBe("MCP intake packet");
+
+    const updated = await mcpClient.callTool({
+      name: "update_intake_packet",
+      arguments: { intake_id: submittedJson.id, open_questions: ["confirm budget"] },
+    });
+    expect(JSON.parse((updated as any).content?.[0]?.text || "{}").openQuestions).toEqual(["confirm budget"]);
+
+    const approved = await mcpClient.callTool({
+      name: "approve_intake_packet",
+      arguments: { intake_id: submittedJson.id },
+    });
+    expect(JSON.parse((approved as any).content?.[0]?.text || "{}").status).toBe("approved");
+
+    const provisioned = await mcpClient.callTool({
+      name: "provision_from_intake_packet",
+      arguments: { intake_id: submittedJson.id },
+    });
+    expect((provisioned as any).isError).toBeFalsy();
+    const provisionedJson = JSON.parse((provisioned as any).content?.[0]?.text || "{}");
+    expect(provisionedJson.intake.status).toBe("provisioned");
+    expect(provisionedJson.recordId).toBeTruthy();
+
+    const outside = `${testScope}-outside`;
+    await createScope(db, { slug: outside, name: "Outside", type: "project" }, rootPrincipalId);
+    await grantRole(db, { principalId: rootPrincipalId, scopePath: outside, role: "admin" }, rootPrincipalId);
+    const { mcpClient: agentClient } = await makeRoundtrip(agentPrincipalId, plane, null);
+    const denied = await agentClient.callTool({
+      name: "submit_intake_packet",
+      arguments: { scope: outside, paste_text: "Denied" },
+    });
+    expect((denied as any).isError).toBe(true);
   });
 
   it("capabilities MCP tools roundtrip: register, report, list capabilities, list runs", async () => {
