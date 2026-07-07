@@ -30,6 +30,24 @@ observability UI)".
   runs + alerts), Settings.
 - No new tables expected besides possibly `invites`.
 
+## LLM & keys admin (owner request 2026-07-07 — in scope for this task)
+
+Root-admin surface for the instance's LLM plumbing, so key/model management doesn't
+require SSH + curl (the M8 activation pass did all of this by hand):
+
+- **Virtual keys**: list LiteLLM virtual keys (alias, created, budget, spend), mint new
+  ones (the `/key/generate` flow used for LITELLM_EMBED_KEY/BRAIN_LITELLM_API_KEY),
+  revoke, set per-key budgets. OS talks to LiteLLM with LITELLM_MASTER_KEY it already
+  holds.
+- **Model/alias status**: show the alias table (cheap/analysis/reasoning/code/embed →
+  provider model) from LiteLLM, and which provider env keys are present (names only,
+  never values) — surfaces "embed alias has no OPENAI_API_KEY" class problems.
+- **Usage/spend**: per-key and per-model spend from LiteLLM's tracking DB; complements
+  /admin/mcp (M7-03) which covers agent-side token usage, and M9-01 which covers
+  liveness/expiry alerting. Cross-link all three rather than duplicating.
+- Provider API keys themselves stay in `.env` (compose-managed) — display presence and
+  test-probe them, don't store or edit secrets in the DB.
+
 ## Don't (already firm)
 
 - No multi-tenant control-plane concerns here (that's M5-05) — this is WITHIN one instance.
