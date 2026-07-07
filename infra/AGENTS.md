@@ -27,7 +27,7 @@ Purpose: Development and production Docker Compose bundles for the shared data/m
 - (root) `package.json` scripts: `infra:up`, `infra:down`, `db:migrate`, `db:seed`.
 - `.env.example` - all referenced vars with placeholders.
 - `.github/workflows/release.yml` - gates, builds/pushes GHCR images, deploys staging over SSH, and smoke-tests staging.
-- `packages/db/` scripts execute drizzle-kit for migrate (delegated).
+- `packages/db/scripts/migrate.mjs` runs migrations via the drizzle-orm programmatic migrator (delegated from root db:migrate; drizzle-kit remains for generate only).
 
 ## Ports (host)
 - 5432: postgres (dev)
@@ -42,7 +42,7 @@ Purpose: Development and production Docker Compose bundles for the shared data/m
 - YAML valid (manual review or actionlint in implementer sandbox); images pinned; healthchecks present; staging deploy summary reports tag, image digests, migrate result, and smoke status.
 - Config uses only env var refs.
 - README covers dev, first deploy, upgrade, rollback, and Plane side-by-side.
-- db scripts run drizzle-kit for migrate path.
+- db migrate path uses the drizzle-orm programmatic migrator (packages/db/scripts/migrate.mjs); the drizzle-kit CLI dies silently on 0018's nested dollar-quoted DO block.
 - In implementer sandboxes without Docker, do not run Docker. The orchestrator verifies `docker build` and `docker compose config`.
 
 ## Do not

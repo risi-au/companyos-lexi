@@ -54,4 +54,4 @@ ENV NODE_ENV=production
 WORKDIR /app/packages/db
 COPY --from=migrate-install /app/node_modules /app/node_modules
 COPY --from=migrate-install /app/packages/db ./
-CMD ["node", "node_modules/drizzle-kit/bin.cjs", "migrate"]
+CMD ["node", "scripts/migrate.mjs"]
