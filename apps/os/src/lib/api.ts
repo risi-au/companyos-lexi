@@ -6,6 +6,7 @@
  */
 import "server-only";
 import { createDb } from "@companyos/db";
+import { createLiteLlmBrainClient, runBrainEngine as runNativeBrainEngine, type BrainRunInput } from "@companyos/brain";
 import { auth } from "@/lib/auth";
 import {
   getSubtree,
@@ -52,6 +53,9 @@ import {
   usageRecommendations,
   getContextProfile,
   setContextProfile,
+  getBrainGraph,
+  getBrainEngineOps,
+  assertBrainManualTriggerAllowed,
   type LLMConfig,
   type RunTurnInput,
 } from "@companyos/api";
@@ -81,6 +85,13 @@ function getPlaneClient(): any { // eslint-disable-line @typescript-eslint/no-ex
     return planeStub;
   }
   return new PlaneClient({ baseUrl, apiToken: token, workspaceSlug: workspace });
+}
+
+function getBrainLlmClient() {
+  const baseUrl = process.env.LITELLM_BASE_URL || "http://localhost:4000";
+  const apiKey = process.env.BRAIN_LITELLM_API_KEY || "";
+  if (!apiKey) throw new Error("BRAIN_LITELLM_API_KEY is required for manual brain runs");
+  return createLiteLlmBrainClient({ baseUrl, apiKey });
 }
 
 // Re-export bound versions (first arg db pre-filled)
@@ -192,6 +203,16 @@ export const api = {
     getContextProfile(db, input, actorPrincipalId),
   setContextProfile: (input: Parameters<typeof setContextProfile>[1], actorPrincipalId: string) =>
     setContextProfile(db, input, actorPrincipalId),
+
+  // Brain root-admin surfaces (M8-05)
+  getBrainGraph: (input: Parameters<typeof getBrainGraph>[1], actorPrincipalId: string) =>
+    getBrainGraph(db, input, actorPrincipalId),
+  getBrainEngineOps: (input: Parameters<typeof getBrainEngineOps>[1], actorPrincipalId: string) =>
+    getBrainEngineOps(db, input, actorPrincipalId),
+  assertBrainManualTriggerAllowed: (input: Parameters<typeof assertBrainManualTriggerAllowed>[1], actorPrincipalId: string) =>
+    assertBrainManualTriggerAllowed(db, input, actorPrincipalId),
+  runBrainEngine: (input: BrainRunInput, actorPrincipalId: string) =>
+    runNativeBrainEngine(db, input, actorPrincipalId, { llm: getBrainLlmClient() }),
 };
 
 export { db }; // only for auth wiring internally

@@ -30,6 +30,7 @@ export default async function AppLayout({
   const cookieStore = await cookies();
   const cookieSelected = cookieStore.get("nav.selectedProject")?.value;
   const hasRootGrant = tree.some((s: Scope) => s.type === "root" || s.path === "root");
+  const rootRole = hasRootGrant ? await api.resolveAccess(actorId, "root") : null;
   const topLevelProjects = tree
     .filter((s: Scope) => s.type === "project" && s.path.split("/").length === 1)
     .sort((a: Scope, b: Scope) => a.path.localeCompare(b.path));
@@ -66,6 +67,7 @@ export default async function AppLayout({
           selected={resolvedSelected}
           taskManagerUrl={taskManagerUrl}
           instanceName={process.env.INSTANCE_NAME || "CompanyOS"}
+          rootRole={rootRole}
         />
 
         <div className="mt-auto border-t border-[var(--border)] p-[var(--space-3)]">

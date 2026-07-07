@@ -52,6 +52,9 @@ export * from "./modules/search/service";
 // Scoped memory module (M8-03)
 export * from "./modules/memory/service";
 
+// Brain root-admin surfaces (M8-05)
+export * from "./modules/brain-surfaces/service";
+
 // Usage observability module (M7-03)
 export * from "./modules/usage/service";
 
