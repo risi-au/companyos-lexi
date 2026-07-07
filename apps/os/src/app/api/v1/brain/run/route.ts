@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import "server-only";
 import { createLiteLlmBrainClient, runBrainEngine, type BrainRunMode } from "@companyos/brain";
-import { AccessDeniedError } from "@companyos/api";
+import { AccessDeniedError, GitHubClient } from "@companyos/api";
 import {
   authenticateAgentRequest,
   unauthorized,
@@ -25,6 +25,13 @@ function llmClient() {
   return createLiteLlmBrainClient({ baseUrl, apiKey });
 }
 
+function githubClient(): GitHubClient | null {
+  const token = process.env.GITHUB_TOKEN;
+  const org = process.env.GITHUB_ORG;
+  if (!token || !org) return null;
+  return new GitHubClient({ token, org, baseUrl: process.env.GITHUB_API_URL || undefined });
+}
+
 export async function POST(req: Request) {
   try {
     const { principalId } = await authenticateAgentRequest(req);
@@ -43,7 +50,7 @@ export async function POST(req: Request) {
         monthlyTokenBudget: envNumber("BRAIN_MONTHLY_TOKEN_BUDGET"),
       },
       principalId,
-      { llm: llmClient() }
+      { llm: llmClient(), github: githubClient() }
     );
     return Response.json({ ok: true, result });
   } catch (e: any) {

@@ -10,6 +10,11 @@ Runs the wiki maintenance loops for M8:
 - root distillation for `critical-facts`, `scope-map`, and `pattern-*` pages
 - lint pass with safe auto-fixes and warning alerts
 - event-triggered targeted ingest using the same code path as scheduled/manual runs
+- code-docs pass (M8-06): per scope with a workbench, maintains the four `code-*`
+  wiki pages (`code-architecture`, `code-stack`, `code-integrations`, `code-ops`)
+  from GitHub reads — bootstrap from the repo tree + authoritative files, then
+  deltas from `workbench.push` changed paths; frontmatter carries `repo` +
+  `last_commit`; Sources cite commit SHAs and file paths
 
 ## Contract
 
@@ -26,6 +31,7 @@ Runs the wiki maintenance loops for M8:
 - `runBrainEngine(db, input, actorPrincipalId, deps)`: manual/scheduled ingest, lint, or backfill.
 - `handleBrainEvent(db, input, actorPrincipalId, deps)`: targeted ingest for `scope.created`, `intake.provisioned`, `intake.rejected`, and `workbench.*`.
 - `createLiteLlmBrainClient(config)`: production HTTP client for LiteLLM-compatible chat completion endpoints.
+- `runCodeDocsPass(db, input, actorPrincipalId, deps, ...)`: invoked by `runBrainEngine` during ingest/backfill; `deps.github` (any `GitHubClient`-shaped reader) is optional — missing config reports `no-github` instead of failing. Per-scope opt-out via scope `settings.brain.codeDocs === false`. File reads capped (10 files / 5k chars each / 30k total); truncation is reported, never fatal.
 
 ## Reporting
 

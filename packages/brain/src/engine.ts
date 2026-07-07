@@ -1,6 +1,7 @@
 import {
   archiveDoc,
   estimateTokens,
+  findNearestWorkbench,
   getDoc,
   getSkill,
   getSubtree,
@@ -18,6 +19,7 @@ import {
   type ListedRecord,
   type SearchHit,
 } from "@companyos/api";
+import { runCodeDocsPass, type CodeDocsGitHubReader, type CodeDocsSummary } from "./code-docs";
 
 export const BRAIN_CAPABILITY_NAME = "brain-engine";
 export const WIKI_MAINTENANCE_SKILL = "wiki-maintenance";
@@ -32,7 +34,7 @@ export type BrainRoleAlias = "cheap" | "analysis";
 
 export interface BrainLlmRequest {
   role: BrainRoleAlias;
-  purpose: "scope-ingest" | "root-distill" | "lint-scope";
+  purpose: "scope-ingest" | "root-distill" | "lint-scope" | "code-docs";
   system: string;
   prompt: string;
   maxTokens: number;
@@ -59,6 +61,7 @@ export interface BrainRunInput {
 
 export interface BrainDeps {
   llm: BrainLlmClient;
+  github?: CodeDocsGitHubReader | null;
   now?: Date;
 }
 
@@ -80,6 +83,7 @@ export interface ScopeRunSummary {
   pagesTouched: number;
   recordsDistilled: number;
   skipped?: "no-new-inputs" | "budget";
+  codeDocs?: CodeDocsSummary;
 }
 
 export interface BrainEventInput {
@@ -108,7 +112,7 @@ interface LoadedDoc extends DocSummary {
   bodyMd: string;
 }
 
-interface EngineCounters {
+export interface EngineCounters {
   pagesTouched: number;
   recordsDistilled: number;
   tokens: number;
@@ -157,14 +161,14 @@ export interface LiteLlmBrainClientConfig {
   apiKey: string;
 }
 
-class BudgetExceededError extends Error {
+export class BudgetExceededError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "BudgetExceededError";
   }
 }
 
-function iso(date: Date): string {
+export function iso(date: Date): string {
   return date.toISOString();
 }
 
@@ -180,7 +184,7 @@ function effectiveMonthlyBudget(input?: number): number {
   return Math.max(1, Math.trunc(input ?? DEFAULT_MONTHLY_TOKEN_BUDGET));
 }
 
-function parseJsonObject<T>(text: string, fallback: T): T {
+export function parseJsonObject<T>(text: string, fallback: T): T {
   const trimmed = text.trim();
   const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
   const raw = fenced?.[1] ?? trimmed;
@@ -198,7 +202,7 @@ function countResponseTokens(request: BrainLlmRequest, response: BrainLlmRespons
   return Math.max(0, Math.trunc(inputTokens + outputTokens));
 }
 
-async function callLlm(
+export async function callLlm(
   db: DB,
   llm: BrainLlmClient,
   request: BrainLlmRequest,
@@ -330,8 +334,19 @@ export async function runBrainEngine(
       let anyInputs = false;
       for (const scope of scopes) {
         try {
-          const summary = await ingestScope(db, scope.path, input.mode, actorPrincipalId, deps, counters, runTokenCeiling, monthlyTokenBudget);
-          anyInputs = anyInputs || summary.inputCount > 0;
+          const since = input.mode === "backfill" ? undefined : await lastSuccessfulIngestAt(db, scope.path, actorPrincipalId);
+          const summary = await ingestScope(db, scope.path, since, actorPrincipalId, deps, counters, runTokenCeiling, monthlyTokenBudget);
+          const codeDocs = await runCodeDocsPass(
+            db,
+            { scopePath: scope.path, mode: input.mode, since },
+            actorPrincipalId,
+            deps,
+            counters,
+            runTokenCeiling,
+            monthlyTokenBudget
+          );
+          if (codeDocs) summary.codeDocs = codeDocs;
+          anyInputs = anyInputs || summary.inputCount > 0 || (codeDocs?.pagesTouched ?? 0) > 0;
           scopeRuns.push(summary);
         } catch (error) {
           if (error instanceof BudgetExceededError) {
@@ -548,14 +563,13 @@ function recordToInput(record: ListedRecord): SourceInput {
 async function ingestScope(
   db: DB,
   scopePath: string,
-  mode: BrainRunMode,
+  since: Date | undefined,
   actorPrincipalId: string,
   deps: BrainDeps,
   counters: EngineCounters,
   runTokenCeiling: number,
   monthlyTokenBudget: number
 ): Promise<ScopeRunSummary> {
-  const since = mode === "backfill" ? undefined : await lastSuccessfulIngestAt(db, scopePath, actorPrincipalId);
   const inputs = await collectInputs(db, scopePath, since, actorPrincipalId);
   if (inputs.length === 0) {
     return { scopePath, inputCount: 0, pagesTouched: 0, recordsDistilled: 0, skipped: "no-new-inputs" };
@@ -702,6 +716,13 @@ async function distillRoot(
   );
   const output = parseJsonObject<RootDistillOutput>(response.text, { pages: [] });
   const scopeNames = scopes.filter((scope) => scope.type !== "root").flatMap((scope) => [scope.path, scope.name]);
+  for (const scopePath of scopePaths) {
+    const workbench = await findNearestWorkbench(db, scopePath);
+    if (!workbench?.repo) continue;
+    scopeNames.push(workbench.repo);
+    const bareRepo = workbench.repo.split("/").pop();
+    if (bareRepo) scopeNames.push(bareRepo);
+  }
   for (const page of output.pages) {
     if (!isRootReservedSlug(page.slug)) continue;
     const bodyMd = page.slug.startsWith("pattern-")
