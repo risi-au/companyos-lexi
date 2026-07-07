@@ -240,6 +240,8 @@ export async function syncSkills(
         })
         .where(eq(skillsIndex.id, existing.id));
     } else {
+      // Concurrent webhook deliveries race this insert (unique name index) —
+      // a multi-file push to the skills repo fires one sync per delivery.
       await db.insert(skillsIndex).values({
         name: next.name,
         scopePattern: next.scopePattern,
@@ -249,6 +251,18 @@ export async function syncSkills(
         body: next.body,
         sha: next.sha,
         syncedAt: now,
+      }).onConflictDoUpdate({
+        target: skillsIndex.name,
+        set: {
+          scopePattern: next.scopePattern,
+          domains: next.domains,
+          path: next.path,
+          description: next.description,
+          body: next.body,
+          sha: next.sha,
+          syncedAt: now,
+          updatedAt: now,
+        },
       });
       added += 1;
     }
