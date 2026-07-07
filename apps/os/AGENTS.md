@@ -54,6 +54,10 @@ Auth helper: src/lib/agent-auth.ts (bearer → principal, consistent {error, req
 
 Update this file when API surface or auth wiring changes. (canvas added M3-03)
 
+## Ops Health (M9-01)
+- `/admin/health` is a root-admin-only panel for credential expiry, capability liveness, webhook/skills recency, recent run logs, and deduplicated alert email surfacing.
+- It calls `@companyos/api` health services through `src/lib/api.ts`; SMTP and LiteLLM probe config stays in `src/lib/ops-health.ts`.
+
 ## Navigation (M4-02)
 - Sidebar replaced with project switcher (cookie-persisted via setSelectedProject action) + per-project module sidebar.
 - Root owner/admin users also see a Brain nav entry for `/brain`; non-root and root-viewer users do not.

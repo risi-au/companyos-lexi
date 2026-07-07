@@ -15,3 +15,4 @@ export * from "./sessions";
 export * from "./usage";
 export * from "./intake";
 export * from "./credentials";
+export * from "./health";

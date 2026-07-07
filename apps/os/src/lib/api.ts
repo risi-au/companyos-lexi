@@ -76,6 +76,7 @@ import {
   listWizardTemplates,
   listWizardFramingQuestions,
   saveWizardTemplate,
+  getOpsHealth,
   GitHubClient,
   type LLMConfig,
   type RunTurnInput,
@@ -290,6 +291,10 @@ export const api = {
     if (!client) throw new Error("GitHub client not configured");
     return saveWizardTemplate(db, client, { ...input, repo }, actorPrincipalId);
   },
+
+  // Ops health (M9-01)
+  getOpsHealth: (input: Parameters<typeof getOpsHealth>[1], actorPrincipalId: string, deps?: Parameters<typeof getOpsHealth>[3]) =>
+    getOpsHealth(db, input, actorPrincipalId, deps),
 };
 
 export { db }; // only for auth wiring internally
