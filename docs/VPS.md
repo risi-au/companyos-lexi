@@ -2,7 +2,7 @@
 
 *Connection details, environment layout, and the strict local → staging → live promotion
 process. Maintained by the architect; update whenever an environment or step changes.*
-*Last updated: 2026-07-06.*
+*Last updated: 2026-07-08.*
 
 ## Environments
 
@@ -13,6 +13,7 @@ process. Maintained by the architect; update whenever an environment or step cha
 | Compose | `infra/docker-compose.dev.yml` | `infra/docker-compose.prod.yml` @ `~/app` | `infra/docker-compose.prod.yml` @ `~/app` |
 | Runs | `main` / task branches | rolling `main` images for fast fixes/testing, or `vX.Y.Z` release tags for promotion candidates | tagged releases only, after staging sign-off |
 | Data | seed/test data | throwaway test data (playground) | real tenant data |
+| Backups | none by default | `backup` compose profile to Cloudflare R2 bucket `companyos-backups`; encrypted DB dumps + `.env` | same profile/contract, separate creds/bucket prefix when provisioned |
 | Purpose | develop + unit/integration tests | live-environment testing before promotion | production |
 
 The staging VPS user is a sandbox: no sudo, not in the docker group (rootless engine), cannot
@@ -47,6 +48,7 @@ see other users' homes. Treat it as disposable.
     `~/.docker/cli-plugins/`)
   - `DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock` exported in `~/.bashrc`
 - Deploy commands on this host therefore use `~/bin/docker-compose` (v2 CLI-compatible).
+- Scheduled backups do not use host cron. Enable the compose sidecar with `COMPOSE_PROFILES=backup`; it runs inside rootless Podman and wakes nightly at 03:00 UTC.
 - `restart: unless-stopped` under rootless podman does not auto-start containers after a VPS
   reboot unless lingering/systemd units are added — acceptable for staging; revisit for live.
 
@@ -88,6 +90,28 @@ local dev  --merge-->  main  --build :main-->  staging fast path
 7. **Rollback** (staging or live): set `COMPANYOS_TAG` back to the previous known-good tag
    (`main` is also valid for staging fast-path re-deploys), then `pull && up -d`. Migrations
    are forward-only; a rollback must stay within one version.
+
+## Backups And DR
+
+Staging and live use the `backup` compose profile, not host cron:
+
+```bash
+COMPOSE_PROFILES=backup docker compose --env-file .env -f docker-compose.prod.yml up -d
+```
+
+Required backup env lives only in the VPS `.env`: `BACKUP_DATABASES`,
+`BACKUP_ENCRYPTION_KEY`, `BACKUP_S3_ENDPOINT`, `BACKUP_S3_BUCKET`,
+`BACKUP_S3_ACCESS_KEY_ID`, `BACKUP_S3_SECRET_ACCESS_KEY`, and optional
+`BACKUP_REPORT_TOKEN` for capability reporting. Staging currently targets Cloudflare R2
+bucket `companyos-backups` with `BACKUP_S3_REGION=auto`.
+
+Retention is enforced by the sidecar after successful upload verification: 7 daily objects
+plus 4 weekly Sunday objects. Pruning is skipped on upload failure.
+
+Restore instructions live in `infra/RESTORE.md`. Run a staging restore drill quarterly:
+restore the latest backup into a clean stack, preserve the encrypted artifact's `.env`
+values needed for vault access, run the staging smoke checklist below, and record the
+object key plus outcome.
 
 ## GHCR access on the VPS
 
