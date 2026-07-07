@@ -34,6 +34,8 @@ export const intakePackets = pgTable(
     approvedBy: uuid("approved_by").references(() => principals.id, { onDelete: "set null" }),
     reportRecordId: uuid("report_record_id"),
     artifactLinks: jsonb("artifact_links").notNull().default({}),
+    packSnapshot: text("pack_snapshot"),
+    relatedHistorySelections: jsonb("related_history_selections").notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     submittedAt: timestamp("submitted_at", { withTimezone: true }),
@@ -67,6 +69,8 @@ export interface IntakePacket {
   approvedBy: string | null;
   reportRecordId: string | null;
   artifactLinks: unknown;
+  packSnapshot: string | null;
+  relatedHistorySelections: unknown;
   createdAt: Date;
   updatedAt: Date;
   submittedAt: Date | null;

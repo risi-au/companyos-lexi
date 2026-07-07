@@ -119,6 +119,9 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
   const initialIntakes = isIntake
     ? await api.listIntakePackets({ scopePath, limit: 20 }, actor)
     : [];
+  const framingTemplates = isIntake
+    ? await api.listWizardFramingQuestions(actor)
+    : [];
 
   return (
     <div className="space-y-[var(--space-6)]">
@@ -354,6 +357,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
           initialIntakes={initialIntakes}
           initialOpenId={wizardParam}
           access={access}
+          framingTemplates={framingTemplates}
         />
       )}
 

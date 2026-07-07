@@ -7,11 +7,13 @@ import {
   approveIntakeAction,
   dismissIntakeAction,
   externalPackAction,
+  findRelatedHistoryAction,
   findReusePatternsAction,
   provisionIntakeAction,
   rejectIntakeAction,
   reopenIntakeAction,
-  saveFramingAction,
+  saveFramingFieldsAction,
+  saveRelatedHistoryAction,
   saveReviewAction,
   submitPasteAction,
 } from "./actions";
@@ -29,6 +31,8 @@ type Intake = {
   openQuestions: unknown;
   riskNotes: unknown;
   reusePatternSlug: string | null;
+  packSnapshot: string | null;
+  relatedHistorySelections: unknown;
   scopePath: string;
   updatedAt: string | Date;
 };
@@ -42,6 +46,21 @@ interface Pattern {
   sourceVisible: boolean;
 }
 
+interface FramingTemplate {
+  slug: string;
+  questions: Array<{ key: string; question: string }>;
+}
+
+interface RelatedHistoryHit {
+  type: "record" | "doc";
+  id: string;
+  title: string;
+  scopePath: string;
+  snippet: string;
+  kind?: string;
+  slug?: string;
+}
+
 function pretty(value: unknown): string {
   return JSON.stringify(value ?? {}, null, 2);
 }
@@ -50,16 +69,39 @@ function statusLabel(status: string): string {
   return status.replace(/_/g, " ");
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function stringifyRecordValues(value: Record<string, unknown>): Record<string, string> {
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, typeof item === "string" ? item : String(item ?? "")]));
+}
+
+function normalizeHistory(value: unknown): RelatedHistoryHit[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isRecord).map((item) => ({
+    type: (item.type === "doc" ? "doc" : "record") as "doc" | "record",
+    id: String(item.id ?? ""),
+    title: String(item.title ?? ""),
+    scopePath: String(item.scopePath ?? ""),
+    snippet: String(item.snippet ?? ""),
+    ...(typeof item.kind === "string" ? { kind: item.kind } : {}),
+    ...(typeof item.slug === "string" ? { slug: item.slug } : {}),
+  })).filter((item) => item.id && item.title && item.scopePath);
+}
+
 export function IntakePanel({
   scopePath,
   initialIntakes,
   initialOpenId,
   access,
+  framingTemplates,
 }: {
   scopePath: string;
   initialIntakes: Intake[];
   initialOpenId?: string | null;
   access: string;
+  framingTemplates: FramingTemplate[];
 }) {
   const [intakes, setIntakes] = useState(initialIntakes);
   const [activeId, setActiveId] = useState(initialOpenId || initialIntakes.find((i) => !["provisioned", "rejected", "dismissed"].includes(i.status))?.id || initialIntakes[0]?.id || null);
@@ -132,6 +174,7 @@ export function IntakePanel({
               busy={isPending}
               run={(fn) => startTransition(fn)}
               mergeIntake={mergeIntake}
+              framingTemplates={framingTemplates}
             />
           ) : (
             <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No intake selected.</div>
@@ -150,6 +193,7 @@ function WizardWorkspace({
   busy,
   run,
   mergeIntake,
+  framingTemplates,
 }: {
   intake: Intake;
   scopePath: string;
@@ -158,13 +202,19 @@ function WizardWorkspace({
   busy: boolean;
   run: (fn: () => Promise<void>) => void;
   mergeIntake: (next: Intake) => void;
+  framingTemplates: FramingTemplate[];
 }) {
-  const [answers, setAnswers] = useState(pretty(intake.answers));
+  const initialAnswers = isRecord(intake.answers) ? stringifyRecordValues(intake.answers) : {};
+  const [answers, setAnswers] = useState<Record<string, string>>(initialAnswers);
   const [query, setQuery] = useState("");
   const [patterns, setPatterns] = useState<Pattern[]>([]);
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [historyHits, setHistoryHits] = useState<RelatedHistoryHit[]>([]);
+  const [selectedHistory, setSelectedHistory] = useState<RelatedHistoryHit[]>(normalizeHistory(intake.relatedHistorySelections));
   const [pack, setPack] = useState<{ pasteBack: string; mcp: string } | null>(null);
   const [paste, setPaste] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
+  const [markdownOnlyWarning, setMarkdownOnlyWarning] = useState(false);
   const [spec, setSpec] = useState(pretty(intake.proposedProvisionSpec));
   const [docs, setDocs] = useState(pretty(intake.proposedDocs));
   const [tasks, setTasks] = useState(pretty(intake.proposedTasks));
@@ -172,6 +222,8 @@ function WizardWorkspace({
   const [questions, setQuestions] = useState(pretty(intake.openQuestions));
   const [risks, setRisks] = useState(pretty(intake.riskNotes));
   const [reason, setReason] = useState("");
+  const template = framingTemplates.find((item) => item.slug === intake.templateSlug) || framingTemplates[0];
+  const reasonText = answers.reason || "";
 
   return (
     <div className="space-y-[var(--space-5)]">
@@ -189,9 +241,72 @@ function WizardWorkspace({
 
       <section className="space-y-[var(--space-2)]">
         <div className="text-[var(--font-size-sm)] font-medium">Framing</div>
-        <textarea value={answers} onChange={(e) => setAnswers(e.target.value)} className="min-h-32 w-full rounded border border-[var(--border)] bg-[var(--background)] p-3 font-mono text-xs" />
-        <button disabled={!canEdit || busy} onClick={() => run(async () => mergeIntake(await saveFramingAction({ intakeId: intake.id, answersJson: answers, scopePath }) as Intake))} className="rounded bg-[var(--primary)] px-3 py-2 text-sm text-[var(--primary-foreground)]">
+        <div className="rounded border border-[var(--border)] bg-[var(--background)] p-3 text-sm">
+          <div className="text-xs text-[var(--muted-foreground)]">Reason</div>
+          <div className="mt-1 whitespace-pre-wrap">{reasonText || "No reason captured."}</div>
+        </div>
+        <div className="grid grid-cols-1 gap-3">
+          {(template?.questions || []).map((question) => (
+            <label key={question.key} className="block">
+              <span className="mb-1 block text-xs text-[var(--muted-foreground)]">{question.question}</span>
+              <input
+                value={answers[question.key] || ""}
+                onChange={(e) => setAnswers((current) => ({ ...current, [question.key]: e.target.value }))}
+                className="w-full rounded border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              />
+            </label>
+          ))}
+        </div>
+        <button disabled={!canEdit || busy} onClick={() => run(async () => {
+          const next = await saveFramingFieldsAction({ intakeId: intake.id, answers: { ...answers, reason: reasonText }, scopePath }) as Intake;
+          setAnswers(isRecord(next.answers) ? stringifyRecordValues(next.answers) : {});
+          mergeIntake(next);
+        })} className="rounded bg-[var(--primary)] px-3 py-2 text-sm text-[var(--primary-foreground)]">
           Save framing
+        </button>
+      </section>
+
+      <section className="space-y-[var(--space-2)]">
+        <div className="text-[var(--font-size-sm)] font-medium">Related history</div>
+        <div className="flex gap-2">
+          <input value={historyQuery} onChange={(e) => setHistoryQuery(e.target.value)} className="flex-1 rounded border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm" placeholder="Optional extra search terms" />
+          <button disabled={busy} onClick={() => run(async () => setHistoryHits(await findRelatedHistoryAction({ intakeId: intake.id, query: historyQuery, scopePath }) as RelatedHistoryHit[]))} className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-3 py-2 text-sm">
+            <Search size={14} /> Find
+          </button>
+        </div>
+        {historyHits.length > 0 && (
+          <div className="space-y-2">
+            {historyHits.map((hit) => {
+              const checked = selectedHistory.some((item) => item.type === hit.type && item.id === hit.id);
+              return (
+                <label key={`${hit.type}:${hit.id}`} className="flex gap-2 rounded border border-[var(--border)] p-3 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(e) => setSelectedHistory((current) => e.target.checked ? [...current, hit] : current.filter((item) => item.type !== hit.type || item.id !== hit.id))}
+                    className="mt-1"
+                  />
+                  <span>
+                    <span className="block font-medium">{hit.title}</span>
+                    <span className="block text-xs text-[var(--muted-foreground)]">{hit.scopePath} · {hit.type}{hit.kind ? `:${hit.kind}` : ""}</span>
+                    <span className="mt-1 block text-xs text-[var(--muted-foreground)]">{hit.snippet}</span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        )}
+        {selectedHistory.length > 0 && (
+          <div className="rounded border border-[var(--border)] p-3 text-xs text-[var(--muted-foreground)]">
+            Selected: {selectedHistory.map((hit) => hit.title).join(", ")}
+          </div>
+        )}
+        <button disabled={!canEdit || busy} onClick={() => run(async () => {
+          const next = await saveRelatedHistoryAction({ intakeId: intake.id, selections: selectedHistory, scopePath }) as Intake;
+          setSelectedHistory(normalizeHistory(next.relatedHistorySelections));
+          mergeIntake(next);
+        })} className="rounded border border-[var(--border)] px-3 py-2 text-sm">
+          Save related history
         </button>
       </section>
 
@@ -246,6 +361,7 @@ function WizardWorkspace({
             return;
           }
           setErrors([]);
+          setMarkdownOnlyWarning(!!result.markdownOnly);
           const next = result.intake as Intake;
           setSpec(pretty(next.proposedProvisionSpec));
           setDocs(pretty(next.proposedDocs));
@@ -261,6 +377,17 @@ function WizardWorkspace({
 
       <section className="space-y-[var(--space-2)]">
         <div className="flex items-center gap-2 text-[var(--font-size-sm)] font-medium"><FileText size={15} /> Review</div>
+        {markdownOnlyWarning && (
+          <div className="rounded border border-[var(--destructive)] bg-[var(--background)] p-3 text-sm font-medium text-[var(--destructive)]">
+            Markdown-only return: no fenced JSON packet was found. Review every field manually before approval.
+          </div>
+        )}
+        {intake.packSnapshot && (
+          <details className="rounded border border-[var(--border)] bg-[var(--background)] p-3">
+            <summary className="cursor-pointer text-sm font-medium">Pack snapshot sent to external agent</summary>
+            <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap text-xs">{intake.packSnapshot}</pre>
+          </details>
+        )}
         {intake.packetMd && <div className="max-h-48 overflow-auto rounded border border-[var(--border)] bg-[var(--background)] p-3 text-sm whitespace-pre-wrap">{intake.packetMd}</div>}
         <LabeledArea label="Provision spec" value={spec} onChange={setSpec} />
         <LabeledArea label="Docs" value={docs} onChange={setDocs} />

@@ -3,7 +3,7 @@
 Cached index for the central skills repository. Git is the source of truth; `skills_index` is the query cache used by API and MCP reads.
 
 ## Purpose
-Expose agentskills.io-style `SKILL.md` playbooks through CompanyOS. Sync reads every `SKILL.md` file from the configured GitHub repo, caches frontmatter plus the full markdown body, and lets agents list scope-relevant skills or fetch a full skill by name.
+Expose agentskills.io-style `SKILL.md` playbooks through CompanyOS. Sync reads every `SKILL.md` file from the configured GitHub repo plus wizard markdown templates under `<skill-dir>/templates/*.md`, caches frontmatter plus the full markdown body, and lets agents list scope-relevant skills or fetch a full skill by name.
 
 ## Contract
 - Service functions live in `service.ts` and are exported from `@companyos/api`.
@@ -14,7 +14,7 @@ Expose agentskills.io-style `SKILL.md` playbooks through CompanyOS. Sync reads e
 ## Table
 - `skills_index`: `id`, `name`, `scope_pattern`, `domains`, `path`, `description`, `body`, `sha`, `synced_at`, `created_at`, `updated_at`.
 - `name` is globally unique because the central skills repo is the single source of truth.
-- `body` stores the complete `SKILL.md` markdown, including frontmatter, so `getSkill` is DB-only.
+- `body` stores the complete markdown, including frontmatter, so `getSkill` and wizard template reads are DB-only.
 
 ## Gating
 - `syncSkills` requires `admin` on the root scope. It is a global cache refresh, so the service resolves the `type = 'root'` scope and gates there. If no root scope exists, sync fails clearly.
@@ -31,12 +31,13 @@ Expose agentskills.io-style `SKILL.md` playbooks through CompanyOS. Sync reads e
 - Omitted `scope_pattern` defaults to `**`, which is the global skill pattern.
 
 ## Sync
-- `syncSkills(db, client, { repo }, actorPrincipalId)` lists GitHub blobs, reads files named exactly `SKILL.md`, parses minimal YAML frontmatter, and upserts by `name`.
+- `syncSkills(db, client, { repo }, actorPrincipalId)` lists GitHub blobs, reads files named exactly `SKILL.md` and wizard templates matching `<skill-dir>/templates/*.md`, parses/validates frontmatter, and upserts by `name`.
 - The workbench-events webhook service calls `syncSkills` automatically for signed
   default-branch pushes to the configured central skills repository. Manual `sync_skills`
   remains supported.
 - Required frontmatter: `name`, matching `^[a-z0-9-]+$`.
 - Optional frontmatter: `description`, `scope_pattern`, `domains`.
+- Template rows are named `<skill-dir>-template-<frontmatter-slug>` and validated with the wizard template parser before indexing.
 - Invalid or missing names are skipped and reported in the result and event payload.
 - Rows whose names no longer exist in the repo are removed.
 
@@ -48,4 +49,4 @@ Domains are stored, returned, and available as an optional `listSkills` filter. 
 
 ## Tests
 - `match.test.ts` covers branch semantics and wildcard matching.
-- `skills.test.ts` covers root-admin sync gating, upsert/removal/skip/idempotency, event emission, viewer-gated listing, domain filtering, no-body list results, and `SkillNotFoundError`.
+- `skills.test.ts` covers root-admin sync gating, upsert/removal/skip/idempotency, wizard template indexing, event emission, viewer-gated listing, domain filtering, no-body list results, and `SkillNotFoundError`.

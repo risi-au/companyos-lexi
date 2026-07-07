@@ -61,6 +61,7 @@ import {
   getIntakePacket,
   updateIntakePacket,
   submitIntakePacket,
+  findRelatedHistory,
   findReusePatterns,
   acceptReusePattern,
   assembleIntakeExternalPack,
@@ -70,6 +71,7 @@ import {
   reopenIntakePacket,
   provisionFromIntakePacket,
   listWizardTemplates,
+  listWizardFramingQuestions,
   saveWizardTemplate,
   GitHubClient,
   type LLMConfig,
@@ -248,6 +250,8 @@ export const api = {
     updateIntakePacket(db, input, actorPrincipalId),
   submitIntakePacket: (input: Parameters<typeof submitIntakePacket>[1], actorPrincipalId: string) =>
     submitIntakePacket(db, input, actorPrincipalId),
+  findRelatedHistory: (input: Parameters<typeof findRelatedHistory>[1], actorPrincipalId: string) =>
+    findRelatedHistory(db, input, actorPrincipalId),
   findReusePatterns: (input: Parameters<typeof findReusePatterns>[1], actorPrincipalId: string) =>
     findReusePatterns(db, input, actorPrincipalId),
   acceptReusePattern: (input: Parameters<typeof acceptReusePattern>[1], actorPrincipalId: string) =>
@@ -266,6 +270,8 @@ export const api = {
     provisionFromIntakePacket(db, { plane: getPlaneClient(), github: getBrainGitHubClient() }, input, actorPrincipalId),
   listWizardTemplates: (actorPrincipalId: string) =>
     listWizardTemplates(db, actorPrincipalId),
+  listWizardFramingQuestions: (actorPrincipalId: string) =>
+    listWizardFramingQuestions(db, actorPrincipalId),
   saveWizardTemplate: (input: Omit<Parameters<typeof saveWizardTemplate>[2], "repo"> & { repo?: string }, actorPrincipalId: string) => {
     const repo = input.repo || process.env.SKILLS_REPO;
     if (!repo) throw new Error("SKILLS_REPO is required");

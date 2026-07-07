@@ -4,6 +4,8 @@ Read-only cross-module search over records and docs.
 
 ## Purpose
 Provides `search(db, { scopePath, query, kinds?, limit?, mode? }, actorPrincipalId)` for agents and clients that need to find older scoped knowledge without trawling recent context. Search supports `keyword`, `semantic`, and `hybrid` modes; default is `hybrid`.
+The intake creation wizard uses hybrid search for related-history candidates, then
+stores only selected references on the intake row.
 
 ## Contract
 - Requires viewer-or-better on the requested `scopePath`.
