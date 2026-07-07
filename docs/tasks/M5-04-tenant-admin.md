@@ -1,6 +1,6 @@
 # M5-04: Tenant admin (users, roles, observability UI)
 
-status: draft — needs owner product decisions before dispatch
+status: todo (decisions ratified by owner 2026-07-08 — see below; dispatchable)
 module: apps/os + packages/api
 branch: task/M5-04
 
@@ -12,15 +12,21 @@ manage users/principals (invite, disable, role grants per scope), see system hea
 (INSTANCE_NAME, skills repo, integrations status). DESIGN §7 M5: "tenant admin (users, SSO,
 observability UI)".
 
-## Open decisions for the owner (answer before this becomes dispatchable)
+## Owner decisions (ratified 2026-07-08 — binding, do not relitigate)
 
-1. **SSO scope for v1**: email/password only (current better-auth) vs adding Google SSO now?
-   (better-auth supports it; needs OAuth app credentials.)
-2. **Invite flow**: email invites (needs SMTP/provider creds) or admin-created accounts with
-   temp passwords for v1?
-3. **Observability surface v1**: is capability runs + alerts + events list enough, or do you
-   want container/host metrics too (needs an agent on the VPS — bigger scope)?
-4. **Where admin lives**: `/admin` section gated by root-scope admin role (proposed) — ok?
+1. **SSO scope for v1**: email/password only (current better-auth). Google SSO is a later
+   add — do not scaffold OAuth config now.
+2. **Invite flow**: admin-created accounts with temp passwords, forced change on first
+   login. No SMTP dependency in this task.
+3. **Observability surface v1**: capability runs + alerts + events list only. No host/
+   container metrics agent. Cross-link to /admin/health (M9-01) and /admin/mcp (M7-03)
+   instead of duplicating their surfaces.
+4. **Where admin lives**: `/admin` section gated by root-scope admin role (same gate
+   pattern as /admin/health: resolveAccess on root + notFound for non-admins).
+5. **LiteLLM key budgets**: default US$25/month per virtual key, applied to the existing
+   LITELLM_EMBED_KEY and BRAIN_LITELLM_API_KEY keys on first admin visit (idempotent),
+   editable per-key in the UI. Budget exhaustion behavior = LiteLLM default (key stops;
+   the M9-01 LLM probe check will surface it as an error).
 
 ## Likely shape (to be firmed up)
 

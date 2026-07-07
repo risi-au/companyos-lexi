@@ -67,6 +67,10 @@ export * from "./modules/health/service";
 // Usage observability module (M7-03)
 export * from "./modules/usage/service";
 
+// Tenant admin module (M5-04)
+export * from "./modules/admin/service";
+export * from "./modules/admin/litellm";
+
 // Agent HTTP / n8n support (M2-05)
 export * from "./agent";
 
