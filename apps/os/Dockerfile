@@ -10,6 +10,7 @@ FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json tsconfig.json ./
 COPY apps/os/package.json ./apps/os/package.json
 COPY packages/api/package.json ./packages/api/package.json
+COPY packages/brain/package.json ./packages/brain/package.json
 COPY packages/db/package.json ./packages/db/package.json
 COPY packages/mcp/package.json ./packages/mcp/package.json
 COPY packages/ui/package.json ./packages/ui/package.json
@@ -18,6 +19,7 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm fetch --filter @companyos
 FROM deps AS install
 COPY apps/os ./apps/os
 COPY packages/api ./packages/api
+COPY packages/brain ./packages/brain
 COPY packages/db ./packages/db
 COPY packages/mcp ./packages/mcp
 COPY packages/ui ./packages/ui
