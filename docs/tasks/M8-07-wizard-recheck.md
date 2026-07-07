@@ -1,86 +1,100 @@
-# M8-07: Creation wizard recheck — external-agent briefing + brain-informed reuse
+# M8-07: Creation wizard v2 — briefing, related history, structured framing, pack rewrite
 
-status: todo
-module: packages/wizard + packages/api (intake) + companyos-skills repo (scope-intake)
+status: todo (design settled 2026-07-07 owner session; supersedes the earlier
+recheck-checklist version of this doc)
+module: packages/wizard + packages/api (intake, search) + apps/os (wizard UI) +
+companyos-skills repo (scope-intake content)
 branch: task/M8-07
 
-> **Process note (owner request 2026-07-07): this is deliberately NOT an implementation
-> guide.** The wizard is the front door of the OS and the owner wants a detailed design
-> discussion at implementation time. This doc records the audit findings and the recheck
-> checklist; the Do-list gets written together with the owner before any codex dispatch.
+Full design + product doctrine: this doc is the implementation brief distilled from
+the approved plan (owner design session 2026-07-07). Companion docs:
+`docs/patterns/OPERATING-DOCTRINE.md` (deliverable of this task) and
+`docs/tasks/M8-09-credential-vault.md` (Phase B, separate).
 
-## Goal
+## Settled design decisions (do not re-litigate)
 
-The wizard's promise is: the brain checks whether something similar already exists and
-the new scope starts from those learnings, while an external agent (Claude/ChatGPT/Kimi
-web — owner's choice) runs a well-briefed interview with the end user. The M8-04
-implementation shipped the machinery (statuses, paste-back parsing, provisioning,
-template editor) but the *content and context* of the external pack is far below that
-promise. This task is a full recheck of the wizard flow, then targeted fixes.
+- End user is an internal person who knows the requirement. Placement = existing
+  tree picker; a new required free-text **reason** ("what is this scope for?") is
+  captured at creation and carried verbatim into the pack.
+- **No internal chat-LLM call anywhere in the wizard path.** Retrieval is
+  embeddings (`embed` alias) with lexical fail-open; synthesis belongs to the
+  external interview agent.
+- Conversion doctrine: **link, don't migrate** — pre-signing history stays where it
+  happened; the wizard carries a digest + permanent references into the new scope.
+- Secrets: the external interview must **never** collect secret values — names +
+  what-for only (`required_credentials`). Values are entered post-provision into
+  the vault (M8-09).
+- Scope docs stay in the OS DB; the git repo gets only the managed AGENTS.md.
 
-Constraint that must survive: **no LLM call in the wizard critical path.** The pattern
-stays: brain pre-computes learnings nightly; wizard-time similarity is retrieval;
-synthesis happens in the external agent.
+## Do
 
-## Audit findings (2026-07-07, code as of `81c4fcf`)
+1. **Reason field**: `NewScopeDialog` (apps/os Sidebar) gains a required "What is
+   this scope for?" textarea → stored as `answers.reason` on the intake draft
+   created by `ensureDraftIntakeForScope`.
+2. **Structured framing**: IntakePanel replaces the raw-JSON answers textarea with
+   form fields generated from the framing template's `## Framing questions`
+   (key: question lines — parser exists in packages/wizard). Reason displayed on
+   top. Answers still persist to the same `answers` JSON.
+3. **Related history step (new)**: after framing, run hybrid search (M8-01 search
+   module) across scopes the actor can read, seeded with reason + scope name; show
+   hits (records/docs, title + snippet + scope); user selects which to include;
+   selections stored on the intake row (new jsonb column, same migration as #6).
+4. **Pack rewrite** (`assembleExternalPack` in packages/wizard +
+   `assembleIntakeExternalPack` in intake/service.ts). Pack sections in order:
+   briefing (from skill/template content — see Content below); structural context
+   (scope path, parent chain, parent `getContextBundle`; **root `scope-map` +
+   `critical-facts` fallback when top-level**); reason verbatim + framing answers;
+   lead-history digest (step-3 selections: titles, snippets, record ids); similar
+   work (top 2–3 `findReusePatterns` summaries + accepted pattern spec/seeds with
+   "adapt, don't copy"); packet schema with per-field guidance. Both variants
+   (paste-back + MCP); MCP variant adds pointers to `get_context`/`search`.
+5. **Packet schema extensions** (`intakePacketSchema` in packages/wizard):
+   `required_credentials: [{name, whatFor, loginMethodNotes}]` and
+   `external_systems: [{name, purpose, notes}]` (M9+ connector inventory).
+   Both optional-defaulted for backward compat; round-trip through
+   `parsePastedIntakePacket`.
+6. **Pack snapshot + review loudness**: store the assembled pack text on the intake
+   row at assemble time (plain-SQL migration: pack snapshot column + related-history
+   selections column). Review panel shows the snapshot (collapsible) and a loud
+   warning banner when the paste was markdown-only (fenced JSON missing).
+7. **Semantic `findReusePatterns`**: embed-alias similarity over root `pattern-*`
+   pages with the existing lexical scoring as fail-open fallback (no chat LLM).
+8. **Source-refs at provision**: `provisionFromIntakePacket` writes a
+   `source-refs` system record in the new scope linking the step-3 selections
+   (record/doc ids + scope paths) — the permanent lead→client bridge.
+9. **Content** (files under `docs/tasks/M8-07-content/` are the source of truth,
+   architect-drafted, **owner-approved wording required before merge**):
+   - `scope-intake/SKILL.md` rewrite (external interview operating guide)
+   - `templates/interview.md`, `templates/new-project.md`,
+     `templates/new-sub-scope.md`
+   - `DEFAULT_TEMPLATE_FILES` in intake/service.ts updated **byte-identical** to
+     those files; after merge the same content is pushed to the companyos-skills
+     repo (auto-sync via M8-08 handles the rest).
+   - `docs/patterns/OPERATING-DOCTRINE.md` (repo doc; also seeded as a root wiki
+     pattern page in the skills push).
+10. **Tests**: pack variants (parent / top-level fallback / patterns present +
+    accepted / history selections / both new schema fields round-trip); framing
+    form ↔ answers JSON; snapshot stored + surfaced; markdown-only warning state;
+    semantic-with-lexical-fallback matcher; source-refs record creation.
 
-1. **External pack barely briefs the agent.** `assembleExternalPack`
-   (packages/wizard/src/index.ts:246) sends one framing sentence, the framing answers,
-   parent context, a 2-line interview guide, and the packet schema. Nothing explains
-   what CompanyOS is (scopes/docs/records/Plane/workbench/brain wiki), why the interview
-   exists, how to conduct it with the end user (question cadence, facts vs assumptions,
-   citing sources), or what good looks like per packet field.
-2. **`scope-intake/SKILL.md` is 4 lines** (DEFAULT_SCOPE_INTAKE_SKILL,
-   packages/api/src/modules/intake/service.ts:613) and the seeded skills-repo copy is
-   byte-matched to it — same thinness in production.
-3. **Reuse patterns never reach the external agent.** `findReusePatterns`
-   (intake/service.ts:363) surfaces root `pattern-*` pages in the wizard UI only;
-   `assembleIntakeExternalPack` (intake/service.ts:445) does not include matches, nor
-   the accepted pattern's seeds. The "use those learnings" half of the promise is
-   missing from the pack.
-4. **Similarity matching is lexical term-overlap only** — no embeddings even when the
-   `embed` alias is live. Fine as fallback, weak as the primary matcher.
-5. **Top-level scopes get an empty pack.** `parentPath` is null when `scopePath` has no
-   `/` (intake/service.ts:452) → no parent context, and no fallback to root
-   `scope-map` / `critical-facts`.
-6. **markdownOnly paste-back is accepted silently** (parsePastedIntakePacket) — a paste
-   without the fenced JSON degrades to packet_md only; worth rechecking whether the
-   review UI makes that degradation loud enough.
+## Don't
 
-## Recheck checklist (walk these end-to-end during the design discussion)
+- No chat-LLM call in any wizard/intake request path.
+- No credential VALUES anywhere in intake tables, packs, or packets (vault is
+  M8-09; this task only carries names/notes).
+- Don't fork template content — files in docs/tasks/M8-07-content/ and
+  DEFAULT_TEMPLATE_FILES stay byte-matched.
+- Don't migrate/move source records at conversion — references only.
+- Migrations: plain SQL only (no DO $$), one migration for both new columns.
 
-- [ ] Persona-level dry run: owner plays end user, external agent gets the current pack
-  verbatim — record where it flounders. Use that transcript to drive the rewrite.
-- [ ] Pack content: what should the CompanyOS explainer, interview-conduct rules, and
-  per-field packet guidance actually say? (Owner voice matters here.)
-- [ ] Where briefing content lives: skills repo (`scope-intake/SKILL.md` + templates)
-  vs hardcoded defaults in service.ts — keep byte-parity rule or make repo win?
-- [ ] Reuse patterns in the pack: how many matches, summary vs full body, and how the
-  accepted pattern's `provision_spec`/seeds are presented to the agent.
-- [ ] Context fallback for top-level scopes: include root `scope-map` +
-  `critical-facts`; decide size caps.
-- [ ] Semantic matching in `findReusePatterns` via `embed` alias with lexical fallback
-  (fail-open, keeps no-chat-LLM rule). Depends on OPENAI_API_KEY being live.
-- [ ] Both pack variants (paste-back and MCP) get the same upgrades; MCP variant should
-  point the agent at `get_context`/`search` for deeper digging.
-- [ ] Framing templates (new-project / new-sub-scope): are the 3–5 framing questions
-  still the right ones now that the pack will carry real context?
-- [ ] Review surface: does /admin/intake show the reviewer what the external agent was
-  told (pack snapshot), not just what came back?
+## Acceptance criteria
 
-## Don't (already settled, not up for re-discussion)
-
-- No chat-LLM call inside wizard/intake request paths.
-- No new scope doc for this — M8-07 owns the whole recheck.
-- Don't fork template content: skills repo and DEFAULT_TEMPLATE_FILES stay in sync
-  (whichever sync rule the discussion picks).
-- provisionScope stays a separate post-approval act; statuses/events unchanged.
-
-## Acceptance criteria (final list agreed at design discussion; these are the floor)
-
-- [ ] External pack explains CompanyOS, the interview's purpose, conduct rules, and
-  per-field packet guidance — validated by a fresh external-agent dry run
-- [ ] Matched reuse patterns (and accepted-pattern seeds) are included in the pack
-- [ ] Top-level scope packs include root context fallback
-- [ ] Skills repo templates and in-code defaults updated together
-- [ ] 284+ tests stay green; new tests cover pack assembly variants
+- [ ] Creating a scope requires a reason; it appears in the pack verbatim
+- [ ] Framing is form-fields (no raw JSON editing in the default path)
+- [ ] Related-history hits can be selected and appear in the pack digest
+- [ ] Top-level scope pack contains root scope-map/critical-facts context
+- [ ] Pack briefing explains CompanyOS, interview purpose, conduct, output format
+- [ ] required_credentials + external_systems survive paste-back round-trip
+- [ ] Review shows the exact pack sent + loud markdown-only warning
+- [ ] Provision writes the source-refs record
+- [ ] All tests green; owner has signed off on content wording
