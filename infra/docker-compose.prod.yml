@@ -105,6 +105,9 @@ services:
       - PLANE_WORKSPACE_SLUG=${PLANE_WORKSPACE_SLUG:-}
       - PLANE_WEBHOOK_SECRET=${PLANE_WEBHOOK_SECRET:-}
       - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-}
+      - GITHUB_ORG=${GITHUB_ORG:-}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - SKILLS_REPO=${SKILLS_REPO:-}
     depends_on:
       migrate:
         condition: service_completed_successfully
