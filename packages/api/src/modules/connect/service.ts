@@ -48,6 +48,7 @@ export interface ListedConnectionToken {
   mintedBy: string;
   mintedByName: string;
   role: ConnectionRole;
+  memoryAccess: "on";
   createdAt: Date;
   expiresAt: Date | null;
   lastUsedAt: Date | null;
@@ -249,6 +250,7 @@ export async function listConnectionTokens(
       mintedBy: row.mintedBy,
       mintedByName: minterNames.get(row.mintedBy) || row.mintedBy,
       role: row.role,
+      memoryAccess: "on" as const,
       createdAt: row.createdAt,
       expiresAt: row.expiresAt,
       lastUsedAt: row.lastUsedAt,
@@ -368,6 +370,7 @@ export async function listConnections(
       mintedBy: row.mintedBy,
       mintedByName: minterNames.get(row.mintedBy) || row.mintedBy,
       role: row.role,
+      memoryAccess: "on" as const,
       createdAt: row.createdAt,
       expiresAt: row.expiresAt,
       lastUsedAt: row.lastUsedAt,

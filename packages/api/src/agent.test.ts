@@ -10,8 +10,10 @@ import * as dbMod from "@companyos/db";
 const schema: any = (dbMod as any).schema ?? dbMod;
 import {
   createScope,
+  getScope,
   grantRole,
   getContextBundle,
+  setContextProfile,
   verifyWorkbench,
   reportCapabilityRun,
   findScopeByPlaneProject,
@@ -45,6 +47,9 @@ describe("agent HTTP support (M2-05: context, report, plane lookup)", () => {
     client = new PGlite({ extensions: { vector } });
     db = drizzle(client, { schema });
     await migrate(db, { migrationsFolder });
+    if (!await getScope(db, "root")) {
+      await createScope(db, { slug: "root", name: "Root", type: "root" }, null);
+    }
   });
 
   afterAll(async () => {
@@ -145,6 +150,32 @@ describe("agent HTTP support (M2-05: context, report, plane lookup)", () => {
     expect(md).toContain(`Wiki scope: ${child.path}`);
     expect(md).toContain("wiki - Graduated Wiki");
     expect(md).not.toContain("Top Level Wiki");
+  });
+
+  it("getContextBundle includes root critical facts in every profile and measures the section", async () => {
+    await grantRole(db, { principalId: rootId, scopePath: "root", role: "admin" }, rootId);
+    await grantRole(db, { principalId: rootId, scopePath: demoScopePath, role: "admin" }, rootId);
+    await saveDoc(db, {
+      scopePath: "root",
+      slug: "critical-facts",
+      title: "Critical Facts",
+      bodyMd: "Instance critical fact: active holding company operating model.",
+    }, rootId);
+
+    for (const preset of ["lean", "standard", "deep"] as const) {
+      await setContextProfile(db, { scopePath: demoScopePath, name: `test-${preset}-${Date.now()}`, preset, isDefault: true }, rootId);
+      const md = await getContextBundle(db, demoScopePath, agentId);
+      expect(md).toContain("**Critical Facts**");
+      expect(md).toContain("Instance critical fact: active holding company operating model.");
+
+      const usageRows = await db
+        .select()
+        .from(schema.usageEvents)
+        .where(eq(schema.usageEvents.operation, "get_context"));
+      const latest = usageRows[usageRows.length - 1] as any;
+      expect(JSON.stringify(latest.metadata)).toContain("critical_facts");
+      expect(latest.totalTokensEst).toBeGreaterThan(0);
+    }
   });
 
   it("verifyWorkbench returns ok:false with expected repo/path on cwd mismatch", async () => {

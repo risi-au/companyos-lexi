@@ -3,10 +3,10 @@
 Per-scope "Connect to MCP" UI (M6-02). Lets authorized users mint scoped MCP connection tokens, copy ready-to-paste client configuration snippets, and revoke visible connections according to the service-layer permission matrix.
 
 ## Purpose
-Provide a scope-local connection panel for remote MCP clients. The UI is intentionally thin: current principal resolution happens in server actions, all permission checks and writes happen in `packages/api` connect services, and plaintext tokens are only held in client state immediately after minting.
+Provide a scope-local connection panel for remote MCP clients. The UI is intentionally thin: current principal resolution happens in server actions, all permission checks and writes happen in `packages/api` connect services, and plaintext tokens are only held in client state immediately after minting. Scoped memory access is default-on for connection tokens and displayed as the service-derived `memoryAccess` value.
 
 ## Files
-- `ConnectPanel.tsx`: client component with mint form, token-shown-once copy UI, MCP client snippets, and this scope's connections table.
+- `ConnectPanel.tsx`: client component with mint form, token-shown-once copy UI, MCP client snippets, and this scope's connections table including the derived Memory column.
 - `actions.ts`: "use server" wrappers around `api.mintConnectionToken`, `api.listConnectionTokens`, `api.revokeConnectionToken`, plus MCP public URL resolution from env.
 - `index.ts`: public export for the scope page.
 - `AGENTS.md`: this file.

@@ -35,8 +35,9 @@ export function renderManagedSection(input: ManagedSectionInput): string {
 ### Session Start Checklist
 1. Call \`whoami\`.
 2. Call \`get_context("${input.scope.path}")\`.
-3. Call \`register_session\` before file work so the OS can track active sessions on this scope.
-4. If MCP is unreachable or auth fails: STOP and tell the user - never proceed on assumed OS state.
+3. Call \`recall_memory\` before external research or broad record trawling.
+4. Call \`register_session\` before file work so the OS can track active sessions on this scope.
+5. If MCP is unreachable or auth fails: STOP and tell the user - never proceed on assumed OS state.
 
 ### Folder Guard
 - Your cwd must be under \`<workbench.path>\`; if it isn't, stop and ask the user.
@@ -59,6 +60,8 @@ ${children}
 ## Memory precedence
 - CompanyOS (get_context, list_records, tasks, docs) = authoritative for all
   client/scope facts.
+- CompanyOS recall_memory = distilled scope memory and company-wide patterns to check
+  before external research or broad record trawling.
 - Vendor memory (Claude/OpenAI) = personal preferences only.
 - On conflict: follow CompanyOS; log_decision if the OS record should be updated.
 - Never assume vendor memory knows the current scope — always call get_context at

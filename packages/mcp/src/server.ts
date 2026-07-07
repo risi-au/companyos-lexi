@@ -49,6 +49,7 @@ import {
   listSessions,
   SessionNotFoundError,
   search,
+  recallMemory,
   queryUsage,
   getContextProfile,
   setContextProfile,
@@ -836,6 +837,39 @@ export function createServer(options: CreateServerOptions) {
         const header = "type\tid\tref\ttitle\tscope\tdate\tsnippet\n";
         return {
           content: [{ type: "text", text: header + (lines.join("\n") || "(no results)") }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "recall_memory",
+    {
+      title: "Recall Memory",
+      description:
+        "Query the OS's distilled memory before trawling records; returns wiki knowledge for your scope plus company-wide patterns.",
+      inputSchema: z.object({
+        query: z.string().min(1).describe("Memory query"),
+        scope: z.string().optional().describe("Optional scope path; defaults to the token's single granted scope when possible"),
+        limit: z.number().int().min(1).max(25).optional().describe("Max results, default 10 clamped to 25"),
+      }),
+    },
+    async ({ query, scope, limit }) => {
+      try {
+        const actor = ensurePrincipal();
+        const hits = await recallMemory(db, { query, scopePath: scope, limit }, actor);
+        const lines = hits.map((h: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+          const confidence = h.confidence === null || h.confidence === undefined ? "" : String(h.confidence);
+          return `${h.source}\t${h.id}\t${h.slug}\t${h.title}\t${h.scopePath}\t${formatDate(h.updatedAt)}\t${confidence}\t${h.snippet || ""}`;
+        });
+        const header = "source\tid\tslug\ttitle\tscope\tupdated\tconfidence\tsnippet\n";
+        return {
+          content: [{ type: "text", text: header + (lines.join("\n") || "(no memory)") }],
         };
       } catch (e) {
         return {

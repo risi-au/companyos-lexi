@@ -16,6 +16,7 @@ interface AdminConnectionRow {
   mintedBy: string;
   mintedByName: string;
   role: "agent" | "viewer";
+  memoryAccess: "on";
   createdAt: string | Date;
   expiresAt: string | Date | null;
   lastUsedAt: string | Date | null;
@@ -248,7 +249,7 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
       ) : null}
 
       <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)]">
-        <table className="w-full min-w-[980px] text-left text-[var(--font-size-sm)]">
+        <table className="w-full min-w-[1040px] text-left text-[var(--font-size-sm)]">
           <thead className="border-b border-[var(--border)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
             <tr>
               <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Connection</th>
@@ -256,6 +257,7 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
               <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Principal</th>
               <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Minted by</th>
               <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Role</th>
+              <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Memory</th>
               <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Expiry</th>
               <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Last used</th>
               <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Status</th>
@@ -264,7 +266,7 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
           <tbody>
             {visibleConnections.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-[var(--space-3)] py-[var(--space-4)] text-[var(--muted-foreground)]">
+                <td colSpan={9} className="px-[var(--space-3)] py-[var(--space-4)] text-[var(--muted-foreground)]">
                   No connections match these filters.
                 </td>
               </tr>
@@ -284,6 +286,9 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
                   <td className="px-[var(--space-3)] py-[var(--space-2)]">{row.mintedByName}</td>
                   <td className="px-[var(--space-3)] py-[var(--space-2)] font-mono text-[var(--font-size-xs)]">
                     {row.role}
+                  </td>
+                  <td className="px-[var(--space-3)] py-[var(--space-2)] font-mono text-[var(--font-size-xs)]">
+                    {row.memoryAccess}
                   </td>
                   <td className="px-[var(--space-3)] py-[var(--space-2)] tabular-nums">{formatDate(row.expiresAt)}</td>
                   <td className="px-[var(--space-3)] py-[var(--space-2)] tabular-nums">{formatDate(row.lastUsedAt)}</td>

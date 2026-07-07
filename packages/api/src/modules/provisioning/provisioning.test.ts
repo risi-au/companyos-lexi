@@ -248,6 +248,8 @@ describe("provisioning module", () => {
     const memoryPrecedence = `## Memory precedence
 - CompanyOS (get_context, list_records, tasks, docs) = authoritative for all
   client/scope facts.
+- CompanyOS recall_memory = distilled scope memory and company-wide patterns to check
+  before external research or broad record trawling.
 - Vendor memory (Claude/OpenAI) = personal preferences only.
 - On conflict: follow CompanyOS; log_decision if the OS record should be updated.
 - Never assume vendor memory knows the current scope — always call get_context at
@@ -262,6 +264,7 @@ describe("provisioning module", () => {
     expect(rootAgents).toContain("### Session Start Checklist");
     expect(rootAgents).toContain("Call `whoami`.");
     expect(rootAgents).toContain(`Call \`get_context("${slug}")\`.`);
+    expect(rootAgents).toContain("Call `recall_memory` before external research or broad record trawling.");
     expect(rootAgents).toContain("If MCP is unreachable or auth fails: STOP and tell the user - never proceed on assumed OS state.");
     expect(rootAgents).toContain("### Session End / Handover");
     expect(rootAgents).toContain("Use `log_change` incrementally during work; include PR URLs, PR numbers, and commit SHAs when available.");
@@ -276,6 +279,7 @@ describe("provisioning module", () => {
     expect(rootAgents).toContain("Your cwd must be under `<workbench.path>`; if it isn't, stop and ask the user.");
     expect(rootAgents).toContain("Call `verify_workbench` (if available) after `get_context` when doing file work.");
     expect(rootAgents).toContain(memoryPrecedence);
+    expect(rootAgents).toContain("CompanyOS recall_memory = distilled scope memory and company-wide patterns");
     expect(rootAgents).not.toContain("CompanyOS MCP endpoint:");
     expect(rootAgents).not.toContain(result.agentToken!.plaintext);
     expect(rootAgents).not.toContain(process.env.COMPANYOS_TOKEN!);
