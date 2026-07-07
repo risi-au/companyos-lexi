@@ -1,6 +1,7 @@
 # M7-01: Wiki gardener (records → wiki distiller capability)
 
-status: todo (blocked on: M6-05 + M6-09 shipped; owner picks pilot client)
+status: SUPERSEDED by M8 (2026-07-07) — absorbed into the native knowledge engine, no
+n8n, no pilot client. See docs/tasks/M8-second-brain-overview.md and M8-02.
 module: capability (infra/n8n workflow + central skills repo + capability registration) —
 no OS app code expected
 branch: task/M7-01

@@ -1,6 +1,8 @@
 # M7-04: External onboarding intake packets (interview -> provision plan)
 
-status: todo (blocked on: M6-09 shipped; M7-03 optional but recommended for token tuning)
+status: SUPERSEDED by M8 (2026-07-07) — rewritten as the scope-first creation wizard
+(intake anchored to existing scopes; wizard brokers the external interview). See
+docs/tasks/M8-second-brain-overview.md and M8-04.
 module: packages/api (new module `intake`) + packages/mcp + apps/os
 branch: task/M7-04
 
