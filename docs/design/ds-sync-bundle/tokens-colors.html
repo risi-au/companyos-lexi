@@ -1,0 +1,77 @@
+<!-- @dsCard group="Colors" -->
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>CompanyOS — Color Tokens</title>
+<style>
+:root {
+  --primitive-white:#ffffff; --primitive-slate-50:#f8fafc; --primitive-slate-200:#e2e8f0;
+  --primitive-slate-500:#64748b; --primitive-slate-900:#0f172a; --primitive-slate-950:#0b1220;
+  --primitive-blue-700:#1e40af; --primitive-blue-500:#3b82f6;
+  --primitive-amber-600:#d97706; --primitive-amber-500:#f59e0b;
+  --primitive-red-600:#dc2626; --primitive-red-400:#f87171;
+  --primitive-green-600:#16a34a; --primitive-green-400:#4ade80;
+  --primitive-yellow-500:#fbbf24; --primitive-teal-500:#14b8a6;
+  --primitive-violet-500:#8b5cf6; --primitive-rose-500:#f43f5e;
+  --background:var(--primitive-slate-50); --surface:var(--primitive-white);
+  --foreground:var(--primitive-slate-900); --muted:#e9eef6; --muted-foreground:var(--primitive-slate-500);
+  --border:var(--primitive-slate-200); --primary:var(--primitive-blue-700);
+  --primary-foreground:var(--primitive-white); --accent:var(--primitive-amber-600);
+  --destructive:var(--primitive-red-600);
+  --status-ok:var(--primitive-green-600); --status-warn:var(--primitive-amber-600);
+  --status-error:var(--primitive-red-600); --status-neutral:var(--muted-foreground);
+  --chart-1:var(--primitive-blue-700); --chart-2:var(--primitive-teal-500);
+  --chart-3:var(--primitive-amber-600); --chart-4:var(--primitive-violet-500);
+  --chart-5:var(--primitive-rose-500); --chart-6:var(--primitive-slate-500);
+}
+.dark {
+  --background:var(--primitive-slate-950); --surface:#111a2e; --foreground:#e2e8f0;
+  --muted:#1b2740; --muted-foreground:#8fa3c0; --border:#243352;
+  --primary:var(--primitive-blue-500); --primary-foreground:var(--primitive-slate-950);
+  --accent:var(--primitive-amber-500); --destructive:var(--primitive-red-400);
+  --status-ok:var(--primitive-green-400); --status-warn:var(--primitive-yellow-500);
+  --status-error:var(--primitive-red-400); --status-neutral:var(--muted-foreground);
+}
+body{font-family:Inter,system-ui,sans-serif;margin:0;padding:24px;display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.pane{border-radius:10px;padding:20px;background:var(--background);color:var(--foreground);border:1px solid var(--border)}
+h2{font-size:14px;margin:0 0 12px;font-weight:600}
+.row{display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:12px}
+.sw{width:36px;height:24px;border-radius:6px;border:1px solid var(--border);flex:none}
+.name{font-family:ui-monospace,monospace;color:var(--muted-foreground)}
+</style>
+</head>
+<body>
+<div class="pane">
+  <h2>Semantic — light</h2>
+  <div class="row"><span class="sw" style="background:var(--background)"></span><span class="name">--background</span></div>
+  <div class="row"><span class="sw" style="background:var(--surface)"></span><span class="name">--surface</span></div>
+  <div class="row"><span class="sw" style="background:var(--foreground)"></span><span class="name">--foreground</span></div>
+  <div class="row"><span class="sw" style="background:var(--muted)"></span><span class="name">--muted</span></div>
+  <div class="row"><span class="sw" style="background:var(--muted-foreground)"></span><span class="name">--muted-foreground</span></div>
+  <div class="row"><span class="sw" style="background:var(--border)"></span><span class="name">--border</span></div>
+  <div class="row"><span class="sw" style="background:var(--primary)"></span><span class="name">--primary (blue-700)</span></div>
+  <div class="row"><span class="sw" style="background:var(--accent)"></span><span class="name">--accent (amber-600)</span></div>
+  <div class="row"><span class="sw" style="background:var(--destructive)"></span><span class="name">--destructive</span></div>
+  <div class="row"><span class="sw" style="background:var(--status-ok)"></span><span class="name">--status-ok</span></div>
+  <div class="row"><span class="sw" style="background:var(--status-warn)"></span><span class="name">--status-warn</span></div>
+  <div class="row"><span class="sw" style="background:var(--status-error)"></span><span class="name">--status-error</span></div>
+  <div class="row"><span class="sw" style="background:var(--chart-1)"></span><span class="sw" style="background:var(--chart-2)"></span><span class="sw" style="background:var(--chart-3)"></span><span class="sw" style="background:var(--chart-4)"></span><span class="sw" style="background:var(--chart-5)"></span><span class="sw" style="background:var(--chart-6)"></span><span class="name">--chart-1…6</span></div>
+</div>
+<div class="pane dark">
+  <h2>Semantic — dark (.dark)</h2>
+  <div class="row"><span class="sw" style="background:var(--background)"></span><span class="name">--background</span></div>
+  <div class="row"><span class="sw" style="background:var(--surface)"></span><span class="name">--surface</span></div>
+  <div class="row"><span class="sw" style="background:var(--foreground)"></span><span class="name">--foreground</span></div>
+  <div class="row"><span class="sw" style="background:var(--muted)"></span><span class="name">--muted</span></div>
+  <div class="row"><span class="sw" style="background:var(--muted-foreground)"></span><span class="name">--muted-foreground</span></div>
+  <div class="row"><span class="sw" style="background:var(--border)"></span><span class="name">--border</span></div>
+  <div class="row"><span class="sw" style="background:var(--primary)"></span><span class="name">--primary (blue-500)</span></div>
+  <div class="row"><span class="sw" style="background:var(--accent)"></span><span class="name">--accent (amber-500)</span></div>
+  <div class="row"><span class="sw" style="background:var(--destructive)"></span><span class="name">--destructive</span></div>
+  <div class="row"><span class="sw" style="background:var(--status-ok)"></span><span class="name">--status-ok</span></div>
+  <div class="row"><span class="sw" style="background:var(--status-warn)"></span><span class="name">--status-warn</span></div>
+  <div class="row"><span class="sw" style="background:var(--status-error)"></span><span class="name">--status-error</span></div>
+</div>
+</body>
+</html>
