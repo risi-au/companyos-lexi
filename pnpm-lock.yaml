@@ -81,6 +81,9 @@ importers:
       '@companyos/api':
         specifier: workspace:*
         version: link:../../packages/api
+      '@companyos/brain':
+        specifier: workspace:*
+        version: link:../../packages/brain
       '@companyos/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -176,6 +179,28 @@ importers:
       tsx:
         specifier: ^4.22.4
         version: 4.22.4
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.1
+        version: 3.2.6(@types/debug@4.1.13)(@types/node@22.20.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@2.2.0))(lightningcss@1.32.0)(sass@1.51.0)(tsx@4.22.4)
+
+  packages/brain:
+    dependencies:
+      '@companyos/api':
+        specifier: workspace:*
+        version: link:../api
+    devDependencies:
+      '@companyos/db':
+        specifier: workspace:*
+        version: link:../db
+      '@electric-sql/pglite':
+        specifier: 0.2.5
+        version: 0.2.5
+      drizzle-orm:
+        specifier: ^0.44.2
+        version: 0.44.7(@electric-sql/pglite@0.2.5)(kysely@0.29.2)(postgres@3.4.9)
       typescript:
         specifier: ^5.8.3
         version: 5.9.3

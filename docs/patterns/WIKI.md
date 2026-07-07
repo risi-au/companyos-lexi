@@ -24,6 +24,19 @@ reads before working. Records are what happened; the wiki is what is true now.
 
 ## Page structure
 
+- Maintained wiki pages use bi-temporal YAML frontmatter:
+  ```yaml
+  ---
+  learned_at: "2026-07-07T00:00:00.000Z"
+  verified_at: "2026-07-07T00:00:00.000Z"
+  stale_after: "2026-10-07T00:00:00.000Z" # optional
+  confidence: high # high | medium | low
+  ---
+  ```
+  `learned_at` is the earliest source represented on the page, `verified_at` is the
+  latest verification time, `stale_after` marks known review expiry, and `confidence` is
+  the page-level synthesis confidence.
+
 - **Index page**: slug `wiki`, title "Wiki". What this scope is + a linked map of every
   topic page. The index is the front door; if a page isn't linked from the index
   (directly or via another linked page), it's orphaned — fix it.
@@ -34,7 +47,22 @@ reads before working. Records are what happened; the wiki is what is true now.
   automatically (`saved_by` per revision records who wrote what) — history is free,
   so pages stay current without losing the past.
 - Each topic page ends with a **Sources** section: record ids + dates it was distilled
-  from, and links to related pages. This is the backlink graph, in plain markdown.
+  from, links to related pages, and a provenance tag for each claim: `extracted`,
+  `inferred`, or `ambiguous`. Example:
+  `- extracted: record:rec_123 (2026-07-07) - checkout uses Stripe`.
+  This is the backlink graph and provenance layer in plain markdown.
+
+## Root wiki reserved pages
+
+The root scope has an instance-level wiki maintained for root admins. Normal scope grants
+still apply elsewhere; root wiki pages are root-admin territory.
+
+- `critical-facts`: the always-fresh 100-200 token instance vital signs block.
+- `scope-map`: what scopes exist, what each one does, and how they connect.
+- `pattern-*`: client-agnostic playbooks distilled from repeated structures across
+  scopes. Pattern pages describe structure, playbook, pitfalls, and typical provision
+  spec. They may cite scope references in Sources, but must not contain
+  client-confidential specifics.
 
 ## Links and backlinks
 

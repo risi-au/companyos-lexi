@@ -20,6 +20,7 @@ Next.js (app router) tenant UI + thin HTTP API surface for agents/engines (n8n, 
 - POST /api/v1/records/log { scope, kind, title, body_md?, data? } → createRecord (editor)
 - GET /api/v1/context?scope=... → getContextBundle markdown (viewer)
 - POST /api/v1/capabilities/report-run { capability, scope?, ... } → emits capability.run_reported (token validated)
+- POST /api/v1/brain/run { mode: "ingest"|"lint"|"backfill", scope?, tokenCeiling? } → root-admin/manual trigger for `@companyos/brain`; cron should call the same route
 - POST /api/v1/webhooks/plane (Plane signed, X-Plane-Signature HMAC raw-body) → emits task.completed_external / task.updated_external or webhook.unhandled
 - POST /api/webhooks/github (GitHub signed, X-Hub-Signature-256 HMAC raw-body; `GITHUB_WEBHOOK_SECRET`) → delegates to workbench-events for push/PR ingestion and changelog stubs
 - GET/POST /api/v1/canvas ?scope= [&slug=] ; POST {scope, name, slug?, scene?} → canvas ops (viewer/editor)

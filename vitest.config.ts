@@ -5,6 +5,7 @@ export default defineConfig({
     projects: [
       "packages/db",
       "packages/api",
+      "packages/brain",
       "packages/mcp",
       {
         test: {
