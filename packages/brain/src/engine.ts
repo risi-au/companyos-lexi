@@ -27,7 +27,14 @@ export const WIKI_MAINTENANCE_SKILL = "wiki-maintenance";
 const ROOT_SCOPE = "root";
 const DEFAULT_RUN_TOKEN_CEILING = 24_000;
 const DEFAULT_MONTHLY_TOKEN_BUDGET = 1_000_000;
+const MAX_RESPONSE_EXCERPT_CHARS = 2048;
 const WIKILINK_RE = /\[\[([^\]\n]+)\]\]/g;
+const JSON_ENVELOPE_INSTRUCTIONS: Record<BrainLlmRequest["purpose"], string> = {
+  "scope-ingest": "Return only one JSON object: {\"pages\":[{\"slug\":\"kebab-slug\",\"title\":\"Title\",\"bodyMd\":\"markdown\"}],\"recordsDistilled\":0}. No prose, no markdown fence.",
+  "root-distill": "Return only one JSON object: {\"pages\":[{\"slug\":\"critical-facts|scope-map|pattern-name\",\"title\":\"Title\",\"bodyMd\":\"markdown\"}]}. No prose, no markdown fence.",
+  "lint-scope": "Return only one JSON object: {\"findings\":[{\"type\":\"contradiction\",\"severity\":\"warning\",\"message\":\"...\",\"slugs\":[\"slug\"],\"action\":\"flagged\"}]}. No prose, no markdown fence.",
+  "code-docs": "Return only one JSON object: {\"pages\":[{\"slug\":\"code-architecture|code-stack|code-integrations|code-ops\",\"title\":\"Title\",\"bodyMd\":\"markdown\"}]}. No prose, no markdown fence.",
+};
 
 export type BrainRunMode = "ingest" | "lint" | "backfill";
 export type BrainRoleAlias = "cheap" | "analysis";
@@ -67,7 +74,7 @@ export interface BrainDeps {
 
 export interface BrainRunResult {
   mode: BrainRunMode;
-  status: "success";
+  status: "success" | "error";
   partial: boolean;
   pagesTouched: number;
   recordsDistilled: number;
@@ -84,6 +91,10 @@ export interface ScopeRunSummary {
   recordsDistilled: number;
   skipped?: "no-new-inputs" | "budget";
   codeDocs?: CodeDocsSummary;
+  parseFailed?: boolean;
+  parseFailureReason?: string;
+  parseFailureExcerpt?: string;
+  droppedNonReservedSlugs?: number;
 }
 
 export interface BrainEventInput {
@@ -118,6 +129,7 @@ export interface EngineCounters {
   tokens: number;
   llmCalls: number;
   partial: boolean;
+  outputFailures: number;
 }
 
 interface SourceInput {
@@ -144,6 +156,13 @@ interface RootDistillOutput {
   pages: IngestPageOutput[];
 }
 
+interface ParseFailureFields {
+  parseFailed: true;
+  parseFailureReason: string;
+  parseFailureExcerpt: string;
+  droppedNonReservedSlugs?: number;
+}
+
 export interface LintFinding {
   type: "orphan" | "duplicate" | "contradiction" | "stale";
   severity: "info" | "warning";
@@ -156,6 +175,11 @@ interface LintOutput {
   findings: LintFinding[];
 }
 
+interface LintScopeResult {
+  findings: LintFinding[];
+  parseFailure?: ParseFailureFields;
+}
+
 export interface LiteLlmBrainClientConfig {
   baseUrl: string;
   apiKey: string;
@@ -166,6 +190,37 @@ export class BudgetExceededError extends Error {
     super(message);
     this.name = "BudgetExceededError";
   }
+}
+
+function usablePage(page: Partial<IngestPageOutput> | null | undefined): page is IngestPageOutput {
+  return typeof page?.slug === "string" &&
+    page.slug.trim().length > 0 &&
+    typeof page.title === "string" &&
+    page.title.trim().length > 0 &&
+    typeof page.bodyMd === "string" &&
+    page.bodyMd.trim().length > 0;
+}
+
+function usableFinding(finding: Partial<LintFinding> | null | undefined): finding is LintFinding {
+  return finding?.type === "contradiction" &&
+    typeof finding.message === "string" &&
+    finding.message.trim().length > 0 &&
+    Array.isArray(finding.slugs);
+}
+
+function outputFailure(
+  counters: EngineCounters,
+  reason: string,
+  text: string,
+  extra: { droppedNonReservedSlugs?: number } = {}
+): ParseFailureFields {
+  counters.outputFailures += 1;
+  return {
+    parseFailed: true,
+    parseFailureReason: reason,
+    parseFailureExcerpt: responseExcerpt(text),
+    ...extra,
+  };
 }
 
 export function iso(date: Date): string {
@@ -185,14 +240,53 @@ function effectiveMonthlyBudget(input?: number): number {
 }
 
 export function parseJsonObject<T>(text: string, fallback: T): T {
+  return parseJsonObjectResult(text, fallback).value;
+}
+
+export interface ParseJsonObjectResult<T> {
+  ok: boolean;
+  value: T;
+  excerpt?: string;
+  reason?: string;
+}
+
+export function responseExcerpt(text: string): string {
+  return text.trim().slice(0, MAX_RESPONSE_EXCERPT_CHARS);
+}
+
+function extractJsonObject(text: string): string | null {
   const trimmed = text.trim();
-  const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
-  const raw = fenced?.[1] ?? trimmed;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
+  if (!trimmed) return null;
+  const fenced = /```(?:json)?\s*([\s\S]*?)\s*```/i.exec(trimmed);
+  if (fenced?.[1]) return fenced[1].trim();
+  const first = trimmed.indexOf("{");
+  const last = trimmed.lastIndexOf("}");
+  if (first === -1 || last === -1 || last <= first) return null;
+  return trimmed.slice(first, last + 1);
+}
+
+export function parseJsonObjectResult<T>(text: string, fallback: T): ParseJsonObjectResult<T> {
+  const raw = extractJsonObject(text);
+  if (!raw) {
+    return { ok: false, value: fallback, excerpt: responseExcerpt(text), reason: text.trim() ? "no JSON object found" : "empty response" };
   }
+  try {
+    return { ok: true, value: JSON.parse(raw) as T };
+  } catch (error) {
+    return {
+      ok: false,
+      value: fallback,
+      excerpt: responseExcerpt(text),
+      reason: error instanceof Error ? error.message : "invalid JSON",
+    };
+  }
+}
+
+export function promptWithJsonEnvelope(purpose: BrainLlmRequest["purpose"], payload: Record<string, unknown>): string {
+  return JSON.stringify({
+    ...payload,
+    outputFormatMandatory: JSON_ENVELOPE_INSTRUCTIONS[purpose],
+  });
 }
 
 function countResponseTokens(request: BrainLlmRequest, response: BrainLlmResponse): number {
@@ -300,6 +394,7 @@ export async function runBrainEngine(
     tokens: 0,
     llmCalls: 0,
     partial: false,
+    outputFailures: 0,
   };
   const scopeRuns: ScopeRunSummary[] = [];
   const lintFindings: LintFinding[] = [];
@@ -312,13 +407,14 @@ export async function runBrainEngine(
       const scopes = await targetScopes(db, input.scopePath);
       for (const scope of scopes) {
         try {
-          const findings = await lintScope(db, scope.path, actorPrincipalId, deps, counters, runTokenCeiling, monthlyTokenBudget);
-          lintFindings.push(...findings);
+          const lintResult = await lintScope(db, scope.path, actorPrincipalId, deps, counters, runTokenCeiling, monthlyTokenBudget);
+          lintFindings.push(...lintResult.findings);
           scopeRuns.push({
             scopePath: scope.path,
-            inputCount: findings.length,
-            pagesTouched: findings.some((finding) => finding.action === "auto-fixed") ? 1 : 0,
+            inputCount: lintResult.findings.length,
+            pagesTouched: lintResult.findings.some((finding) => finding.action === "auto-fixed") ? 1 : 0,
             recordsDistilled: 0,
+            ...lintResult.parseFailure,
           });
         } catch (error) {
           if (error instanceof BudgetExceededError) {
@@ -345,7 +441,14 @@ export async function runBrainEngine(
             runTokenCeiling,
             monthlyTokenBudget
           );
-          if (codeDocs) summary.codeDocs = codeDocs;
+          if (codeDocs) {
+            summary.codeDocs = codeDocs;
+            if (codeDocs.parseFailed) {
+              summary.parseFailed = true;
+              summary.parseFailureReason = codeDocs.parseFailureReason;
+              summary.parseFailureExcerpt = codeDocs.parseFailureExcerpt;
+            }
+          }
           anyInputs = anyInputs || summary.inputCount > 0 || (codeDocs?.pagesTouched ?? 0) > 0;
           scopeRuns.push(summary);
         } catch (error) {
@@ -359,7 +462,8 @@ export async function runBrainEngine(
       }
       if (anyInputs && !counters.partial) {
         try {
-          await distillRoot(db, scopes.map((scope) => scope.path), actorPrincipalId, deps, counters, runTokenCeiling, monthlyTokenBudget);
+          const rootSummary = await distillRoot(db, scopes.map((scope) => scope.path), actorPrincipalId, deps, counters, runTokenCeiling, monthlyTokenBudget);
+          if (rootSummary) scopeRuns.push(rootSummary);
         } catch (error) {
           if (error instanceof BudgetExceededError) {
             counters.partial = true;
@@ -372,7 +476,7 @@ export async function runBrainEngine(
 
     const result: BrainRunResult = {
       mode: input.mode,
-      status: "success",
+      status: counters.outputFailures > 0 ? "error" : "success",
       partial: counters.partial,
       pagesTouched: counters.pagesTouched,
       recordsDistilled: counters.recordsDistilled,
@@ -401,6 +505,7 @@ export async function runBrainEngine(
           recordsDistilled: counters.recordsDistilled,
           tokens: counters.tokens,
           llmCalls: counters.llmCalls,
+          outputFailures: counters.outputFailures,
           scopeRuns,
         },
       },
@@ -452,19 +557,21 @@ async function reportBrainRun(
     {
       scopePath: ROOT_SCOPE,
       name: BRAIN_CAPABILITY_NAME,
-      status: "success",
+      status: result.status,
       runRef: runRef(input, now),
       startedAt: started,
       finishedAt: new Date(),
       durationMs,
-      summary: `${input.mode}: ${result.pagesTouched} pages, ${result.recordsDistilled} records, ${result.tokens} tokens${result.partial ? " (partial)" : ""}`,
+      summary: `${input.mode}: ${result.pagesTouched} pages, ${result.recordsDistilled} records, ${result.tokens} tokens${result.partial ? " (partial)" : ""}${result.status === "error" ? " (output contract failure)" : ""}`,
       payload: {
         mode: input.mode,
+        status: result.status,
         scopePath: input.scopePath ?? null,
         pagesTouched: result.pagesTouched,
         recordsDistilled: result.recordsDistilled,
         tokens: result.tokens,
         llmCalls: result.llmCalls,
+        outputFailures: result.scopeRuns.filter((scopeRun) => scopeRun.parseFailed).length,
         partial: result.partial,
         scopeRuns: result.scopeRuns,
         lintFindings: result.lintFindings,
@@ -585,7 +692,7 @@ async function ingestScope(
       role: "cheap",
       purpose: "scope-ingest",
       system: skill.body,
-      prompt: JSON.stringify({
+      prompt: promptWithJsonEnvelope("scope-ingest", {
         scopePath,
         wikiContract: "Update durable wiki pages in place with frontmatter, provenance-tagged Sources, and wikilinks.",
         since: since?.toISOString() ?? null,
@@ -599,21 +706,28 @@ async function ingestScope(
     counters,
     runTokenCeiling,
     monthlyTokenBudget,
-    scopePath
+      scopePath
   );
-  const output = parseJsonObject<IngestOutput>(response.text, { pages: [] });
+  const parsed = parseJsonObjectResult<IngestOutput>(response.text, { pages: [] });
+  const rawPages = Array.isArray(parsed.value.pages) ? parsed.value.pages : [];
+  const pages = rawPages.filter(usablePage);
+  const parseFailure = !parsed.ok
+    ? outputFailure(counters, parsed.reason ?? "invalid JSON", response.text)
+    : rawPages.length > 0 && pages.length === 0
+      ? outputFailure(counters, "zero usable pages", response.text)
+      : null;
   let pagesTouched = 0;
-  for (const page of output.pages) {
+  for (const page of pages) {
     const existing = await getDoc(db, { scopePath, slug: page.slug }, actorPrincipalId);
     const finalBody = ensureWikiPageBody(page.bodyMd, deps.now ?? new Date());
     if (existing?.bodyMd === finalBody && existing.title === page.title) continue;
     await saveDoc(db, { scopePath, slug: page.slug, title: page.title, bodyMd: finalBody }, actorPrincipalId);
     pagesTouched += 1;
   }
-  const recordsDistilled = output.recordsDistilled ?? inputs.filter((input) => input.kind === "record").length;
+  const recordsDistilled = parsed.value.recordsDistilled ?? inputs.filter((input) => input.kind === "record").length;
   counters.pagesTouched += pagesTouched;
   counters.recordsDistilled += recordsDistilled;
-  return { scopePath, inputCount: inputs.length, pagesTouched, recordsDistilled };
+  return { scopePath, inputCount: inputs.length, pagesTouched, recordsDistilled, ...(parseFailure ?? {}) };
 }
 
 async function semanticCandidates(
@@ -679,7 +793,7 @@ async function distillRoot(
   counters: EngineCounters,
   runTokenCeiling: number,
   monthlyTokenBudget: number
-): Promise<void> {
+): Promise<ScopeRunSummary | null> {
   const skill = await getSkill(db, { name: WIKI_MAINTENANCE_SKILL }, actorPrincipalId);
   const scopes = await getSubtree(db, ROOT_SCOPE) as ScopeInfo[];
   const scopeDocs: Array<{ scopePath: string; pages: Array<{ slug: string; title: string; bodyMd: string }> }> = [];
@@ -700,7 +814,7 @@ async function distillRoot(
       role: "analysis",
       purpose: "root-distill",
       system: skill.body,
-      prompt: JSON.stringify({
+      prompt: promptWithJsonEnvelope("root-distill", {
         rootReservedPages: ["critical-facts", "scope-map", "pattern-*"],
         instruction: "Write root pages. Pattern pages must be client-agnostic and exclude client-confidential specifics.",
         scopes: scopes.map((scope) => ({ path: scope.path, name: scope.name, type: scope.type, parentId: scope.parentId })),
@@ -714,7 +828,14 @@ async function distillRoot(
     monthlyTokenBudget,
     ROOT_SCOPE
   );
-  const output = parseJsonObject<RootDistillOutput>(response.text, { pages: [] });
+  const parsed = parseJsonObjectResult<RootDistillOutput>(response.text, { pages: [] });
+  const rawPages = Array.isArray(parsed.value.pages) ? parsed.value.pages : [];
+  const usablePages = rawPages.filter(usablePage);
+  let parseFailure: ParseFailureFields | null = !parsed.ok
+    ? outputFailure(counters, parsed.reason ?? "invalid JSON", response.text)
+    : rawPages.length > 0 && usablePages.length === 0
+      ? outputFailure(counters, "zero usable pages", response.text)
+      : null;
   const scopeNames = scopes.filter((scope) => scope.type !== "root").flatMap((scope) => [scope.path, scope.name]);
   for (const scopePath of scopePaths) {
     const workbench = await findNearestWorkbench(db, scopePath);
@@ -723,8 +844,13 @@ async function distillRoot(
     const bareRepo = workbench.repo.split("/").pop();
     if (bareRepo) scopeNames.push(bareRepo);
   }
-  for (const page of output.pages) {
-    if (!isRootReservedSlug(page.slug)) continue;
+  let droppedNonReservedSlugs = 0;
+  let pagesTouched = 0;
+  for (const page of usablePages) {
+    if (!isRootReservedSlug(page.slug)) {
+      droppedNonReservedSlugs += 1;
+      continue;
+    }
     const bodyMd = page.slug.startsWith("pattern-")
       ? sanitizePatternBody(page.bodyMd, scopeNames)
       : page.bodyMd;
@@ -733,7 +859,22 @@ async function distillRoot(
     if (existing?.bodyMd === finalBody && existing.title === page.title) continue;
     await saveDoc(db, { scopePath: ROOT_SCOPE, slug: page.slug, title: page.title, bodyMd: finalBody }, actorPrincipalId);
     counters.pagesTouched += 1;
+    pagesTouched += 1;
   }
+  if (!parseFailure && droppedNonReservedSlugs > 0 && pagesTouched === 0) {
+    parseFailure = outputFailure(counters, "root distill returned only non-reserved slugs", response.text, { droppedNonReservedSlugs });
+  } else if (parseFailure && droppedNonReservedSlugs > 0) {
+    parseFailure.droppedNonReservedSlugs = droppedNonReservedSlugs;
+  }
+  if (!parseFailure && droppedNonReservedSlugs === 0) return null;
+  return {
+    scopePath: ROOT_SCOPE,
+    inputCount: scopeDocs.reduce((sum, scopeDoc) => sum + scopeDoc.pages.length, 0),
+    pagesTouched,
+    recordsDistilled: 0,
+    droppedNonReservedSlugs,
+    ...(parseFailure ?? {}),
+  };
 }
 
 function isRootReservedSlug(slug: string): boolean {
@@ -758,9 +899,9 @@ async function lintScope(
   counters: EngineCounters,
   runTokenCeiling: number,
   monthlyTokenBudget: number
-): Promise<LintFinding[]> {
+): Promise<LintScopeResult> {
   const docs = await loadDocs(db, scopePath, actorPrincipalId);
-  if (docs.length === 0) return [];
+  if (docs.length === 0) return { findings: [] };
   const findings: LintFinding[] = [];
   findings.push(...await fixIndexLinks(db, scopePath, docs, actorPrincipalId));
   findings.push(...await mergeExactDuplicates(db, scopePath, docs, actorPrincipalId));
@@ -774,7 +915,7 @@ async function lintScope(
       role: "analysis",
       purpose: "lint-scope",
       system: skill.body,
-      prompt: JSON.stringify({
+      prompt: promptWithJsonEnvelope("lint-scope", {
         scopePath,
         instruction: "Find contradictions only. Return JSON findings; do not ask to auto-fix contradictions.",
         pages: docs.map(compactDoc),
@@ -787,8 +928,15 @@ async function lintScope(
     monthlyTokenBudget,
     scopePath
   );
-  const llmFindings = parseJsonObject<LintOutput>(response.text, { findings: [] }).findings
-    .filter((finding) => finding.type === "contradiction")
+  const parsed = parseJsonObjectResult<LintOutput>(response.text, { findings: [] });
+  const rawFindings = Array.isArray(parsed.value.findings) ? parsed.value.findings : [];
+  const usableFindings = rawFindings.filter(usableFinding);
+  const parseFailure = !parsed.ok
+    ? outputFailure(counters, parsed.reason ?? "invalid JSON", response.text)
+    : rawFindings.length > 0 && usableFindings.length === 0
+      ? outputFailure(counters, "zero usable findings", response.text)
+      : undefined;
+  const llmFindings = usableFindings
     .map((finding) => ({ ...finding, action: "flagged" as const, severity: "warning" as const }));
   findings.push(...llmFindings);
 
@@ -796,7 +944,7 @@ async function lintScope(
     await saveLintReport(db, scopePath, findings, actorPrincipalId, deps.now ?? new Date());
     counters.pagesTouched += 1;
   }
-  return findings;
+  return { findings, parseFailure };
 }
 
 async function fixIndexLinks(
@@ -956,6 +1104,7 @@ export function createLiteLlmBrainClient(config: LiteLlmBrainClientConfig): Brai
             { role: "user", content: request.prompt },
           ],
           max_tokens: request.maxTokens,
+          response_format: { type: "json_object" },
         }),
       });
       if (!response.ok) {

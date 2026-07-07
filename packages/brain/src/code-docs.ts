@@ -11,7 +11,9 @@ import {
 import {
   callLlm,
   iso,
-  parseJsonObject,
+  parseJsonObjectResult,
+  promptWithJsonEnvelope,
+  responseExcerpt,
   WIKI_MAINTENANCE_SKILL,
   type BrainDeps,
   type BrainRunMode,
@@ -28,6 +30,9 @@ export interface CodeDocsSummary {
   pagesTouched: number;
   lastCommit: string | null;
   truncated: boolean;
+  parseFailed?: boolean;
+  parseFailureReason?: string;
+  parseFailureExcerpt?: string;
 }
 
 export const CODE_PAGES: Record<string, string> = {
@@ -61,6 +66,15 @@ interface CodeDocsPageOutput {
 
 interface CodeDocsOutput {
   pages: CodeDocsPageOutput[];
+}
+
+function usableCodeDocsPage(page: Partial<CodeDocsPageOutput> | null | undefined): page is CodeDocsPageOutput {
+  return typeof page?.slug === "string" &&
+    page.slug.trim().length > 0 &&
+    typeof page.title === "string" &&
+    page.title.trim().length > 0 &&
+    typeof page.bodyMd === "string" &&
+    page.bodyMd.trim().length > 0;
 }
 
 // Priority-ordered authoritative inputs; lockfiles are cited by name but never read.
@@ -310,7 +324,7 @@ export async function runCodeDocsPass(
       role: "cheap",
       purpose: "code-docs",
       system: skill.body,
-      prompt: JSON.stringify({
+      prompt: promptWithJsonEnvelope("code-docs", {
         scopePath,
         repo: workbench.repo,
         workbenchPath: workbench.path || "",
@@ -335,13 +349,31 @@ export async function runCodeDocsPass(
     scopePath
   );
 
-  const output = parseJsonObject<CodeDocsOutput>(response.text, { pages: [] });
+  const parsed = parseJsonObjectResult<CodeDocsOutput>(response.text, { pages: [] });
+  const rawPages = Array.isArray(parsed.value.pages) ? parsed.value.pages : [];
+  const outputPages = rawPages.filter(usableCodeDocsPage);
   const allowed = new Set(affectedSlugs.filter((slug) => CODE_SLUGS.includes(slug)));
+  const allowedPages = outputPages.filter((page) => allowed.has(page.slug));
+  let parseFailure: Pick<CodeDocsSummary, "parseFailed" | "parseFailureReason" | "parseFailureExcerpt"> = {};
+  if (!parsed.ok) {
+    counters.outputFailures += 1;
+    parseFailure = {
+      parseFailed: true,
+      parseFailureReason: parsed.reason ?? "invalid JSON",
+      parseFailureExcerpt: responseExcerpt(response.text),
+    };
+  } else if (rawPages.length > 0 && allowedPages.length === 0) {
+    counters.outputFailures += 1;
+    parseFailure = {
+      parseFailed: true,
+      parseFailureReason: outputPages.length === 0 ? "zero usable pages" : "zero allowed code-docs pages",
+      parseFailureExcerpt: responseExcerpt(response.text),
+    };
+  }
   const citedPaths = files.length > 0 ? files.map((file) => file.path) : delta.changedPaths;
   let pagesTouched = 0;
   const touchedSlugs: string[] = [];
-  for (const page of output.pages) {
-    if (!allowed.has(page.slug)) continue;
+  for (const page of allowedPages) {
     const finalBody = ensureCodePageBody(page.bodyMd, now, workbench.repo, targetCommit, citedPaths);
     const title = page.title || CODE_PAGES[page.slug]!;
     const existing = existingPages.get(page.slug);
@@ -358,5 +390,6 @@ export async function runCodeDocsPass(
     pagesTouched,
     lastCommit: targetCommit === "HEAD" ? null : targetCommit,
     truncated,
+    ...parseFailure,
   };
 }

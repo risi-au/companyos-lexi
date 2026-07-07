@@ -21,6 +21,12 @@ Runs the wiki maintenance loops for M8:
 - Exports from `@companyos/brain`.
 - Callers inject DB handle, actor principal, and LLM client/config.
 - LLM model names are role aliases only: `cheap` and `analysis`.
+- Every LLM user prompt carries an engine-owned JSON envelope instruction; do not rely on
+  skill prose alone to define output shape.
+- Non-empty malformed LLM output, truncated JSON, or output filtered to zero usable pages
+  is surfaced in run payloads with `parseFailed: true` and a bounded response excerpt
+  (about 2KB). Runs with output-contract failures report capability status `error`; they
+  are not retried automatically.
 - Tests use fixture LLM clients only. No live calls and no `.env` reads in tests.
 - All OS reads/writes go through `@companyos/api` services: docs, records, events, search, skills, capabilities, usage, and scopes.
 - The engine loads `wiki-maintenance` via the skills module at run time.
@@ -35,7 +41,7 @@ Runs the wiki maintenance loops for M8:
 
 ## Reporting
 
-Every run reports `brain-engine` through the capabilities module with pages touched, records distilled, token counts, and partial/budget state. Lint findings emit a warning alert on the same report.
+Every run reports `brain-engine` through the capabilities module with pages touched, records distilled, token counts, partial/budget state, and output-contract failures. Lint findings emit a warning alert on the same report. Root distillation reports dropped non-reserved slugs instead of silently discarding all root output.
 
 ## Tests
 

@@ -112,6 +112,28 @@ class FixtureLlm implements BrainLlmClient {
   }
 }
 
+class ScriptedLlm implements BrainLlmClient {
+  calls: BrainLlmRequest[] = [];
+  private readonly responses: Partial<Record<BrainLlmRequest["purpose"], string[]>>;
+
+  constructor(responses: Partial<Record<BrainLlmRequest["purpose"], string | string[]>>) {
+    this.responses = Object.fromEntries(
+      Object.entries(responses).map(([purpose, value]) => [purpose, Array.isArray(value) ? [...value] : [value]])
+    ) as Partial<Record<BrainLlmRequest["purpose"], string[]>>;
+  }
+
+  async complete(request: BrainLlmRequest) {
+    this.calls.push(request);
+    const queued = this.responses[request.purpose];
+    const text = queued && queued.length > 0
+      ? queued.shift()!
+      : request.purpose === "lint-scope"
+        ? JSON.stringify({ findings: [] })
+        : JSON.stringify({ pages: [] });
+    return { text, totalTokens: 50 };
+  }
+}
+
 describe("brain engine", () => {
   let client: PGlite;
   let db: any;
@@ -286,5 +308,112 @@ describe("brain engine", () => {
     doc = await getDoc(db, { scopePath: "skillful", slug: "operations" }, adminPrincipalId);
     expect(doc?.bodyMd).toContain("TERSE");
     expect(fixture.calls.at(-2)?.system).toContain("STYLE: terse");
+  });
+
+  it("fails and reports a bounded excerpt for a prose-only scope-ingest response", async () => {
+    await createProject("bad-prose");
+    await createRecord(db, { scopePath: "bad-prose", kind: "changelog", title: "Bad output", bodyMd: "Input." }, adminPrincipalId);
+    const llm = new ScriptedLlm({
+      "scope-ingest": `I updated the wiki in prose instead of JSON. ${"x".repeat(3000)}`,
+      "root-distill": JSON.stringify({ pages: [] }),
+    });
+
+    const result = await runBrainEngine(db, { mode: "ingest", runRef: "bad-prose" }, adminPrincipalId, { llm });
+
+    expect(result.status).toBe("error");
+    expect(result.scopeRuns[0]).toMatchObject({ scopePath: "bad-prose", parseFailed: true });
+    expect(result.scopeRuns[0]?.parseFailureExcerpt?.length).toBeLessThanOrEqual(2048);
+    expect(result.scopeRuns[0]?.parseFailureExcerpt).toContain("instead of JSON");
+    const runs = await listCapabilityRuns(db, { scopePath: "root", name: "brain-engine", limit: 5 }, adminPrincipalId);
+    expect(runs[0]?.status).toBe("error");
+    expect(runs[0]?.payload).toMatchObject({
+      status: "error",
+      scopeRuns: [expect.objectContaining({ parseFailed: true })],
+    });
+  });
+
+  it("accepts fenced JSON with a prose preamble before giving up", async () => {
+    await createProject("fenced");
+    await createRecord(db, { scopePath: "fenced", kind: "changelog", title: "Fenced output", bodyMd: "Input." }, adminPrincipalId);
+    const llm = new ScriptedLlm({
+      "scope-ingest": [
+        "Here is the JSON:\n```json\n" + JSON.stringify({
+          recordsDistilled: 1,
+          pages: [{
+            slug: "fenced-page",
+            title: "Fenced Page",
+            bodyMd: "# Fenced Page\n\nValid fenced JSON output.\n\n## Sources\n\n- extracted: record:r1",
+          }],
+        }) + "\n```",
+      ],
+      "root-distill": JSON.stringify({ pages: [] }),
+    });
+
+    const result = await runBrainEngine(db, { mode: "ingest", runRef: "fenced" }, adminPrincipalId, { llm });
+
+    expect(result.status).toBe("success");
+    expect(result.scopeRuns.some((run) => run.parseFailed)).toBe(false);
+    await expect(getDoc(db, { scopePath: "fenced", slug: "fenced-page" }, adminPrincipalId)).resolves.toBeTruthy();
+  });
+
+  it("fails and reports a bounded excerpt for truncated JSON", async () => {
+    await createProject("truncated");
+    await createRecord(db, { scopePath: "truncated", kind: "changelog", title: "Truncated output", bodyMd: "Input." }, adminPrincipalId);
+    const llm = new ScriptedLlm({
+      "scope-ingest": "{\"pages\":[{\"slug\":\"broken\",\"title\":\"Broken\",\"bodyMd\":\"# Broken\"}",
+      "root-distill": JSON.stringify({ pages: [] }),
+    });
+
+    const result = await runBrainEngine(db, { mode: "ingest", runRef: "truncated" }, adminPrincipalId, { llm });
+
+    expect(result.status).toBe("error");
+    expect(result.scopeRuns[0]).toMatchObject({ parseFailed: true });
+    expect(result.scopeRuns[0]?.parseFailureExcerpt).toContain("\"pages\"");
+  });
+
+  it("reports root-distill pages dropped for non-reserved slugs", async () => {
+    await createProject("root-drop");
+    await createRecord(db, { scopePath: "root-drop", kind: "changelog", title: "Root output", bodyMd: "Input." }, adminPrincipalId);
+    const llm = new ScriptedLlm({
+      "scope-ingest": JSON.stringify({
+        recordsDistilled: 1,
+        pages: [{
+          slug: "operations",
+          title: "Operations",
+          bodyMd: "# Operations\n\nDurable fact.\n\n## Sources\n\n- extracted: record:r1",
+        }],
+      }),
+      "root-distill": JSON.stringify({
+        pages: [{
+          slug: "client-specific-plan",
+          title: "Client Plan",
+          bodyMd: "# Client Plan\n\nThis should not be saved at root.",
+        }],
+      }),
+    });
+
+    const result = await runBrainEngine(db, { mode: "ingest", runRef: "root-drop" }, adminPrincipalId, { llm });
+
+    const rootRun = result.scopeRuns.find((run) => run.scopePath === "root");
+    expect(result.status).toBe("error");
+    expect(rootRun).toMatchObject({
+      parseFailed: true,
+      droppedNonReservedSlugs: 1,
+      parseFailureReason: "root distill returned only non-reserved slugs",
+    });
+    await expect(getDoc(db, { scopePath: "root", slug: "client-specific-plan" }, adminPrincipalId)).resolves.toBeNull();
+  });
+
+  it("adds the mandatory JSON envelope instruction to scope-ingest, root-distill, and lint prompts", async () => {
+    await createProject("enveloped");
+    await createRecord(db, { scopePath: "enveloped", kind: "changelog", title: "Envelope", bodyMd: "Input." }, adminPrincipalId);
+    await runBrainEngine(db, { mode: "ingest", runRef: "envelope-ingest" }, adminPrincipalId, { llm: fixture });
+    await runBrainEngine(db, { mode: "lint", scopePath: "enveloped", runRef: "envelope-lint" }, adminPrincipalId, { llm: fixture });
+
+    for (const purpose of ["scope-ingest", "root-distill", "lint-scope"] as const) {
+      const call = fixture.calls.find((entry) => entry.purpose === purpose);
+      expect(call, purpose).toBeTruthy();
+      expect(JSON.parse(call!.prompt).outputFormatMandatory).toContain("Return only one JSON object");
+    }
   });
 });
