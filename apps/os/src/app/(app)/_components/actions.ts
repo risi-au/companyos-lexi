@@ -9,11 +9,12 @@ export async function createNewScope(formData: FormData): Promise<{ path?: strin
   const name = (formData.get("name") as string || "").trim();
   const slug = (formData.get("slug") as string || "").trim() || name.toLowerCase().replace(/[^a-z0-9-]/g, "-");
   const parentPath = (formData.get("parentPath") as string || "").trim() || null;
+  const reason = (formData.get("reason") as string || "").trim();
   // Type follows placement: top level = project, nested = subproject
   const type: "project" | "subproject" = parentPath ? "subproject" : "project";
 
-  if (!name || !slug) {
-    return { error: "Name and slug required" };
+  if (!name || !slug || !reason) {
+    return { error: "Name, slug, and reason required" };
   }
 
   const actor = await getCurrentActorPrincipalId();
@@ -26,7 +27,7 @@ export async function createNewScope(formData: FormData): Promise<{ path?: strin
   }
 
   const created = await api.createScope({ slug, name, type, parentPath }, actor);
-  const intake = await api.ensureDraftIntakeForScope({ scopePath: created.path }, actor);
+  const intake = await api.ensureDraftIntakeForScope({ scopePath: created.path, reason }, actor);
 
   revalidatePath("/");
   revalidatePath(`/s/${created.path}`);

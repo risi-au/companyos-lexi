@@ -7,23 +7,29 @@ import { migrate } from "drizzle-orm/pglite/migrator";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import { eq } from "drizzle-orm";
 import * as dbMod from "@companyos/db";
 const schema: any = (dbMod as any).schema ?? dbMod;
 import {
   acceptReusePattern,
   approveIntakePacket,
   assembleIntakeExternalPack,
+  createRecord,
   createScope,
   dismissIntakePacket,
   ensureDraftIntakeForScope,
+  findRelatedHistory,
   findReusePatterns,
+  getIntakePacket,
   grantRole,
   listEvents,
   listIntakePackets,
+  listWizardFramingQuestions,
   provisionFromIntakePacket,
   reopenIntakePacket,
   saveDoc,
   saveWizardTemplate,
+  setEmbeddingClientForTests,
   submitIntakePacket,
   updateIntakePacket,
 } from "../../index";
@@ -76,6 +82,8 @@ describe("intake creation wizard module", () => {
   });
 
   beforeEach(async () => {
+    setEmbeddingClientForTests(null);
+    await db.delete(schema.skillsIndex);
     const stamp = Date.now() + "-" + Math.random();
     admin = (await db.insert(schema.principals).values({ kind: "human", name: `Admin ${stamp}`, status: "active" }).returning())[0].id;
     editor = (await db.insert(schema.principals).values({ kind: "human", name: `Editor ${stamp}`, status: "active" }).returning())[0].id;
@@ -88,9 +96,10 @@ describe("intake creation wizard module", () => {
     await createScope(db, { slug, name: "Lifecycle", type: "project" }, admin);
     await grantRole(db, { principalId: editor, scopePath: slug, role: "editor" }, admin);
 
-    const draft = await ensureDraftIntakeForScope(db, { scopePath: slug }, editor);
+    const draft = await ensureDraftIntakeForScope(db, { scopePath: slug, reason: "Client converted from paid social lead" }, editor);
     expect(draft.status).toBe("draft");
     expect(draft.proposedProvisionSpec).toMatchObject({ scopePath: slug });
+    expect(draft.answers).toMatchObject({ reason: "Client converted from paid social lead" });
 
     const updated = await updateIntakePacket(db, { id: draft.id, answers: { plane: "yes", workbench: false } }, editor);
     expect(updated.answers).toEqual({ plane: "yes", workbench: false });
@@ -131,6 +140,8 @@ describe("intake creation wizard module", () => {
           proposed_docs: [{ slug: "brief", title: "Brief", bodyMd: "# Brief" }],
           proposed_tasks: [],
           proposed_wiki_updates: [],
+          required_credentials: [{ name: "VPS SSH", whatFor: "Deploy", loginMethodNotes: "Owner grants; no value", password: "nope" }],
+          external_systems: [{ name: "CRM", purpose: "Sales trail", notes: "Existing" }],
           open_questions: ["one"],
           risk_notes: [],
         }),
@@ -177,6 +188,11 @@ describe("intake creation wizard module", () => {
     }, admin);
 
     const draft = await ensureDraftIntakeForScope(db, { scopePath: slug }, editor);
+    setEmbeddingClientForTests({
+      async embed() {
+        throw new Error("embedding down");
+      },
+    });
     const patterns = await findReusePatterns(db, { scopePath: slug, query: "meta ads airbuddy" }, editor);
     expect(patterns[0]).toMatchObject({ slug: "pattern-meta-ads", reusable: true, sourceVisible: false });
 
@@ -197,9 +213,20 @@ describe("intake creation wizard module", () => {
 
     const scopePath = `${parent}/child`;
     const draft = await ensureDraftIntakeForScope(db, { scopePath }, admin);
+    await updateIntakePacket(db, {
+      id: draft.id,
+      relatedHistorySelections: [{
+        type: "record",
+        id: "record-source-1",
+        title: "Original sales note",
+        scopePath: parent,
+        snippet: "Client asked for launch support.",
+        kind: "note",
+      }],
+    }, admin);
     const pack = await assembleIntakeExternalPack(db, { intakeId: draft.id }, admin);
     expect(pack.pasteBack).toContain(`Intake id: ${draft.id}`);
-    expect(pack.pasteBack).toContain("Parent Context");
+    expect(pack.pasteBack).toContain("Structural Context");
     expect(pack.mcp).toContain("submit_intake_packet");
 
     await submitIntakePacket(db, {
@@ -211,6 +238,8 @@ describe("intake creation wizard module", () => {
         proposed_docs: [{ slug: "launch", title: "Launch", bodyMd: "# Launch" }],
         proposed_tasks: [],
         proposed_wiki_updates: [{ slug: "wiki", title: "WIKI", bodyMd: "# Wiki" }],
+        required_credentials: [],
+        external_systems: [],
         open_questions: [],
         risk_notes: [],
       },
@@ -223,7 +252,10 @@ describe("intake creation wizard module", () => {
 
     expect(provisioned.intake.status).toBe("provisioned");
     expect(provisioned.recordId).toBeTruthy();
-    expect(provisioned.artifacts).toMatchObject({ docs: expect.any(Array), wiki: expect.any(Array) });
+    expect(provisioned.artifacts).toMatchObject({ docs: expect.any(Array), wiki: expect.any(Array), sourceRefsRecordId: expect.any(String) });
+    const [sourceRefs] = await db.select().from(schema.records).where(eq(schema.records.id, provisioned.artifacts.sourceRefsRecordId as string)).limit(1);
+    expect(sourceRefs.title).toBe("source-refs");
+    expect(sourceRefs.bodyMd).toContain("Original sales note");
     const events = await listEvents(db, { scopePath, limit: 20 });
     expect(events.map((event) => event.type)).toEqual(expect.arrayContaining([
       "intake.submitted",
@@ -232,6 +264,110 @@ describe("intake creation wizard module", () => {
       "record.created",
       "intake.provisioned",
     ]));
+  });
+
+  it("finds selectable related history, stores selections, snapshots the pack, and uses root fallback for top-level scopes", async () => {
+    const sales = `sales-${Date.now()}`;
+    const client = `history-client-${Date.now()}`;
+    await createScope(db, { slug: sales, name: "Sales", type: "project" }, admin);
+    await createScope(db, { slug: client, name: "History Client", type: "project" }, admin);
+    await grantRole(db, { principalId: editor, scopePath: sales, role: "viewer" }, admin);
+    await grantRole(db, { principalId: editor, scopePath: client, role: "editor" }, admin);
+
+    const leadRecord = await createRecord(db, {
+      scopePath: sales,
+      kind: "note",
+      title: "History Client proposal",
+      bodyMd: "Promised a Shopify launch and Meta ads tracking during the sales call.",
+    }, admin);
+    await saveDoc(db, { scopePath: "root", slug: "scope-map", title: "Scope map", bodyMd: "Root map context." }, admin);
+    await saveDoc(db, { scopePath: "root", slug: "critical-facts", title: "Critical facts", bodyMd: "Root critical context." }, admin);
+
+    const draft = await ensureDraftIntakeForScope(db, { scopePath: client, reason: "Convert History Client proposal into delivery scope" }, editor);
+    const hits = await findRelatedHistory(db, { intakeId: draft.id }, editor);
+    expect(hits.some((hit) => hit.id === leadRecord.id && hit.scopePath === sales)).toBe(true);
+
+    const selected = hits.filter((hit) => hit.id === leadRecord.id);
+    await updateIntakePacket(db, { id: draft.id, relatedHistorySelections: selected }, editor);
+    const pack = await assembleIntakeExternalPack(db, { intakeId: draft.id }, editor);
+    expect(pack.pasteBack).toContain("Root map context.");
+    expect(pack.pasteBack).toContain("Root critical context.");
+    expect(pack.pasteBack).toContain("History Client proposal");
+    expect(pack.pasteBack).toContain("Convert History Client proposal into delivery scope");
+
+    const row = await getIntakePacket(db, draft.id, editor);
+    expect(row.packSnapshot).toBe(pack.pasteBack);
+    expect(row.relatedHistorySelections).toEqual(selected);
+  });
+
+  it("uses synced wizard framing templates before packaged defaults", async () => {
+    const body = `---
+slug: new-project
+title: Edited project framing
+kind: framing
+applies_to: project
+version: "3"
+domains: [intake]
+---
+
+## Framing questions
+
+- edited_goal: What edited admin question should appear?
+- edited_owner: Who owns the edited answer?`;
+    await db.insert(schema.skillsIndex).values({
+      name: "scope-intake-template-new-project",
+      scopePattern: "**",
+      domains: ["intake"],
+      path: "scope-intake/templates/new-project.md",
+      description: "Edited project framing",
+      body,
+      sha: "sha-edited-project",
+      syncedAt: new Date(),
+    });
+
+    const questions = await listWizardFramingQuestions(db, editor);
+    const project = questions.find((template) => template.slug === "new-project");
+    expect(project?.questions).toEqual([
+      { key: "edited_goal", question: "What edited admin question should appear?" },
+      { key: "edited_owner", question: "Who owns the edited answer?" },
+    ]);
+    expect(questions.find((template) => template.slug === "new-sub-scope")?.questions.length).toBeGreaterThan(0);
+  });
+
+  it("uses synced interview template body when assembling the external pack", async () => {
+    const slug = `synced-interview-${Date.now()}`;
+    await createScope(db, { slug, name: "Synced Interview", type: "project" }, admin);
+    await grantRole(db, { principalId: editor, scopePath: slug, role: "editor" }, admin);
+    await db.insert(schema.skillsIndex).values({
+      name: "scope-intake-template-external-interview",
+      scopePattern: "**",
+      domains: ["intake"],
+      path: "scope-intake/templates/interview.md",
+      description: "External interview",
+      body: `---
+slug: external-interview
+title: External interview
+kind: interview
+applies_to: any
+version: "3"
+domains: [intake]
+---
+
+## Interview guide
+
+Ask the admin-edited synced interview question first.
+
+## Packet instructions
+
+Return the edited packet.`,
+      sha: "sha-edited-interview",
+      syncedAt: new Date(),
+    });
+
+    const draft = await ensureDraftIntakeForScope(db, { scopePath: slug, reason: "Verify synced interview template" }, editor);
+    const pack = await assembleIntakeExternalPack(db, { intakeId: draft.id }, editor);
+    expect(pack.pasteBack).toContain("Ask the admin-edited synced interview question first.");
+    expect(pack.pasteBack).not.toContain("Work through these areas in whatever order");
   });
 
   it("commits template edits through GitHubClient and triggers skills sync", async () => {

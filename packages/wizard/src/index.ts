@@ -11,6 +11,18 @@ const jsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
   ])
 );
 
+const requiredCredentialSchema = z.object({
+  name: z.string().default(""),
+  whatFor: z.string().default(""),
+  loginMethodNotes: z.string().default(""),
+});
+
+const externalSystemSchema = z.object({
+  name: z.string().default(""),
+  purpose: z.string().default(""),
+  notes: z.string().default(""),
+});
+
 export const intakePacketSchema = z.object({
   packet_md: z.string().min(1, "packet_md is required"),
   research_sources: z.union([z.array(jsonValueSchema), z.record(jsonValueSchema)]).default([]),
@@ -18,6 +30,8 @@ export const intakePacketSchema = z.object({
   proposed_docs: z.union([z.array(jsonValueSchema), z.record(jsonValueSchema)]).default([]),
   proposed_tasks: z.union([z.array(jsonValueSchema), z.record(jsonValueSchema)]).default([]),
   proposed_wiki_updates: z.union([z.array(jsonValueSchema), z.record(jsonValueSchema)]).default([]),
+  required_credentials: z.array(requiredCredentialSchema).default([]),
+  external_systems: z.array(externalSystemSchema).default([]),
   open_questions: z.union([z.array(jsonValueSchema), z.record(jsonValueSchema)]).default([]),
   risk_notes: z.union([z.array(jsonValueSchema), z.record(jsonValueSchema)]).default([]),
   source_engine: z.string().optional(),
@@ -65,6 +79,8 @@ export function parsePastedIntakePacket(input: string): ParsedPastePacket {
         proposed_docs: [],
         proposed_tasks: [],
         proposed_wiki_updates: [],
+        required_credentials: [],
+        external_systems: [],
         open_questions: [],
         risk_notes: [],
       },
@@ -144,7 +160,7 @@ function parseFrontmatter(body: string): Record<string, string | string[]> {
   return meta;
 }
 
-function bodyWithoutFrontmatter(body: string): string {
+export function bodyWithoutFrontmatter(body: string): string {
   if (!body.startsWith("---")) return body;
   const end = body.indexOf("\n---", 3);
   if (end === -1) return body;
@@ -217,6 +233,21 @@ export function parseWizardTemplateMarkdown(markdown: string): ParsedWizardTempl
   };
 }
 
+export interface FramingQuestion {
+  key: string;
+  question: string;
+}
+
+export function parseFramingQuestions(markdown: string): FramingQuestion[] {
+  const parsed = parseWizardTemplateMarkdown(markdown);
+  const section = parsed.template?.sections["framing questions"] ?? parseSections(markdown)["framing questions"] ?? "";
+  return section
+    .split(/\r?\n/)
+    .map((line) => /^-\s*([A-Za-z0-9_-]+):\s*(.+?)\s*$/.exec(line.trim()))
+    .filter((match): match is RegExpExecArray => !!match)
+    .map((match) => ({ key: match[1]!, question: match[2]! }));
+}
+
 export const INTAKE_PACKET_SCHEMA_MARKDOWN = `The final answer must end with one fenced json block:
 
 \`\`\`json
@@ -227,6 +258,8 @@ export const INTAKE_PACKET_SCHEMA_MARKDOWN = `The final answer must end with one
   "proposed_docs": [],
   "proposed_tasks": [],
   "proposed_wiki_updates": [],
+  "required_credentials": [{ "name": "Credential name only", "whatFor": "Why agents need it", "loginMethodNotes": "Who holds it or how access is normally granted; no secret values" }],
+  "external_systems": [{ "name": "System name", "purpose": "What it is used for", "notes": "Existing state, owners, or setup notes" }],
   "open_questions": [],
   "risk_notes": [],
   "source_engine": "optional",
@@ -237,30 +270,87 @@ export const INTAKE_PACKET_SCHEMA_MARKDOWN = `The final answer must end with one
 export interface ExternalPackInput {
   intakeId: string;
   scopePath: string;
+  scopeName?: string;
+  briefing: string;
   templateBody: string;
   answers: unknown;
-  parentContext?: string | null;
+  structuralContext?: string | null;
+  reason?: string | null;
+  relatedHistory?: Array<{
+    type: "record" | "doc";
+    id: string;
+    title: string;
+    scopePath: string;
+    snippet: string;
+    kind?: string;
+    slug?: string;
+  }>;
+  reusePatterns?: Array<{
+    slug: string;
+    title: string;
+    summary: string;
+    reusable: boolean;
+    sourceScopePath: string | null;
+    sourceVisible: boolean;
+  }>;
+  acceptedPattern?: string | null;
   mcpToolName?: string;
 }
 
 export function assembleExternalPack(input: ExternalPackInput): { pasteBack: string; mcp: string } {
   const answersJson = JSON.stringify(input.answers ?? {}, null, 2);
-  const parent = input.parentContext?.trim()
-    ? `\n## Parent Context\n\n${input.parentContext.trim()}\n`
+  const structural = input.structuralContext?.trim() || "(no structural context available)";
+  const history = input.relatedHistory?.length
+    ? input.relatedHistory.map((hit, index) => `${index + 1}. [${hit.type}${hit.kind ? `:${hit.kind}` : ""}] ${hit.title}
+   id: ${hit.id}${hit.slug ? `; slug: ${hit.slug}` : ""}
+   scope: ${hit.scopePath}
+   snippet: ${hit.snippet || "(no snippet)"}`).join("\n\n")
+    : "(no related history selected)";
+  const similar = input.reusePatterns?.length
+    ? input.reusePatterns.slice(0, 3).map((pattern, index) => `${index + 1}. ${pattern.title} (${pattern.slug})
+   ${pattern.summary || "No summary available."}
+   source: ${pattern.sourceScopePath && pattern.sourceVisible ? pattern.sourceScopePath : "pattern library"}
+   ${pattern.reusable ? "Contains reusable provision/doc/task seeds. Adapt, don't copy." : "Reference only."}`).join("\n\n")
+    : "(no similar work found)";
+  const accepted = input.acceptedPattern
+    ? `\n\nAccepted pattern: ${input.acceptedPattern}. Use its provision/doc/task seeds as a starting point. Adapt, don't copy.`
     : "";
   const base = `# CompanyOS Scope Intake
 
 Intake id: ${input.intakeId}
 Scope path: ${input.scopePath}
+${input.scopeName ? `Scope name: ${input.scopeName}\n` : ""}
 
 CompanyOS is authoritative. Fill this intake for the existing scope only; do not propose new CompanyOS scope structure unless the provision spec explicitly asks for child scopes.
 
-## Framing Answers
+## Briefing
+
+${input.briefing.trim()}
+
+## Structural Context
+
+${structural}
+
+## Reason and Framing
+
+Reason, verbatim:
+
+${input.reason?.trim() || "(no reason captured)"}
+
+Framing answers:
 
 \`\`\`json
 ${answersJson}
 \`\`\`
-${parent}
+
+## Lead-History Digest
+
+${history}
+
+## Similar Work
+
+${similar}${accepted}
+
 ## Interview Template
 
 ${input.templateBody.trim()}
@@ -272,6 +362,6 @@ ${INTAKE_PACKET_SCHEMA_MARKDOWN}
 
   return {
     pasteBack: `${base}\nWhen finished, paste the complete markdown answer back into CompanyOS and end with the fenced json packet.`,
-    mcp: `${base}\nWhen finished, call ${input.mcpToolName ?? "submit_intake_packet"} with intake_id "${input.intakeId}".`,
+    mcp: `${base}\nWhen finished, use CompanyOS MCP for more context when needed: call get_context for scope "${input.scopePath}" and search for older docs/records. Then call ${input.mcpToolName ?? "submit_intake_packet"} with intake_id "${input.intakeId}".`,
   };
 }

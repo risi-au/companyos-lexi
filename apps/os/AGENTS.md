@@ -62,3 +62,7 @@ Update this file when API surface or auth wiring changes. (canvas added M3-03)
 - getPlaneUrl added to @companyos/api (packages/api) for isolated URL (current /companyos/projects/${id}/issues ; fallback to PLANE_BASE_URL).
 - No module cross-imports; all nav logic client thin + server layout + api service.
 - "+" button beside the Project label opens NewScopeDialog (in Sidebar.tsx) → createNewScope action; parent select decides placement, type derived server-side (top level = project, nested = subproject).
+
+## Creation Wizard Navigation
+- NewScopeDialog requires a free-text reason; createNewScope stores it on the
+  draft intake as answers.reason through ensureDraftIntakeForScope.

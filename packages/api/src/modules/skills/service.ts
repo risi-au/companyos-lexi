@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { principals, scopes, skillsIndex, type SkillIndexRow } from "@companyos/db";
+import { parseWizardTemplateMarkdown } from "@companyos/wizard";
 import { emitEvent, type DB } from "../../kernel/events";
 import { requireAccess } from "../../kernel/grants";
 import { getScope } from "../../kernel/scopes";
@@ -8,6 +9,7 @@ import type { GitHubClient } from "../../lib/github-client";
 import { matchesScope } from "./match";
 
 const SKILL_NAME_RE = /^[a-z0-9-]+$/;
+const TEMPLATE_FILE_RE = /^[^/]+\/templates\/[^/]+\.md$/;
 
 export interface SyncSkillsOptions {
   repo: string;
@@ -115,6 +117,19 @@ function skillChanged(existing: SkillIndexRow, next: Omit<SkillIndexRow, "id" | 
     existing.sha !== next.sha;
 }
 
+function isSkillFile(path: string): boolean {
+  return path.split("/").pop() === "SKILL.md";
+}
+
+function isWizardTemplateFile(path: string): boolean {
+  return TEMPLATE_FILE_RE.test(path);
+}
+
+function templateIndexName(path: string, slug: string): string {
+  const [skillDir] = path.split("/");
+  return `${skillDir}-template-${slug}`;
+}
+
 async function getRootScope(db: DB) {
   const [root] = await db.select().from(scopes).where(eq(scopes.type, "root")).limit(1);
   if (!root) {
@@ -150,7 +165,7 @@ export async function syncSkills(
   await requireAccess(db, actorPrincipalId, root.path, "admin");
 
   const files = await client.listFiles(opts.repo);
-  const skillFiles = files.filter((file) => file.path.split("/").pop() === "SKILL.md");
+  const indexableFiles = files.filter((file) => isSkillFile(file.path) || isWizardTemplateFile(file.path));
   const now = new Date();
   const existingRows = (await db.select().from(skillsIndex)) as SkillIndexRow[];
   const existingByName = new Map(existingRows.map((row) => [row.name, row]));
@@ -159,25 +174,50 @@ export async function syncSkills(
   let added = 0;
   let updated = 0;
 
-  for (const file of skillFiles) {
+  for (const file of indexableFiles) {
     const fetched = await client.getFile(opts.repo, file.path);
     if (!fetched) {
       skipped.push({ path: file.path, reason: "file not found" });
       continue;
     }
-    const meta = parseFrontmatter(fetched.contentUtf8);
-    const name = meta.name?.trim();
-    if (!name || !SKILL_NAME_RE.test(name)) {
-      skipped.push({ path: file.path, reason: "missing or invalid name" });
-      continue;
+
+    let name: string;
+    let scopePattern = "**";
+    let domains: string[] = [];
+    let description: string | null = null;
+
+    if (isWizardTemplateFile(file.path)) {
+      const parsed = parseWizardTemplateMarkdown(fetched.contentUtf8);
+      if (!parsed.ok || !parsed.template) {
+        skipped.push({ path: file.path, reason: `invalid wizard template: ${parsed.errors.join("; ")}` });
+        continue;
+      }
+      name = templateIndexName(file.path, parsed.template.slug);
+      if (!SKILL_NAME_RE.test(name)) {
+        skipped.push({ path: file.path, reason: "invalid derived template name" });
+        continue;
+      }
+      domains = parsed.template.domains;
+      description = parsed.template.title;
+    } else {
+      const meta = parseFrontmatter(fetched.contentUtf8);
+      const parsedName = meta.name?.trim();
+      if (!parsedName || !SKILL_NAME_RE.test(parsedName)) {
+        skipped.push({ path: file.path, reason: "missing or invalid name" });
+        continue;
+      }
+      name = parsedName;
+      scopePattern = meta.scope_pattern?.trim() || "**";
+      domains = meta.domains || [];
+      description = meta.description?.trim() || null;
     }
 
     const next = {
       name,
-      scopePattern: meta.scope_pattern?.trim() || "**",
-      domains: meta.domains || [],
+      scopePattern,
+      domains,
       path: file.path,
-      description: meta.description?.trim() || null,
+      description,
       body: fetched.contentUtf8,
       sha: file.sha || fetched.sha || null,
     };

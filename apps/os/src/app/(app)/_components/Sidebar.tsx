@@ -245,6 +245,12 @@ function NewScopeDialog({ tree, defaultParent, onClose }: { tree: Scope[]; defau
               <option key={p.path} value={p.path}>{p.path}</option>
             ))}
           </select>
+          <textarea
+            name="reason"
+            className="min-h-24 w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--background)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)]"
+            placeholder="What is this scope for?"
+            required
+          />
           <div className="flex gap-2 pt-1">
             <button type="button" onClick={onClose} className="flex-1 rounded border border-[var(--border)] py-[var(--space-2)] text-[var(--font-size-sm)]">Cancel</button>
             <button type="submit" disabled={pending} className="flex-1 rounded bg-[var(--primary)] py-[var(--space-2)] text-[var(--font-size-sm)] text-[var(--primary-foreground)]">{pending ? "Creating..." : "Create"}</button>

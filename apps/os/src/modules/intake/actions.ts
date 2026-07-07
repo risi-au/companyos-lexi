@@ -1,6 +1,7 @@
 "use server";
 
 import { api, getCurrentActorPrincipalId } from "@/lib/api";
+import type { RelatedHistorySelection } from "@companyos/api";
 import { revalidatePath } from "next/cache";
 
 function requireActor(actor: string | null): string {
@@ -18,6 +19,25 @@ export async function saveFramingAction(input: { intakeId: string; answersJson: 
   const actor = requireActor(await getCurrentActorPrincipalId());
   const answers = parseJson(input.answersJson, {});
   const updated = await api.updateIntakePacket({ id: input.intakeId, answers }, actor);
+  revalidatePath(`/s/${input.scopePath}`);
+  return updated;
+}
+
+export async function saveFramingFieldsAction(input: { intakeId: string; answers: Record<string, string>; scopePath: string }) {
+  const actor = requireActor(await getCurrentActorPrincipalId());
+  const updated = await api.updateIntakePacket({ id: input.intakeId, answers: input.answers }, actor);
+  revalidatePath(`/s/${input.scopePath}`);
+  return updated;
+}
+
+export async function findRelatedHistoryAction(input: { intakeId: string; query?: string; scopePath: string }) {
+  const actor = requireActor(await getCurrentActorPrincipalId());
+  return api.findRelatedHistory({ intakeId: input.intakeId, query: input.query, limit: 10 }, actor);
+}
+
+export async function saveRelatedHistoryAction(input: { intakeId: string; selections: RelatedHistorySelection[]; scopePath: string }) {
+  const actor = requireActor(await getCurrentActorPrincipalId());
+  const updated = await api.updateIntakePacket({ id: input.intakeId, relatedHistorySelections: input.selections }, actor);
   revalidatePath(`/s/${input.scopePath}`);
   return updated;
 }

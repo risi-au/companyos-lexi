@@ -5,8 +5,11 @@ Creation wizard UI module. Thin client/server-action wrappers around
 
 ## Purpose
 - Scope page resume card and Intake tab.
-- Wizard steps: framing, brain reuse, external pack, paste-back return, review,
-  approval, explicit provisioning, dismiss/reopen.
+- Wizard steps: structured framing fields, related-history selection, brain reuse,
+  external pack, paste-back return, review, approval, explicit provisioning,
+  dismiss/reopen.
+- Review displays the stored pack snapshot and warns loudly when a return was
+  markdown-only without a fenced JSON packet.
 - Root admin `/admin/intake` queue and template editor.
 
 ## Contract

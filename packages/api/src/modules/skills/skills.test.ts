@@ -64,6 +64,15 @@ ${body}
 `;
 }
 
+function wizardTemplateBody(frontmatter: string, body = "## Framing questions\n\n- goal: What changed?"): string {
+  return `---
+${frontmatter}
+---
+
+${body}
+`;
+}
+
 describe("skills module", () => {
   let client: PGlite;
   let db: any;
@@ -162,6 +171,38 @@ describe("skills module", () => {
     const events = await listEvents(db, { scopePath: "root", type: "skills.synced", limit: 5 });
     expect(events.length).toBeGreaterThanOrEqual(3);
     expect((events[0] as any).payload).toMatchObject({ repo: "skills", added: 1, updated: 1, removed: 1 });
+  });
+
+  it("indexes wizard template files and removes stale template rows", async () => {
+    const github = new FakeGitHubClient({
+      "scope-intake/SKILL.md": skillBody("name: scope-intake\nscope_pattern: **\ndomains: [intake]", "guide"),
+      "scope-intake/templates/new-project.md": wizardTemplateBody(
+        "slug: new-project\ntitle: Edited project framing\nkind: framing\napplies_to: project\nversion: \"2\"\ndomains: [onboarding]",
+        "## Framing questions\n\n- edited: What should the edited template ask?"
+      ),
+      "scope-intake/templates/bad.md": wizardTemplateBody(
+        "slug: Bad Template\ntitle: Bad\nkind: framing\napplies_to: project",
+        "## Framing questions\n\n- bad: Bad?"
+      ),
+    });
+
+    const first = await syncSkills(db, github as any, { repo: "skills" }, rootAdminId);
+    expect(first).toMatchObject({ added: 2, updated: 0, removed: 0 });
+    expect(first.skipped).toEqual([{
+      path: "scope-intake/templates/bad.md",
+      reason: "invalid wizard template: frontmatter.slug must be kebab-case",
+    }]);
+
+    const template = await getSkill(db, { name: "scope-intake-template-new-project" }, rootAdminId);
+    expect(template.path).toBe("scope-intake/templates/new-project.md");
+    expect(template.description).toBe("Edited project framing");
+    expect(template.domains).toEqual(["onboarding"]);
+    expect(template.body).toContain("edited template");
+
+    github.files.delete("scope-intake/templates/new-project.md");
+    const second = await syncSkills(db, github as any, { repo: "skills" }, rootAdminId);
+    expect(second).toMatchObject({ added: 0, updated: 0, removed: 1 });
+    await expect(getSkill(db, { name: "scope-intake-template-new-project" }, rootAdminId)).rejects.toThrow(SkillNotFoundError);
   });
 
   it("list_skills is viewer-gated, pattern matches, supports domain filter, and omits body", async () => {
