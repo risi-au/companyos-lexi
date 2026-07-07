@@ -30,6 +30,9 @@ import {
   listDocs,
   getDoc,
   saveDoc,
+  search,
+  recallMemory,
+  getRootCriticalFacts,
 } from "../..";
 import { PlaneClient } from "../tasks/plane-client";
 import { AccessDeniedError, ScopeNotFoundError } from "../../errors";
@@ -90,6 +93,16 @@ const SaveDocSchema = z.object({
   title: z.string().min(1),
   bodyMd: z.string().optional(),
 });
+const SearchSchema = z.object({
+  query: z.string().min(1),
+  kinds: z.array(z.enum(["record", "doc"])).optional(),
+  limit: z.number().min(1).max(25).optional(),
+  mode: z.enum(["keyword", "semantic", "hybrid"]).optional(),
+});
+const RecallMemorySchema = z.object({
+  query: z.string().min(1),
+  limit: z.number().min(1).max(25).optional(),
+});
 
 // Convert zod to OpenAI tool params
 function zodToOpenAIParams(schema: z.ZodTypeAny) {
@@ -124,6 +137,8 @@ const ALL_TOOLS = [
   makeTool("list_docs", "List documents in the scope KB.", ListDocsSchema),
   makeTool("get_doc", "Fetch full document by slug.", GetDocSchema),
   makeTool("save_doc", "Save (create or update) a markdown doc by slug or title.", SaveDocSchema),
+  makeTool("search", "Search records and docs in the current scope subtree. Use this for grounded answers about recent or historical OS facts.", SearchSchema),
+  makeTool("recall_memory", "Recall distilled second-brain memory scoped to the current subtree, plus allowed root critical facts and root patterns.", RecallMemorySchema),
 ];
 
 export interface LLMConfig {
@@ -360,6 +375,24 @@ async function executeToolCall(
       const res = await saveDoc(db, { scopePath, slug: args.slug, title: args.title, bodyMd: args.bodyMd || "" }, actorPrincipalId);
       return { result: { id: res.id, slug: res.slug, title: res.title } };
     }
+    if (name === "search") {
+      const res = await search(
+        db,
+        {
+          scopePath,
+          query: args.query,
+          kinds: Array.isArray(args.kinds) ? args.kinds : undefined,
+          limit: args.limit,
+          mode: args.mode,
+        },
+        actorPrincipalId
+      );
+      return { result: res };
+    }
+    if (name === "recall_memory") {
+      const res = await recallMemory(db, { scopePath, query: args.query, limit: args.limit }, actorPrincipalId);
+      return { result: res };
+    }
     return { error: `Unknown tool: ${name}` };
   } catch (e) {
     return { error: formatError(e) };
@@ -385,6 +418,12 @@ export async function runTurn(
   let contextMd = "";
   try {
     contextMd = await getContextBundle(db, scopePath, actorPrincipalId);
+    if (scopePath === "root") {
+      const criticalFacts = await getRootCriticalFacts(db);
+      if (criticalFacts) {
+        contextMd = `${contextMd}\n\n## Root critical facts\n\n${criticalFacts}`;
+      }
+    }
   } catch {
     contextMd = "(context unavailable)";
   }
@@ -397,13 +436,13 @@ Current context:
 ${contextMd}
 
 Rules:
-- Use tools to fetch live data (metrics, tasks, records, docs, dashboards).
+- Use tools to fetch live data (metrics, tasks, records, docs, dashboards, search, and scoped memory).
 - Durable outcomes (changes, decisions, reports) MUST be logged via log_change / log_decision / save_report / save_doc — do not rely on chat history for records.
 - Be concise and factual. Report tool results clearly.
 - If a write tool fails with access error, surface the error gracefully to the user.
 - Stop after at most 8 tool rounds.
 
-Available tools: get_context, list_records, log_change, log_decision, save_report, list_tasks, create_task, complete_task, query_metrics, list_metric_names, get_dashboard, save_dashboard, list_widget_types, list_docs, get_doc, save_doc.`;
+Available tools: get_context, list_records, log_change, log_decision, save_report, list_tasks, create_task, complete_task, query_metrics, list_metric_names, get_dashboard, save_dashboard, list_widget_types, list_docs, get_doc, save_doc, search, recall_memory.`;
 
   // Load prior + add current user turn
   const history = await loadHistory(db, conversationId);

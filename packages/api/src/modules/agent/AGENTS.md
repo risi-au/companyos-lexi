@@ -24,13 +24,13 @@ All take db first + actor for authz.
 Model aliases passed through: "cheap" | "analysis" | "reasoning" | "code" (default analysis).
 
 Tools (curated, zod->jsonSchema):
-get_context, list_records, log_change/log_decision/save_report (via createRecord), list_tasks/create_task/complete_task (plane injected), query_metrics/list_metric_names, get_dashboard/save_dashboard/list_widget_types, list_docs/get_doc/save_doc.
+get_context, list_records, log_change/log_decision/save_report (via createRecord), list_tasks/create_task/complete_task (plane injected), query_metrics/list_metric_names, get_dashboard/save_dashboard/list_widget_types, list_docs/get_doc/save_doc, search, recall_memory.
 
 Access: services enforce via requireAccess (viewer read, editor for writes). Tool errors (e.g. access denied) are returned into the loop as tool results; agent reports gracefully.
 
 LLM: plain fetch to ${base}/v1/chat/completions. No SDK. Config injected by boundary (env at HTTP/server-action; mock fixture in tests).
 
-System prompt: concise identity + scope context + durable-in-records rule. Prefetched context may include nearest workbench repo/folder and MCP public URL when the boundary injects it.
+System prompt: concise identity + scope context + durable-in-records rule. Prefetched context may include nearest workbench repo/folder and MCP public URL when the boundary injects it. Root-scope conversations append root `critical-facts` explicitly for brain-aware instance-wide answers.
 
 Streaming: not in v1.
 

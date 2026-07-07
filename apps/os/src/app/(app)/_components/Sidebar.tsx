@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ExternalLink, Plus } from "lucide-react";
+import { BrainCircuit, ExternalLink, Plus } from "lucide-react";
 import type { Scope } from "@companyos/db";
 import { setSelectedProject, createNewScope } from "./actions";
 
@@ -12,9 +12,10 @@ interface SidebarProps {
   selected?: string | null;
   taskManagerUrl?: string | null;
   instanceName?: string;
+  rootRole?: string | null;
 }
 
-export function Sidebar({ tree, selected, taskManagerUrl, instanceName = "CompanyOS" }: SidebarProps) {
+export function Sidebar({ tree, selected, taskManagerUrl, instanceName = "CompanyOS", rootRole = null }: SidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [showNew, setShowNew] = useState(false);
@@ -23,6 +24,7 @@ export function Sidebar({ tree, selected, taskManagerUrl, instanceName = "Compan
   const currentTab = searchParams?.get("tab") || "";
 
   const hasRootGrant = tree.some((s: Scope) => s.type === "root" || s.path === "root");
+  const showBrain = rootRole === "owner" || rootRole === "admin";
   const topLevelProjects: Scope[] = tree
     .filter((s: Scope) => s.type === "project" && s.path.split("/").length === 1)
     .sort((a: Scope, b: Scope) => a.path.localeCompare(b.path));
@@ -92,6 +94,18 @@ export function Sidebar({ tree, selected, taskManagerUrl, instanceName = "Compan
           </select>
         </form>
       </div>
+
+      {showBrain && (
+        <div className="mb-[var(--space-3)] px-[var(--space-1)]">
+          <Link
+            href="/brain"
+            className={`flex items-center gap-[var(--space-2)] rounded-[var(--radius-sm)] px-[var(--space-2)] py-[var(--space-2)] text-[var(--font-size-sm)] hover:bg-[var(--muted)] ${pathname?.startsWith("/brain") ? "bg-[var(--muted)] font-medium text-[var(--primary)]" : "text-[var(--muted-foreground)]"}`}
+          >
+            <BrainCircuit size={16} />
+            Brain
+          </Link>
+        </div>
+      )}
 
       {/* Sections: selected project + nested subprojects (indented) */}
       {navNodes.length === 0 && (

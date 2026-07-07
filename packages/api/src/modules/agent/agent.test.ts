@@ -4,6 +4,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { vector } from "@electric-sql/pglite/vector";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
+import { eq } from "drizzle-orm";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
@@ -16,6 +17,7 @@ import {
   runTurn,
   listConversations,
   getConversationMessages,
+  saveDoc,
   type LLMConfig,
 } from "../../index";
 
@@ -88,6 +90,35 @@ describe("resident agent (M3-04) with mocked LiteLLM fixture", () => {
     };
   }
 
+  function makeToolCallsResponse(calls: Array<{ name: string; args: any; id: string }>) {
+    return {
+      choices: [{
+        message: {
+          role: "assistant",
+          content: null,
+          tool_calls: calls.map((call) => ({
+            id: call.id,
+            type: "function",
+            function: { name: call.name, arguments: JSON.stringify(call.args) },
+          })),
+        },
+      }],
+      usage: { prompt_tokens: 12, completion_tokens: 6, total_tokens: 18 },
+    };
+  }
+
+  async function ensureRootScope(): Promise<void> {
+    const existing = await db.select({ id: schema.scopes.id }).from(schema.scopes).where(eq(schema.scopes.path, "root")).limit(1);
+    if (existing.length === 0) {
+      await createScope(db, { slug: "root", name: "Root", type: "root" }, rootId);
+    }
+  }
+
+  async function ensureRootAdmin(): Promise<void> {
+    await ensureRootScope();
+    await grantRole(db, { principalId: actorId, scopePath: "root", role: "admin" }, rootId);
+  }
+
   it("mocked multi-step tool turn persists messages and returns final + emits event", async () => {
     const fetchMock = vi.fn()
       // first: ask for tool
@@ -145,5 +176,55 @@ describe("resident agent (M3-04) with mocked LiteLLM fixture", () => {
     expect(res).toBeTruthy();
     const msgs = await getConversationMessages(db, { conversationId: res.conversationId }, viewP.id);
     expect(msgs.length).toBeGreaterThan(0);
+  });
+
+  it("root Ask OS exposes recall/search tools and prefetches critical facts", async () => {
+    await ensureRootAdmin();
+    await saveDoc(
+      db,
+      { scopePath: "root", slug: "critical-facts", title: "Critical Facts", bodyMd: "This week the OS shipped the brain surfaces." },
+      actorId
+    );
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => makeToolCallsResponse([
+          { id: "call_recall", name: "recall_memory", args: { query: "what happened this week", limit: 5 } },
+          { id: "call_search", name: "search", args: { query: "brain surfaces", kinds: ["doc"], limit: 5 } },
+        ]),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => makeFinalResponse("Grounded root answer.") });
+    (globalThis as any).fetch = fetchMock;
+
+    const res = await runTurn(db, { scopePath: "root", userMessage: "what happened across the OS this week?" }, actorId, llm);
+    expect(res.finalText).toContain("Grounded");
+    expect(res.toolTrace.map((tool) => tool.name)).toEqual(["recall_memory", "search"]);
+
+    const firstRequest = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string);
+    const toolNames = firstRequest.tools.map((tool: any) => tool.function.name);
+    expect(toolNames).toEqual(expect.arrayContaining(["recall_memory", "search"]));
+    expect(firstRequest.messages[0].content).toContain("Root critical facts");
+    expect(firstRequest.messages[0].content).toContain("brain surfaces");
+  });
+
+  it("client-scope Ask OS recalls memory only from the granted subtree plus allowed root memory", async () => {
+    await ensureRootScope();
+    const other = await createScope(db, { slug: `other-${Date.now()}`, name: "Other", type: "project" }, rootId);
+    await grantRole(db, { principalId: actorId, scopePath: demoScopePath, role: "editor" }, rootId);
+    await grantRole(db, { principalId: rootId, scopePath: other.path, role: "editor" }, rootId);
+    await saveDoc(db, { scopePath: demoScopePath, slug: "wiki", title: "Demo Wiki", bodyMd: "sharedpricing belongs to the granted project." }, actorId);
+    await saveDoc(db, { scopePath: other.path, slug: "wiki", title: "Other Wiki", bodyMd: "sharedpricing belongs to another project." }, rootId);
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => makeToolCallResponse("recall_memory", { query: "sharedpricing", limit: 10 }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => makeFinalResponse("Scoped answer.") });
+    (globalThis as any).fetch = fetchMock;
+
+    const res = await runTurn(db, { scopePath: demoScopePath, userMessage: "recall sharedpricing" }, actorId, llm);
+    expect(res.toolTrace[0]!.name).toBe("recall_memory");
+    const resultText = JSON.stringify(res.toolTrace[0]!.result);
+    expect(resultText).toContain(demoScopePath);
+    expect(resultText).not.toContain(other.path);
   });
 });
