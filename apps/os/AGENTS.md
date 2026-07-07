@@ -25,7 +25,7 @@ Next.js (app router) tenant UI + thin HTTP API surface for agents/engines (n8n, 
 - GET /api/v1/brain/engine → root-admin session route for brain-engine runs, lint findings, and spend used by `/brain/engine`
 - `/admin/intake` → root-admin intake queue and wizard template editor; commits template markdown through `GitHubClient` and triggers skills resync.
 - POST /api/v1/webhooks/plane (Plane signed, X-Plane-Signature HMAC raw-body) → emits task.completed_external / task.updated_external or webhook.unhandled
-- POST /api/webhooks/github (GitHub signed, X-Hub-Signature-256 HMAC raw-body; `GITHUB_WEBHOOK_SECRET`) → delegates to workbench-events for push/PR ingestion and changelog stubs
+- POST /api/webhooks/github (GitHub signed, X-Hub-Signature-256 HMAC raw-body; `GITHUB_WEBHOOK_SECRET`) → delegates to workbench-events for push/PR ingestion, changelog stubs, and default-branch skills repo auto-sync when `GITHUB_ORG`, `GITHUB_TOKEN`, and `SKILLS_REPO` are configured
 - GET/POST /api/v1/canvas ?scope= [&slug=] ; POST {scope, name, slug?, scene?} → canvas ops (viewer/editor)
 
 Auth helper: src/lib/agent-auth.ts (bearer → principal, consistent {error, requires?} JSON)

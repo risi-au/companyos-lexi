@@ -11,7 +11,10 @@ import {
   type Record as DbRecord,
 } from "@companyos/db";
 import { emitEvent, type DB } from "../../kernel/events";
+import { grantRole, resolveAccess } from "../../kernel/grants";
+import type { GitHubClient } from "../../lib/github-client";
 import { createSystemRecord } from "../records/service";
+import { syncSkills, type SyncSkillsResult } from "../skills/service";
 
 const GITHUB_WEBHOOK_AUTH_USER_ID = "system:github-webhook";
 const GITHUB_NEEDS_SUMMARY_MARKER = "Needs human/agent summary";
@@ -32,6 +35,11 @@ export interface HandleGitHubWebhookInput {
   event: string;
   deliveryId: string;
   payload: any;
+  skillsSync?: {
+    org: string;
+    repo: string;
+    client: GitHubClient | null;
+  } | null;
 }
 
 export interface HandleGitHubWebhookResult {
@@ -39,6 +47,12 @@ export interface HandleGitHubWebhookResult {
   ignored?: boolean;
   duplicate?: boolean;
   groups?: Array<{ scopePath: string; eventType: string; recordId?: string | null }>;
+  skillsSync?: {
+    repo: string;
+    synced: boolean;
+    skipped?: "non-default-branch" | "not-configured";
+    result?: SyncSkillsResult;
+  };
 }
 
 interface WorkbenchRow {
@@ -300,6 +314,12 @@ async function ensureGithubWebhookPrincipal(db: DB): Promise<string> {
   return created.id;
 }
 
+async function ensureGithubWebhookRootAdmin(db: DB, principalId: string): Promise<void> {
+  const role = await resolveAccess(db, principalId, "root");
+  if (role === "owner" || role === "admin") return;
+  await grantRole(db, { principalId, scopePath: "root", role: "admin" }, principalId);
+}
+
 async function scopeIdForPath(db: DB, scopePath: string): Promise<string> {
   const [scope] = await db
     .select({ id: scopes.id })
@@ -414,6 +434,81 @@ function eventPayload(
   };
 }
 
+function skillsRepoMatches(normalized: NormalizedGitHubEvent, sync: NonNullable<HandleGitHubWebhookInput["skillsSync"]>): boolean {
+  const full = normalizeRepo(normalized.repoFullName);
+  const expectedFull = normalizeRepo(`${sync.org}/${sync.repo}`);
+  if (full.includes("/")) return full === expectedFull;
+  return normalizeRepo(repoShortName(normalized.repoFullName)) === normalizeRepo(sync.repo);
+}
+
+async function handleSkillsRepoPush(
+  db: DB,
+  normalized: NormalizedGitHubEvent,
+  deliveryId: string,
+  sync: NonNullable<HandleGitHubWebhookInput["skillsSync"]>
+): Promise<HandleGitHubWebhookResult | null> {
+  if (normalized.kind !== "push" || !skillsRepoMatches(normalized, sync)) return null;
+
+  const githubPrincipalId = await ensureGithubWebhookPrincipal(db);
+  const basePayload = {
+    source: "github",
+    repo: normalized.repoFullName,
+    branch: normalized.branch,
+    defaultBranch: normalized.defaultBranch,
+    before: normalized.before || null,
+    after: normalized.after || null,
+    commitShas: normalized.commitShas,
+    compareUrl: normalized.compareUrl || null,
+    authorLogin: normalized.authorLogin || null,
+    changedPathSamples: normalized.changedPaths.slice(0, 20),
+    changedPathCount: normalized.changedPaths.length,
+    deliveryId,
+  };
+
+  if (!normalized.branch || normalized.branch !== normalized.defaultBranch) {
+    await emitEvent(db, {
+      type: "skills.repo_push_ignored",
+      scopePath: "root",
+      principalId: githubPrincipalId,
+      payload: { ...basePayload, reason: "non-default-branch" },
+    });
+    return { ok: true, ignored: true, skillsSync: { repo: sync.repo, synced: false, skipped: "non-default-branch" } };
+  }
+
+  if (!sync.client) {
+    await emitEvent(db, {
+      type: "skills.repo_push_ignored",
+      scopePath: "root",
+      principalId: githubPrincipalId,
+      payload: { ...basePayload, reason: "not-configured" },
+    });
+    return { ok: true, ignored: true, skillsSync: { repo: sync.repo, synced: false, skipped: "not-configured" } };
+  }
+
+  await ensureGithubWebhookRootAdmin(db, githubPrincipalId);
+  try {
+    const result = await syncSkills(db, sync.client, { repo: sync.repo }, githubPrincipalId);
+    await emitEvent(db, {
+      type: "skills.repo_push_synced",
+      scopePath: "root",
+      principalId: githubPrincipalId,
+      payload: { ...basePayload, sync: result },
+    });
+    return { ok: true, skillsSync: { repo: sync.repo, synced: true, result } };
+  } catch (error) {
+    await emitEvent(db, {
+      type: "skills.repo_push_failed",
+      scopePath: "root",
+      principalId: githubPrincipalId,
+      payload: {
+        ...basePayload,
+        error: error instanceof Error ? error.message : "skills sync failed",
+      },
+    });
+    throw error;
+  }
+}
+
 function changelogBody(normalized: NormalizedGitHubEvent, group: ResolvedWorkbenchGroup): string {
   const lines = [
     GITHUB_NEEDS_SUMMARY_MARKER,
@@ -512,6 +607,11 @@ export async function handleGitHubWebhook(db: DB, input: HandleGitHubWebhookInpu
   const normalized = normalizeGitHubPayload(input.event, input.payload);
   if (!normalized) {
     return { ok: true, ignored: true };
+  }
+
+  if (input.skillsSync) {
+    const skillsResult = await handleSkillsRepoPush(db, normalized, deliveryId, input.skillsSync);
+    if (skillsResult) return skillsResult;
   }
 
   const groups = await resolveWorkbenchScopes(db, {

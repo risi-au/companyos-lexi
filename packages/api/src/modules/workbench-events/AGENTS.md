@@ -3,13 +3,16 @@
 GitHub webhook ingestion for provisioned workbenches. This is the safety net for work that lands in GitHub without an agent calling `log_change` or `complete_session`.
 
 ## Purpose
-Map signed GitHub `push` and `pull_request` webhooks back to CompanyOS scopes through `workbenches`, emit scoped audit/activity events, and create low-noise changelog stubs only when no recent agent wrap-up references the same PR or commit range.
+Map signed GitHub `push` and `pull_request` webhooks back to CompanyOS scopes through `workbenches`, emit scoped audit/activity events, create low-noise changelog stubs only when no recent agent wrap-up references the same PR or commit range, and auto-sync the central skills repo on default-branch pushes.
 
 ## Contract
 - `verifyGitHubWebhookSignature(rawBody, signature, secret)` validates `X-Hub-Signature-256` with HMAC SHA-256 before payload parsing.
 - `resolveWorkbenchScopes(db, { repoFullName, changedPaths })` matches repo first, then the deepest normalized `workbenches.path` prefix per changed path, returning one group per scope.
 - Repo matching accepts either `owner/repo` or the repo short name. This assumes a single-org instance with owner-registered, HMAC-signed webhooks; revisit before supporting multiple GitHub orgs with overlapping repo names.
 - `handleGitHubWebhook(db, { event, deliveryId, payload })` accepts `ping`, `push`, and `pull_request`; unsupported/noisy actions return `{ ok: true, ignored: true }`.
+- `handleGitHubWebhook` accepts optional `skillsSync: { org, repo, client }`. A push to
+  `org/repo` on the repository default branch calls `syncSkills` without requiring a
+  workbench row; non-default or unconfigured skills pushes emit ignored events.
 - GitHub delivery ids are idempotency keys. A delivery that already emitted an event is treated as duplicate and does not write more events or records.
 
 ## Events
@@ -18,6 +21,9 @@ Emits:
 - `workbench.pr_opened`
 - `workbench.pr_updated`
 - `workbench.pr_merged`
+- `skills.repo_push_synced`
+- `skills.repo_push_ignored`
+- `skills.repo_push_failed`
 
 Payloads include repo, branch, PR number/url/title, commit SHAs/range, author login, changed path samples, resolved scope path, delivery id, and best-effort linked session ids.
 

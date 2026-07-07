@@ -158,6 +158,7 @@ describe("brain code-docs pass", () => {
     expect(summary?.status).toBe("bootstrapped");
     expect(summary?.pagesTouched).toBe(4);
     expect(summary?.lastCommit).toBe("commit-1");
+    expect(JSON.parse(llm.codeDocsCalls()[0]!.prompt).outputFormatMandatory).toContain("Return only one JSON object");
 
     for (const slug of ["code-architecture", "code-stack", "code-integrations", "code-ops"]) {
       const doc = await getDoc(db, { scopePath: "alpha", slug }, adminPrincipalId);

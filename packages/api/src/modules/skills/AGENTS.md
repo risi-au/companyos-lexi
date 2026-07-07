@@ -32,6 +32,9 @@ Expose agentskills.io-style `SKILL.md` playbooks through CompanyOS. Sync reads e
 
 ## Sync
 - `syncSkills(db, client, { repo }, actorPrincipalId)` lists GitHub blobs, reads files named exactly `SKILL.md`, parses minimal YAML frontmatter, and upserts by `name`.
+- The workbench-events webhook service calls `syncSkills` automatically for signed
+  default-branch pushes to the configured central skills repository. Manual `sync_skills`
+  remains supported.
 - Required frontmatter: `name`, matching `^[a-z0-9-]+$`.
 - Optional frontmatter: `description`, `scope_pattern`, `domains`.
 - Invalid or missing names are skipped and reported in the result and event payload.
