@@ -101,6 +101,7 @@ services:
       - PLANE_API_TOKEN=${PLANE_API_TOKEN:-}
       - PLANE_WORKSPACE_SLUG=${PLANE_WORKSPACE_SLUG:-}
       - PLANE_WEBHOOK_SECRET=${PLANE_WEBHOOK_SECRET:-}
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-}
     depends_on:
       migrate:
         condition: service_completed_successfully
