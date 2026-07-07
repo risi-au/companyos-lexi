@@ -1,6 +1,6 @@
 # M8-03: Scoped memory access (recall_memory + critical-facts in get_context)
 
-status: todo (blocked on: M8-02)
+status: done
 module: packages/api (new memory service in brain or api) + packages/mcp + connect panel
 + provisioning managed-AGENTS.md template
 branch: task/M8-03

@@ -1,6 +1,6 @@
 # M8-02: Knowledge engine (`packages/brain`) — the second brain's maintenance loops
 
-status: todo (blocked on: M8-01)
+status: done
 module: new package `packages/brain` + capability registration + small apps/os trigger
 surface + docs/patterns/WIKI.md conventions update
 branch: task/M8-02

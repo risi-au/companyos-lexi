@@ -13,3 +13,4 @@ export * from "./skills";
 export * from "./connect";
 export * from "./sessions";
 export * from "./usage";
+export * from "./intake";

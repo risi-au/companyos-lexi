@@ -23,6 +23,7 @@ Next.js (app router) tenant UI + thin HTTP API surface for agents/engines (n8n, 
 - POST /api/v1/brain/run { mode: "ingest"|"lint"|"backfill", scope?, tokenCeiling? } → root-admin/manual trigger for `@companyos/brain`; cron should call the same route
 - GET /api/v1/brain/graph → root-admin session route for bounded global graph data used by `/brain`
 - GET /api/v1/brain/engine → root-admin session route for brain-engine runs, lint findings, and spend used by `/brain/engine`
+- `/admin/intake` → root-admin intake queue and wizard template editor; commits template markdown through `GitHubClient` and triggers skills resync.
 - POST /api/v1/webhooks/plane (Plane signed, X-Plane-Signature HMAC raw-body) → emits task.completed_external / task.updated_external or webhook.unhandled
 - POST /api/webhooks/github (GitHub signed, X-Hub-Signature-256 HMAC raw-body; `GITHUB_WEBHOOK_SECRET`) → delegates to workbench-events for push/PR ingestion and changelog stubs
 - GET/POST /api/v1/canvas ?scope= [&slug=] ; POST {scope, name, slug?, scene?} → canvas ops (viewer/editor)
@@ -36,6 +37,7 @@ Auth helper: src/lib/agent-auth.ts (bearer → principal, consistent {error, req
 - src/lib/api.ts — bindings + current actor for human UI paths
 - src/modules/* — local UI components only (no direct db)
 - src/modules/brain — root-admin brain graph client + engine trigger action
+- src/modules/intake — creation wizard UI, resume card, scope Intake tab, and admin queue actions. Server actions call `@companyos/api` only.
 - Does not contain business services (see packages/api)
 
 ## How to test (routes + auth)

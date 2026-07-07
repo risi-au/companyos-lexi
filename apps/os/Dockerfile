@@ -14,6 +14,7 @@ COPY packages/brain/package.json ./packages/brain/package.json
 COPY packages/db/package.json ./packages/db/package.json
 COPY packages/mcp/package.json ./packages/mcp/package.json
 COPY packages/ui/package.json ./packages/ui/package.json
+COPY packages/wizard/package.json ./packages/wizard/package.json
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm fetch --filter @companyos/os... --filter @companyos/db
 
 FROM deps AS install
@@ -23,6 +24,7 @@ COPY packages/brain ./packages/brain
 COPY packages/db ./packages/db
 COPY packages/mcp ./packages/mcp
 COPY packages/ui ./packages/ui
+COPY packages/wizard ./packages/wizard
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile --offline --filter @companyos/os... --filter @companyos/db
 
 FROM install AS build

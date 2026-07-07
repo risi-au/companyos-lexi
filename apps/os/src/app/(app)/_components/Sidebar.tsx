@@ -56,7 +56,7 @@ export function Sidebar({ tree, selected, taskManagerUrl, instanceName = "Compan
     return effectiveTab === tab;
   }
 
-  const moduleTabs = ["dashboard", "overview", "activity", "docs", "canvas"] as const;
+  const moduleTabs = ["dashboard", "overview", "activity", "docs", "canvas", "intake"] as const;
 
   return (
     <div className="flex-1 overflow-auto p-[var(--space-2)] text-[var(--foreground)] text-[var(--font-size-sm)]">
@@ -205,7 +205,7 @@ function NewScopeDialog({ tree, defaultParent, onClose }: { tree: Scope[]; defau
         alert(res.error);
       } else if (res?.path) {
         onClose();
-        window.location.href = `/s/${res.path}`;
+        window.location.href = `/s/${res.path}?wizard=${encodeURIComponent(res.intakeId || "new")}`;
       }
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Create scope failed");

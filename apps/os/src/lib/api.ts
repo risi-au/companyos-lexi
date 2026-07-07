@@ -56,6 +56,21 @@ import {
   getBrainGraph,
   getBrainEngineOps,
   assertBrainManualTriggerAllowed,
+  ensureDraftIntakeForScope,
+  listIntakePackets,
+  getIntakePacket,
+  updateIntakePacket,
+  submitIntakePacket,
+  findReusePatterns,
+  acceptReusePattern,
+  assembleIntakeExternalPack,
+  approveIntakePacket,
+  rejectIntakePacket,
+  dismissIntakePacket,
+  reopenIntakePacket,
+  provisionFromIntakePacket,
+  listWizardTemplates,
+  saveWizardTemplate,
   GitHubClient,
   type LLMConfig,
   type RunTurnInput,
@@ -221,6 +236,43 @@ export const api = {
     assertBrainManualTriggerAllowed(db, input, actorPrincipalId),
   runBrainEngine: (input: BrainRunInput, actorPrincipalId: string) =>
     runNativeBrainEngine(db, input, actorPrincipalId, { llm: getBrainLlmClient(), github: getBrainGitHubClient() }),
+
+  // Creation wizard intake (M8-04)
+  ensureDraftIntakeForScope: (input: Parameters<typeof ensureDraftIntakeForScope>[1], actorPrincipalId: string) =>
+    ensureDraftIntakeForScope(db, input, actorPrincipalId),
+  listIntakePackets: (input: Parameters<typeof listIntakePackets>[1], actorPrincipalId: string) =>
+    listIntakePackets(db, input, actorPrincipalId),
+  getIntakePacket: (id: string, actorPrincipalId: string) =>
+    getIntakePacket(db, id, actorPrincipalId),
+  updateIntakePacket: (input: Parameters<typeof updateIntakePacket>[1], actorPrincipalId: string) =>
+    updateIntakePacket(db, input, actorPrincipalId),
+  submitIntakePacket: (input: Parameters<typeof submitIntakePacket>[1], actorPrincipalId: string) =>
+    submitIntakePacket(db, input, actorPrincipalId),
+  findReusePatterns: (input: Parameters<typeof findReusePatterns>[1], actorPrincipalId: string) =>
+    findReusePatterns(db, input, actorPrincipalId),
+  acceptReusePattern: (input: Parameters<typeof acceptReusePattern>[1], actorPrincipalId: string) =>
+    acceptReusePattern(db, input, actorPrincipalId),
+  assembleIntakeExternalPack: (input: Parameters<typeof assembleIntakeExternalPack>[1], actorPrincipalId: string) =>
+    assembleIntakeExternalPack(db, input, actorPrincipalId),
+  approveIntakePacket: (input: Parameters<typeof approveIntakePacket>[1], actorPrincipalId: string) =>
+    approveIntakePacket(db, input, actorPrincipalId),
+  rejectIntakePacket: (input: Parameters<typeof rejectIntakePacket>[1], actorPrincipalId: string) =>
+    rejectIntakePacket(db, input, actorPrincipalId),
+  dismissIntakePacket: (input: Parameters<typeof dismissIntakePacket>[1], actorPrincipalId: string) =>
+    dismissIntakePacket(db, input, actorPrincipalId),
+  reopenIntakePacket: (input: Parameters<typeof reopenIntakePacket>[1], actorPrincipalId: string) =>
+    reopenIntakePacket(db, input, actorPrincipalId),
+  provisionFromIntakePacket: (input: Parameters<typeof provisionFromIntakePacket>[2], actorPrincipalId: string) =>
+    provisionFromIntakePacket(db, { plane: getPlaneClient(), github: getBrainGitHubClient() }, input, actorPrincipalId),
+  listWizardTemplates: (actorPrincipalId: string) =>
+    listWizardTemplates(db, actorPrincipalId),
+  saveWizardTemplate: (input: Omit<Parameters<typeof saveWizardTemplate>[2], "repo"> & { repo?: string }, actorPrincipalId: string) => {
+    const repo = input.repo || process.env.SKILLS_REPO;
+    if (!repo) throw new Error("SKILLS_REPO is required");
+    const client = getBrainGitHubClient();
+    if (!client) throw new Error("GitHub client not configured");
+    return saveWizardTemplate(db, client, { ...input, repo }, actorPrincipalId);
+  },
 };
 
 export { db }; // only for auth wiring internally

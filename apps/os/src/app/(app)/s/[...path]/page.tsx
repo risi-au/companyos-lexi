@@ -6,6 +6,7 @@ import { CanvasView } from "@/modules/canvas";
 import { ConnectPanel } from "@/modules/connect";
 import { WorkLogView } from "@/modules/worklog";
 import { SessionsView } from "@/modules/sessions";
+import { IntakePanel } from "@/modules/intake";
 import { getDashboard } from "@companyos/api";
 import { AskOSButton } from "@/modules/agent";
 import { addMemberToScope, changeMemberRole, revokeMember } from "../../_components/actions";
@@ -19,7 +20,7 @@ type DashboardSpec = NonNullable<Awaited<ReturnType<typeof getDashboard>>>["spec
 
 interface ScopePageProps {
   params: Promise<{ path: string[] }>;
-  searchParams: Promise<{ tab?: string; range?: string; doc?: string; canvas?: string }>;
+  searchParams: Promise<{ tab?: string; range?: string; doc?: string; canvas?: string; wizard?: string }>;
 }
 
 export default async function ScopePage({ params, searchParams }: ScopePageProps) {
@@ -30,6 +31,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
   const rangeParam = sp.range;
   const docParam = sp.doc;
   const canvasParam = sp.canvas;
+  const wizardParam = sp.wizard;
 
   const actor = await getCurrentActorPrincipalId();
   if (!actor) {
@@ -63,7 +65,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
   // Fetch dashboard early to decide default tab
   const dash = await api.getDashboard({ scopePath }, actor);
   const hasDashboard = !!dash;
-  const currentTab = tabParam || (hasDashboard ? "dashboard" : "overview");
+  const currentTab = wizardParam ? "intake" : (tabParam || (hasDashboard ? "dashboard" : "overview"));
   {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
   const currentRange = rangeParam || (dash && (dash.spec as any)?.range?.default) || "7d";
 
@@ -89,6 +91,9 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
     if (t === "connect") {
       return `/s/${scopePath}?tab=connect`;
     }
+    if (t === "intake") {
+      return `/s/${scopePath}?tab=intake`;
+    }
     return `/s/${scopePath}?tab=${t}`;
   };
 
@@ -101,6 +106,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
   const isCanvas = currentTab === "canvas";
   const isMembers = currentTab === "members";
   const isConnect = currentTab === "connect";
+  const isIntake = currentTab === "intake";
   const canManageMembers = scope.type === "project" && ["owner", "admin"].includes(access);
   const workLogSince = new Date();
   workLogSince.setDate(workLogSince.getDate() - 30);
@@ -109,6 +115,9 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
     : [];
   const initialSessions = isSessions
     ? await api.listSessions({ scopePath, includeDescendants: true }, actor)
+    : [];
+  const initialIntakes = isIntake
+    ? await api.listIntakePackets({ scopePath, limit: 20 }, actor)
     : [];
 
   return (
@@ -188,6 +197,12 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
             className={`${isConnect ? "border-b-2 border-[var(--primary)] font-medium text-[var(--primary)]" : "text-[var(--muted-foreground)]"} pb-[var(--space-2)]`}
           >
             Connect
+          </a>
+          <a
+            href={makeTabHref("intake")}
+            className={`${isIntake ? "border-b-2 border-[var(--primary)] font-medium text-[var(--primary)]" : "text-[var(--muted-foreground)]"} pb-[var(--space-2)]`}
+          >
+            Intake
           </a>
           {canManageMembers && (
             <a
@@ -333,13 +348,22 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
         />
       )}
 
+      {isIntake && (
+        <IntakePanel
+          scopePath={scopePath}
+          initialIntakes={initialIntakes}
+          initialOpenId={wizardParam}
+          access={access}
+        />
+      )}
+
       {/* Members tab (M4-01) - only for top-level projects to root/project admins */}
       {isMembers && canManageMembers && (
         <MembersTab scopePath={scopePath} actor={actor} />
       )}
 
       {/* Overview + Activity legacy combined when not dashboard (keep full original layout for overview+activity non-tabbed fallback if any) */}
-      {!isDashboard && !isOverview && !isActivity && !isWorkLog && !isSessions && !isDocs && !isCanvas && !isConnect && (
+      {!isDashboard && !isOverview && !isActivity && !isWorkLog && !isSessions && !isDocs && !isCanvas && !isConnect && !isIntake && (
         <div className="space-y-[var(--space-4)]">
           <div className="grid grid-cols-1 gap-[var(--space-4)] lg:grid-cols-2">
             <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">

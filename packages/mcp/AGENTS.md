@@ -46,6 +46,9 @@ Stdio auth uses `COS_TOKEN` env. HTTP auth uses `Authorization: Bearer cos_...` 
 - `sync_skills({})` - refresh cached skills from GitHub. Root admin.
 - `list_skills({scope, domain?})` - matching cached skills, no body. Viewer.
 - `get_skill({name})` - one cached skill with body. Any valid principal.
+- `submit_intake_packet({intake_id?, scope?, paste_text?, packet?})` - external intake return path for existing scopes/intakes. Editor/agent on scope; validates paste-back JSON or accepts markdown-only.
+- `list_intake_packets`, `get_intake_packet`, `update_intake_packet` - intake queue and pre-approval edits. Viewer for reads; editor/agent for update.
+- `approve_intake_packet`, `provision_from_intake_packet` - admin-gated and explicitly described as requiring human instruction; approval does not provision, provisioning calls the API `provisionFromIntakePacket` path.
 - `save_dashboard({scope, name?, spec})`, `get_dashboard`, `list_dashboards`, `list_widget_types`, `revert_dashboard` - dashboard spec authoring. `list_widget_types` is public discovery; writes require editor/agent.
 - `save_doc`, `get_doc`, `list_docs`, `list_doc_revisions`, `revert_doc` - KB markdown documents. Writes require editor/agent.
 - `save_canvas`, `get_canvas`, `list_canvases` - Excalidraw scene JSON. Writes require editor/agent.
