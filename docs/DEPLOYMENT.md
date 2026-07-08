@@ -24,7 +24,9 @@ Same images, same env-var contract, same migrations. The only deltas: `.env` val
 3. **Release path:** when a state is tested and wanted live: tag it — `git tag v0.x.y && git push --tags`. The Release workflow builds and publishes `ghcr.io/risi-au/companyos-{os,migrate}:<tag>` (gates re-run first; a red gate publishes nothing).
 4. **Staging first (added 2026-07-03):** release tags deploy to the staging environment (VPS user `aios`, https://cos-staging.risi.au) and pass the smoke checklist in docs/VPS.md before they may be promoted.
 5. Live moves tag-to-tag only, and only with `vX.Y.Z` tags signed off on staging. The rolling
-   `main` tag is staging-only and must never be deployed to live. Deploy = `docker compose pull && up -d` with the pinned tag (M5-02 automates staging; until then manual per infra/README.md + docs/VPS.md).
+   `main` tag is staging-only and must never be deployed to live. Staging deploys are
+   automated (release.yml `deploy-staging` job, every green `main` push and `v*` tag);
+   live deploys remain manual per infra/README.md + docs/VPS.md.
 6. Rollback = redeploy the previous tag (+ `git revert` on main for the fix-forward).
 
 Environments, credentials, and the step-by-step process live in **docs/VPS.md**.

@@ -121,10 +121,11 @@ It includes no Caddy, no cloudflared, and no reverse proxy.
 
 1. Confirm the new `v*` tag has published `ghcr.io/risi-au/companyos-os:<tag>` and `ghcr.io/risi-au/companyos-migrate:<tag>`.
 2. Set `COMPANYOS_TAG` to the new tag in `.env` or pass it inline.
-3. Pull and start:
+3. Pull and start (pull named services: with the `backup` profile active, a blanket `pull`
+   fails on the locally-built backup image — same applies to the rollback commands below):
    ```
-   COMPANYOS_TAG=v0.x.y docker compose --env-file .env -f infra/docker-compose.prod.yml pull
-   COMPANYOS_TAG=v0.x.y docker compose --env-file .env -f infra/docker-compose.prod.yml up -d
+   COMPANYOS_TAG=v0.x.y docker compose --env-file .env -f infra/docker-compose.prod.yml pull postgres litellm n8n migrate os brain-cron
+   COMPANYOS_TAG=v0.x.y docker compose --env-file .env -f infra/docker-compose.prod.yml up -d --build
    ```
 
 ### Quick staging iteration
@@ -148,9 +149,11 @@ run:
 - `STAGING_SSH_KEY`
 
 Do not commit deploy keys or environment secrets. The staging user's `~/app/.env` remains the
-source of truth for runtime config; the deploy job updates only `COMPANYOS_TAG`, keeping
-`.env.bak`, then runs `docker compose pull && docker compose up -d`, waits for `migrate`, and
-smoke-tests the local app plus `https://cos.risi.au`.
+source of truth for runtime config; the deploy job syncs compose assets (compose file,
+postgres-init, litellm config, `backup/`), updates only `COMPANYOS_TAG` (keeping `.env.bak`),
+pulls the registry services by name (the `backup` image is built locally — a blanket `pull`
+would fail), runs `docker compose up -d --build`, waits for `migrate`, and smoke-tests the
+app on `127.0.0.1:3000`.
 
 ### Rollback
 
