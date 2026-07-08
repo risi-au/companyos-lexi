@@ -1,6 +1,6 @@
 # M9-01: Ops health panel — credential expiry, job liveness, error surfacing, alerts
 
-status: todo
+status: done (PR #7 merged 2026-07-07, deployed to staging, migration 0023 applied)
 module: apps/os admin surface + packages/api (health service) + alerts
 branch: task/M9-01
 
