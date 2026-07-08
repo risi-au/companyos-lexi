@@ -17,6 +17,7 @@ Built as a SaaS, used internally first. Tenant #1 is our own multi-business hold
 
 | Doc | What |
 |---|---|
+| [COMPANYOS-PRIMER.md](COMPANYOS-PRIMER.md) | Self-contained overview for any agent or human: concepts, modules, MCP surface, doctrine, playbook. Point external agents at this single file |
 | [docs/DESIGN.md](docs/DESIGN.md) | The founding design: requirements, components, data model, MCP contract, roadmap |
 | [docs/CONSTITUTION.md](docs/CONSTITUTION.md) | Engineering rules (kernel/modules, API-first, events, tokens) |
 | [docs/ORCHESTRATION.md](docs/ORCHESTRATION.md) | How this gets built (architect + implementer agent loop) |
