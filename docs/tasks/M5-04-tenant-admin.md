@@ -1,6 +1,6 @@
 # M5-04: Tenant admin (users, roles, observability UI)
 
-status: todo (decisions ratified by owner 2026-07-08 — see below; dispatchable)
+status: done (PR #10 merged 2026-07-07, deployed to staging; owner decisions recorded below)
 module: apps/os + packages/api
 branch: task/M5-04
 

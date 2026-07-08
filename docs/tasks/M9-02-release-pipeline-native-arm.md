@@ -1,6 +1,6 @@
 # M9-02: Release pipeline — native arm64 builds, kill the QEMU tax
 
-status: todo
+status: done (PR #9 merged 2026-07-07; verified live: release+deploy 9m10s, arm64 image on VPS, 3 consecutive clean releases)
 module: .github/workflows/release.yml
 branch: task/M9-02
 

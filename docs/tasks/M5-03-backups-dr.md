@@ -1,6 +1,6 @@
 # M5-03: Backups + DR drill (nightly pg_dump → encrypted → offsite; documented restore)
 
-status: todo (UNBLOCKED 2026-07-08: owner chose Cloudflare R2; bucket `companyos-backups` + scoped token created; creds live in staging .env)
+status: in-progress (PR #8 merged 2026-07-07; sidecar running on staging, dump+encrypt verified; BLOCKED at R2 upload AccessDenied — owner to fix token perms in Cloudflare, then rerun run-once + restore drill per infra/RESTORE.md)
 module: infra
 branch: task/M5-03
 
