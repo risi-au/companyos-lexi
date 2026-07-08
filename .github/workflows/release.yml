@@ -180,9 +180,15 @@ jobs:
             printf '\nCOMPANYOS_TAG=%s\n' "$COMPANYOS_DEPLOY_TAG" >> .env
           fi
 
-          docker compose --env-file .env -f docker-compose.prod.yml pull
+          # Pull registry images only — backup is built locally (pull_policy: build,
+          # no registry copy exists) and the VPS compose still tries to pull it once
+          # the backup profile is active, failing the deploy. New services with
+          # mutable tags must be added here; pinned-tag services are pulled by
+          # `up` on first run regardless.
+          docker compose --env-file .env -f docker-compose.prod.yml pull \
+            postgres litellm n8n migrate os brain-cron
           set +e
-          docker compose --env-file .env -f docker-compose.prod.yml up -d
+          docker compose --env-file .env -f docker-compose.prod.yml up -d --build
           compose_up_status="$?"
           set -e
 
