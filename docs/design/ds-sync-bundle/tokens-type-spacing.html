@@ -1,0 +1,59 @@
+<!-- @dsCard group="Type" -->
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>CompanyOS — Type, Spacing, Shape</title>
+<style>
+:root{
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-6:24px;--space-8:32px;--space-12:48px;--space-16:64px;
+  --radius-sm:6px;--radius-md:10px;--radius-lg:14px;
+  --font-size-xs:12px;--font-size-sm:13px;--font-size-base:14px;--font-size-md:16px;
+  --font-size-lg:18px;--font-size-xl:24px;--font-size-2xl:30px;--font-size-3xl:36px;
+  --foreground:#0f172a;--muted-foreground:#64748b;--border:#e2e8f0;--surface:#fff;--primary:#1e40af;
+  --shadow-sm:0 1px 2px rgb(15 23 42 / .06);--shadow-md:0 4px 12px rgb(15 23 42 / .1);
+}
+body{font-family:Inter,system-ui,sans-serif;color:var(--foreground);margin:0;padding:24px;background:#f8fafc}
+h2{font-size:14px;margin:24px 0 12px;font-weight:600}
+.spec{font-family:ui-monospace,monospace;font-size:11px;color:var(--muted-foreground);margin-left:12px}
+.trow{display:flex;align-items:baseline;margin-bottom:6px}
+.bar{background:var(--primary);height:16px;border-radius:3px;display:inline-block;vertical-align:middle}
+.srow{display:flex;align-items:center;margin-bottom:6px;font-size:12px}
+.shape{display:inline-flex;gap:16px}
+.shape div{width:72px;height:48px;background:var(--surface);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--muted-foreground)}
+.note{margin-top:24px;padding:12px;border:1px solid #f59e0b;border-radius:10px;background:#fffbeb;font-size:12px;max-width:560px}
+</style>
+</head>
+<body>
+<h2>Type scale — Inter (sans) / JetBrains Mono (mono), 14px base</h2>
+<div class="trow"><span style="font-size:var(--font-size-3xl);font-weight:600">Scope overview</span><span class="spec">--font-size-3xl 36px / 600</span></div>
+<div class="trow"><span style="font-size:var(--font-size-2xl);font-weight:600">Scope overview</span><span class="spec">--font-size-2xl 30px / 600 · page titles</span></div>
+<div class="trow"><span style="font-size:var(--font-size-xl);font-weight:600">Scope overview</span><span class="spec">--font-size-xl 24px</span></div>
+<div class="trow"><span style="font-size:var(--font-size-lg);font-weight:500">Scope overview</span><span class="spec">--font-size-lg 18px · section heads</span></div>
+<div class="trow"><span style="font-size:var(--font-size-md)">Body emphasis and buttons</span><span class="spec">--font-size-md 16px</span></div>
+<div class="trow"><span style="font-size:var(--font-size-base)">Default body text across the app</span><span class="spec">--font-size-base 14px</span></div>
+<div class="trow"><span style="font-size:var(--font-size-sm);color:var(--muted-foreground)">Secondary text, table cells</span><span class="spec">--font-size-sm 13px</span></div>
+<div class="trow"><span style="font-size:var(--font-size-xs);color:var(--muted-foreground)">Meta, timestamps, badges</span><span class="spec">--font-size-xs 12px</span></div>
+
+<h2>Spacing — 4px grid</h2>
+<div class="srow"><span class="bar" style="width:4px"></span><span class="spec">--space-1 · 4px</span></div>
+<div class="srow"><span class="bar" style="width:8px"></span><span class="spec">--space-2 · 8px</span></div>
+<div class="srow"><span class="bar" style="width:12px"></span><span class="spec">--space-3 · 12px</span></div>
+<div class="srow"><span class="bar" style="width:16px"></span><span class="spec">--space-4 · 16px</span></div>
+<div class="srow"><span class="bar" style="width:24px"></span><span class="spec">--space-6 · 24px</span></div>
+<div class="srow"><span class="bar" style="width:32px"></span><span class="spec">--space-8 · 32px</span></div>
+<div class="srow"><span class="bar" style="width:48px"></span><span class="spec">--space-12 · 48px</span></div>
+<div class="srow"><span class="bar" style="width:64px"></span><span class="spec">--space-16 · 64px</span></div>
+
+<h2>Shape &amp; elevation</h2>
+<div class="shape">
+  <div style="border-radius:6px">sm 6px</div>
+  <div style="border-radius:10px">md 10px</div>
+  <div style="border-radius:14px">lg 14px</div>
+  <div style="border-radius:10px;box-shadow:var(--shadow-sm);border:none">shadow-sm</div>
+  <div style="border-radius:10px;box-shadow:var(--shadow-md);border:none">shadow-md</div>
+</div>
+
+<div class="note"><strong>Known gap (do not inherit):</strong> the scale currently skips --space-5 (20px) yet four app files reference it; a fix adding --space-5: 20px is planned in DESIGN-SYSTEM-DELTAS.md. Designs may use a 20px step and assume it exists.</div>
+</body>
+</html>
