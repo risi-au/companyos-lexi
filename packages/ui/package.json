@@ -7,7 +7,8 @@
     ".": "./src/index.ts",
     "./motion": "./src/motion.ts",
     "./tokens.css": "./src/tokens.css",
-    "./globals.css": "./src/globals.css"
+    "./globals.css": "./src/globals.css",
+    "./motion.css": "./src/motion.css"
   },
   "scripts": {
     "build": "tsc --noEmit",

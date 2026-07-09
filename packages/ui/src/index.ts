@@ -13,12 +13,17 @@ export {
 } from "./components/confirm-dialog";
 export {
   anim,
+  countUp,
   df,
   getMotionIntensity,
+  initPulseDots,
   normalizeMotionIntensity,
   prefersReducedMotion,
+  pulse,
   rm,
   setMotionIntensity,
+  viewEnter,
+  type CountUpOptions,
   type MotionIntensity,
 } from "./motion";
 export { Tabs, type TabItem, type TabsProps } from "./components/tabs";
@@ -30,7 +35,4 @@ export {
   type StepperProps,
   type StepperStep,
 } from "./components/stepper";
-export {
-  CompletionReward,
-  type CompletionRewardProps,
-} from "./components/completion-reward";
+export { CompletionReward, type CompletionRewardProps } from "./components/completion-reward";

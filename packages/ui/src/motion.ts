@@ -64,9 +64,171 @@ async function loadGsap(): Promise<GsapLike | null> {
   }
 }
 
-export async function anim(fn: (gsap: GsapLike) => void | Promise<void>) {
-  if (rm()) return;
+export async function anim(
+  fn: (gsap: GsapLike) => void | Promise<void>,
+  instant?: () => void,
+) {
+  if (rm()) {
+    instant?.();
+    return;
+  }
   const gsap = await loadGsap();
-  if (!gsap) return;
-  await fn(gsap);
+  if (!gsap) {
+    instant?.();
+    return;
+  }
+  try {
+    await fn(gsap);
+  } catch {
+    instant?.();
+  }
+}
+
+export interface CountUpOptions {
+  format?: (value: number) => string;
+  duration?: number;
+}
+
+export async function countUp(
+  el: HTMLElement,
+  value: number,
+  options: CountUpOptions = {},
+) {
+  const format = options.format ?? ((n: number) => String(Math.round(n)));
+  const duration = options.duration ?? 0.8;
+  el.dataset.count = String(value);
+
+  const setFinal = () => {
+    el.textContent = format(value);
+  };
+
+  if (rm()) {
+    setFinal();
+    return;
+  }
+
+  const counter = { value: 0 };
+  await anim(
+    (gsap) => {
+      gsap.to(counter, {
+        value,
+        duration: df(duration),
+        ease: "power2.out",
+        onUpdate: () => {
+          el.textContent = format(counter.value);
+        },
+        onComplete: setFinal,
+      });
+    },
+    setFinal,
+  );
+}
+
+export async function viewEnter(root: HTMLElement, items?: NodeListOf<Element> | Element[]) {
+  const setFinal = () => {
+    root.style.opacity = "1";
+    root.style.transform = "none";
+    if (items) {
+      for (const item of items) {
+        const node = item as HTMLElement;
+        node.style.opacity = "1";
+        node.style.transform = "none";
+      }
+    }
+  };
+
+  if (rm()) {
+    setFinal();
+    return;
+  }
+
+  await anim(
+    (gsap) => {
+      gsap.fromTo(
+        root,
+        { opacity: 0, y: 10 },
+        {
+          opacity: 1,
+          y: 0,
+          duration: df(0.24),
+          ease: "power3.out",
+          clearProps: "transform,opacity",
+        },
+      );
+      if (items && items.length > 0) {
+        gsap.fromTo(
+          items,
+          { opacity: 0, y: 8 },
+          {
+            opacity: 1,
+            y: 0,
+            duration: df(0.2),
+            stagger: df(0.05),
+            delay: df(0.04),
+            ease: "power2.out",
+            clearProps: "transform,opacity",
+          },
+        );
+      }
+    },
+    setFinal,
+  );
+}
+
+export async function pulse(el: HTMLElement) {
+  const setFinal = () => {
+    el.style.opacity = "1";
+  };
+
+  if (rm()) {
+    setFinal();
+    return;
+  }
+
+  await anim(
+    (gsap) => {
+      gsap.to(el, {
+        opacity: 0.35,
+        duration: 1.1,
+        ease: "sine.inOut",
+        yoyo: true,
+        repeat: -1,
+      });
+    },
+    setFinal,
+  );
+}
+
+export function initPulseDots(root: ParentNode = document) {
+  if (!canUseDom() || rm()) return () => {};
+  const elements = root.querySelectorAll<HTMLElement>("[data-pulse]");
+  const stops: Array<() => void> = [];
+
+  for (const el of elements) {
+    let active = true;
+    void loadGsap().then((gsap) => {
+      if (!active || !gsap || rm()) {
+        el.style.opacity = "1";
+        return;
+      }
+      gsap.to(el, {
+        opacity: 0.35,
+        duration: 1.1,
+        ease: "sine.inOut",
+        yoyo: true,
+        repeat: -1,
+      });
+    });
+    stops.push(() => {
+      active = false;
+      void loadGsap().then((gsap) => {
+        gsap?.killTweensOf(el);
+        el.style.opacity = "1";
+      });
+    });
+  }
+
+  return () => {
+    for (const stop of stops) stop();
+  };
 }
