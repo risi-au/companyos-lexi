@@ -1,31 +1,23 @@
 import { api, getCurrentActorPrincipalId } from "@/lib/api";
+import { EmptyState, Table } from "@companyos/ui";
+import { Activity } from "lucide-react";
 
 export default async function AdminActivityPage() {
   const actor = await getCurrentActorPrincipalId();
   if (!actor) return null;
   const events = await api.listAdminActivity({ limit: 100 }, actor);
   return (
-    <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)]">
-      <table className="w-full min-w-[860px] text-left text-[var(--font-size-sm)]">
-        <thead className="border-b border-[var(--border)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
-          <tr>
-            <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Time</th>
-            <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Type</th>
-            <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Principal</th>
-            <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Payload</th>
-          </tr>
-        </thead>
-        <tbody>
-          {events.map((event) => (
-            <tr key={String(event.id)} className="border-b border-[var(--border)] last:border-b-0">
-              <td className="px-[var(--space-3)] py-[var(--space-2)] tabular-nums">{new Date(event.createdAt).toLocaleString()}</td>
-              <td className="px-[var(--space-3)] py-[var(--space-2)] font-mono text-[var(--font-size-xs)]">{event.type}</td>
-              <td className="px-[var(--space-3)] py-[var(--space-2)] font-mono text-[var(--font-size-xs)]">{event.principalId ?? "-"}</td>
-              <td className="px-[var(--space-3)] py-[var(--space-2)]"><pre className="max-w-xl overflow-auto whitespace-pre-wrap text-[var(--font-size-xs)]">{JSON.stringify(event.payload, null, 2)}</pre></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <Table
+      rows={events}
+      minWidth="860px"
+      getRowKey={(event) => String(event.id)}
+      empty={<EmptyState icon={<Activity size={16} />} title="No activity recorded" body="Audit events will appear here after users or agents make changes." />}
+      columns={[
+        { key: "time", header: "Time", className: "tabular-nums", cell: (event) => new Date(event.createdAt).toLocaleString() },
+        { key: "type", header: "Type", className: "font-mono text-[var(--font-size-xs)]", cell: (event) => event.type },
+        { key: "principal", header: "Principal", className: "font-mono text-[var(--font-size-xs)]", cell: (event) => event.principalId ?? "-" },
+        { key: "payload", header: "Payload", cell: (event) => <pre className="max-w-xl overflow-auto whitespace-pre-wrap text-[var(--font-size-xs)]">{JSON.stringify(event.payload, null, 2)}</pre> },
+      ]}
+    />
   );
 }

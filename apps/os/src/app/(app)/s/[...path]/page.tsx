@@ -9,6 +9,7 @@ import { WorkLogView } from "@/modules/worklog";
 import { SessionsView } from "@/modules/sessions";
 import { IntakePanel } from "@/modules/intake";
 import { getDashboard } from "@companyos/api";
+import { Tabs } from "@companyos/ui";
 import { AskOSButton } from "@/modules/agent";
 import { addMemberToScope, changeMemberRole, revokeMember } from "../../_components/actions";
 // Consume spec contract (never fork schema); derive type from service surface for compile
@@ -183,78 +184,23 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
       </div>
 
       {/* Tabs: Dashboard first when present */}
-      <div className="border-b border-[var(--border)]">
-        <div className="-mb-px flex gap-[var(--space-6)] text-[var(--font-size-sm)]">
-          <a
-            href={makeTabHref("dashboard")}
-            className={`${isDashboard ? "border-b-2 border-[var(--primary)] font-medium text-[var(--primary)]" : "text-[var(--muted-foreground)]"} pb-[var(--space-2)]`}
-          >
-            Dashboard
-          </a>
-          <a
-            href={makeTabHref("overview")}
-            className={`${isOverview ? "border-b-2 border-[var(--primary)] font-medium text-[var(--primary)]" : "text-[var(--muted-foreground)]"} pb-[var(--space-2)]`}
-          >
-            Overview
-          </a>
-          <a
-            href={makeTabHref("activity")}
-            className={`${isActivity ? "border-b-2 border-[var(--primary)] font-medium text-[var(--primary)]" : "text-[var(--muted-foreground)]"} pb-[var(--space-2)]`}
-          >
-            Activity
-          </a>
-          <a
-            href={makeTabHref("work-log")}
-            className={`${isWorkLog ? "border-b-2 border-[var(--primary)] font-medium text-[var(--primary)]" : "text-[var(--muted-foreground)]"} pb-[var(--space-2)]`}
-          >
-            Work Log
-          </a>
-          <a
-            href={makeTabHref("sessions")}
-            className={`${isSessions ? "border-b-2 border-[var(--primary)] font-medium text-[var(--primary)]" : "text-[var(--muted-foreground)]"} pb-[var(--space-2)]`}
-          >
-            Sessions
-          </a>
-          <a
-            href={makeTabHref("docs")}
-            className={`${isDocs ? "border-b-2 border-[var(--primary)] font-medium text-[var(--primary)]" : "text-[var(--muted-foreground)]"} pb-[var(--space-2)]`}
-          >
-            Docs
-          </a>
-          <a
-            href={makeTabHref("canvas")}
-            className={`${isCanvas ? "border-b-2 border-[var(--primary)] font-medium text-[var(--primary)]" : "text-[var(--muted-foreground)]"} pb-[var(--space-2)]`}
-          >
-            Canvas
-          </a>
-          <a
-            href={makeTabHref("connect")}
-            className={`${isConnect ? "border-b-2 border-[var(--primary)] font-medium text-[var(--primary)]" : "text-[var(--muted-foreground)]"} pb-[var(--space-2)]`}
-          >
-            Connect
-          </a>
-          <a
-            href={makeTabHref("credentials")}
-            className={`${isCredentials ? "border-b-2 border-[var(--primary)] font-medium text-[var(--primary)]" : "text-[var(--muted-foreground)]"} pb-[var(--space-2)]`}
-          >
-            Credentials
-          </a>
-          <a
-            href={makeTabHref("intake")}
-            className={`${isIntake ? "border-b-2 border-[var(--primary)] font-medium text-[var(--primary)]" : "text-[var(--muted-foreground)]"} pb-[var(--space-2)]`}
-          >
-            Intake
-          </a>
-          {canManageMembers && (
-            <a
-              href={makeTabHref("members")}
-              className={`${isMembers ? "border-b-2 border-[var(--primary)] font-medium text-[var(--primary)]" : "text-[var(--muted-foreground)]"} pb-[var(--space-2)]`}
-            >
-              Members
-            </a>
-          )}
-        </div>
-      </div>
+      <Tabs
+        ariaLabel="Scope sections"
+        activeId={currentTab}
+        items={[
+          { id: "dashboard", label: "Dashboard", href: makeTabHref("dashboard") },
+          { id: "overview", label: "Overview", href: makeTabHref("overview") },
+          { id: "activity", label: "Activity", href: makeTabHref("activity") },
+          { id: "work-log", label: "Work Log", href: makeTabHref("work-log") },
+          { id: "sessions", label: "Sessions", href: makeTabHref("sessions") },
+          { id: "docs", label: "Docs", href: makeTabHref("docs") },
+          { id: "canvas", label: "Canvas", href: makeTabHref("canvas") },
+          { id: "connect", label: "Connect", href: makeTabHref("connect") },
+          { id: "credentials", label: "Credentials", href: makeTabHref("credentials") },
+          { id: "intake", label: "Intake", href: makeTabHref("intake") },
+          ...(canManageMembers ? [{ id: "members", label: "Members", href: makeTabHref("members") }] : []),
+        ]}
+      />
 
       {/* Dashboard tab */}
       {isDashboard && (

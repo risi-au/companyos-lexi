@@ -1,4 +1,7 @@
 import { api, getCurrentActorPrincipalId } from "@/lib/api";
+import { EmptyState, Table } from "@companyos/ui";
+import { Shield } from "lucide-react";
+import { ConfirmSubmitButton } from "@/modules/admin/ConfirmSubmitButton";
 import { grantAdminRoleAction, revokeAdminGrantAction } from "@/modules/admin/actions";
 
 export default async function AdminGrantsPage() {
@@ -26,39 +29,45 @@ export default async function AdminGrantsPage() {
         </select>
         <button className="rounded-[var(--radius-sm)] bg-[var(--primary)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] text-[var(--primary-foreground)]">Grant</button>
       </form>
-      <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)]">
-        <table className="w-full min-w-[860px] text-left text-[var(--font-size-sm)]">
-          <thead className="border-b border-[var(--border)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
-            <tr>
-              <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Principal</th>
-              <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Scope</th>
-              <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Role</th>
-              <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Created</th>
-              <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {grants.map((grant) => (
-              <tr key={grant.grantId} className="border-b border-[var(--border)] last:border-b-0">
-                <td className="px-[var(--space-3)] py-[var(--space-2)]">
-                  <div>{grant.principalName}</div>
-                  <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">{grant.principalEmail ?? grant.principalId}</div>
-                </td>
-                <td className="px-[var(--space-3)] py-[var(--space-2)] font-mono text-[var(--font-size-xs)]">{grant.scopePath}</td>
-                <td className="px-[var(--space-3)] py-[var(--space-2)]">{grant.role}</td>
-                <td className="px-[var(--space-3)] py-[var(--space-2)]">{new Date(grant.createdAt).toLocaleString()}</td>
-                <td className="px-[var(--space-3)] py-[var(--space-2)]">
-                  <form action={revokeAdminGrantAction}>
-                    <input type="hidden" name="principalId" value={grant.principalId} />
-                    <input type="hidden" name="scopePath" value={grant.scopePath} />
-                    <button className="rounded-[var(--radius-sm)] border border-[var(--destructive)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-xs)] text-[var(--destructive)] hover:bg-[var(--muted)]">Revoke</button>
-                  </form>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <Table
+        rows={grants}
+        minWidth="860px"
+        getRowKey={(grant) => grant.grantId}
+        empty={<EmptyState icon={<Shield size={16} />} title="No grants yet" body="Grant a user or agent access to a scope from the form above." />}
+        columns={[
+          {
+            key: "principal",
+            header: "Principal",
+            cell: (grant) => (
+              <>
+                <div>{grant.principalName}</div>
+                <div className="text-[var(--font-size-xs)] text-[var(--mutedfg)]">{grant.principalEmail ?? grant.principalId}</div>
+              </>
+            ),
+          },
+          { key: "scope", header: "Scope", className: "font-mono text-[var(--font-size-xs)]", cell: (grant) => grant.scopePath },
+          { key: "role", header: "Role", cell: (grant) => grant.role },
+          { key: "created", header: "Created", cell: (grant) => new Date(grant.createdAt).toLocaleString() },
+          {
+            key: "action",
+            header: "Action",
+            cell: (grant) => (
+              <form action={revokeAdminGrantAction}>
+                <input type="hidden" name="principalId" value={grant.principalId} />
+                <input type="hidden" name="scopePath" value={grant.scopePath} />
+                <ConfirmSubmitButton
+                  title={`Revoke ${grant.principalName}'s grant?`}
+                  body={`This removes access to ${grant.scopePath} for this principal and its subtree.`}
+                  confirmLabel="Revoke grant"
+                  className="rounded-[var(--radius-3)] border border-[var(--err)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-xs)] text-[var(--err)] hover:bg-[var(--hover)]"
+                >
+                  Revoke
+                </ConfirmSubmitButton>
+              </form>
+            ),
+          },
+        ]}
+      />
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { Activity, AlertTriangle, CheckCircle2, CircleHelp, XCircle } from "luci
 import { api, getCurrentActorPrincipalId } from "@/lib/api";
 import { opsHealthDeps, opsHealthEnvironment } from "@/lib/ops-health";
 import type { HealthStatus, OpsHealthCheck, OpsRunLogRow } from "@companyos/api";
+import { EmptyState, Table } from "@companyos/ui";
 
 function isRootAdmin(role: string | null): boolean {
   return role === "owner" || role === "admin";
@@ -15,10 +16,10 @@ function fmtDate(value: Date | string | null) {
 }
 
 function statusClass(status: HealthStatus): string {
-  if (status === "ok") return "text-[var(--status-ok)]";
-  if (status === "warning") return "text-[var(--status-warn)]";
-  if (status === "error") return "text-[var(--status-error)]";
-  return "text-[var(--muted-foreground)]";
+  if (status === "ok") return "text-[var(--ok)]";
+  if (status === "warning") return "text-[var(--warn)]";
+  if (status === "error") return "text-[var(--err)]";
+  return "text-[var(--mutedfg)]";
 }
 
 function StatusIcon({ status }: { status: HealthStatus }) {
@@ -102,76 +103,56 @@ function FilterLink({ active, href, children }: { active: boolean; href: string;
 
 function HealthTable({ checks }: { checks: OpsHealthCheck[] }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left text-[var(--font-size-sm)]">
-        <thead className="text-[var(--muted-foreground)]">
-          <tr>
-            <th className="px-[var(--space-4)] py-[var(--space-2)]">Component</th>
-            <th className="px-[var(--space-4)] py-[var(--space-2)]">Status</th>
-            <th className="px-[var(--space-4)] py-[var(--space-2)]">Last activity</th>
-            <th className="px-[var(--space-4)] py-[var(--space-2)]">Expiry / next expected</th>
-            <th className="px-[var(--space-4)] py-[var(--space-2)]">Latest error</th>
-            <th className="px-[var(--space-4)] py-[var(--space-2)]">Drill-down</th>
-          </tr>
-        </thead>
-        <tbody>
-          {checks.map((check) => (
-            <tr key={check.key} className="border-t border-[var(--border)] align-top">
-              <td className="px-[var(--space-4)] py-[var(--space-2)]">
-                <div className="font-medium">{check.component}</div>
-                <div className="mt-px text-[var(--font-size-xs)] text-[var(--muted-foreground)]">{check.detail}</div>
-              </td>
-              <td className="px-[var(--space-4)] py-[var(--space-2)]">
-                <div className="inline-flex items-center gap-[var(--space-1)]">
-                  <StatusIcon status={check.status} />
-                  <span className={statusClass(check.status)}>{check.status}</span>
-                </div>
-              </td>
-              <td className="px-[var(--space-4)] py-[var(--space-2)] font-mono text-[var(--font-size-xs)]">{fmtDate(check.lastActivityAt)}</td>
-              <td className="px-[var(--space-4)] py-[var(--space-2)] font-mono text-[var(--font-size-xs)]">{fmtDate(check.expiryAt || check.nextExpectedAt)}</td>
-              <td className="max-w-[360px] px-[var(--space-4)] py-[var(--space-2)] text-[var(--muted-foreground)]">{check.latestError || "-"}</td>
-              <td className="px-[var(--space-4)] py-[var(--space-2)]">
-                {check.href ? <Link className="text-[var(--primary)] hover:underline" href={check.href}>Open</Link> : "-"}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <Table
+      rows={checks}
+      minWidth="980px"
+      getRowKey={(check) => check.key}
+      empty={<EmptyState icon={<Activity size={16} />} title="No health checks" body="Configured component checks will appear here after the first run." />}
+      columns={[
+        {
+          key: "component",
+          header: "Component",
+          cell: (check) => (
+            <>
+              <div className="font-medium">{check.component}</div>
+              <div className="mt-px text-[var(--font-size-xs)] text-[var(--mutedfg)]">{check.detail}</div>
+            </>
+          ),
+        },
+        {
+          key: "status",
+          header: "Status",
+          cell: (check) => (
+            <div className="inline-flex items-center gap-[var(--space-1)]">
+              <StatusIcon status={check.status} />
+              <span className={statusClass(check.status)}>{check.status}</span>
+            </div>
+          ),
+        },
+        { key: "last", header: "Last activity", className: "font-mono text-[var(--font-size-xs)]", cell: (check) => fmtDate(check.lastActivityAt) },
+        { key: "expiry", header: "Expiry / next expected", className: "font-mono text-[var(--font-size-xs)]", cell: (check) => fmtDate(check.expiryAt || check.nextExpectedAt) },
+        { key: "error", header: "Latest error", className: "max-w-[360px] text-[var(--mutedfg)]", cell: (check) => check.latestError || "-" },
+        { key: "drill", header: "Drill-down", cell: (check) => check.href ? <Link className="text-[var(--primary)] hover:underline" href={check.href}>Open</Link> : "-" },
+      ]}
+    />
   );
 }
 
 function RunTable({ runs }: { runs: OpsRunLogRow[] }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left text-[var(--font-size-sm)]">
-        <thead className="text-[var(--muted-foreground)]">
-          <tr>
-            <th className="px-[var(--space-4)] py-[var(--space-2)]">Started</th>
-            <th className="px-[var(--space-4)] py-[var(--space-2)]">Capability</th>
-            <th className="px-[var(--space-4)] py-[var(--space-2)]">Scope</th>
-            <th className="px-[var(--space-4)] py-[var(--space-2)]">Status</th>
-            <th className="px-[var(--space-4)] py-[var(--space-2)]">Tokens</th>
-            <th className="px-[var(--space-4)] py-[var(--space-2)]">Summary / error</th>
-          </tr>
-        </thead>
-        <tbody>
-          {runs.length === 0 ? (
-            <tr><td className="px-[var(--space-4)] py-[var(--space-3)] text-[var(--muted-foreground)]" colSpan={6}>No matching runs.</td></tr>
-          ) : runs.map((run) => (
-            <tr key={run.id} className="border-t border-[var(--border)] align-top">
-              <td className="px-[var(--space-4)] py-[var(--space-2)] font-mono text-[var(--font-size-xs)]">{fmtDate(run.startedAt)}</td>
-              <td className="px-[var(--space-4)] py-[var(--space-2)]">
-                {run.href ? <Link className="text-[var(--primary)] hover:underline" href={run.href}>{run.capability}</Link> : run.capability}
-              </td>
-              <td className="px-[var(--space-4)] py-[var(--space-2)] font-mono text-[var(--font-size-xs)]">{run.scopePath}</td>
-              <td className="px-[var(--space-4)] py-[var(--space-2)]">{run.status}</td>
-              <td className="px-[var(--space-4)] py-[var(--space-2)] font-mono">{run.tokenSpend ?? "-"}</td>
-              <td className="max-w-[520px] px-[var(--space-4)] py-[var(--space-2)] text-[var(--muted-foreground)]">{run.latestError || run.summary || "-"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <Table
+      rows={runs}
+      minWidth="920px"
+      getRowKey={(run) => run.id}
+      empty={<EmptyState icon={<Activity size={16} />} title="No matching runs" body="Run logs matching this filter will appear after capabilities report activity." />}
+      columns={[
+        { key: "started", header: "Started", className: "font-mono text-[var(--font-size-xs)]", cell: (run) => fmtDate(run.startedAt) },
+        { key: "capability", header: "Capability", cell: (run) => run.href ? <Link className="text-[var(--primary)] hover:underline" href={run.href}>{run.capability}</Link> : run.capability },
+        { key: "scope", header: "Scope", className: "font-mono text-[var(--font-size-xs)]", cell: (run) => run.scopePath },
+        { key: "status", header: "Status", cell: (run) => run.status },
+        { key: "tokens", header: "Tokens", className: "font-mono", cell: (run) => run.tokenSpend ?? "-" },
+        { key: "summary", header: "Summary / error", className: "max-w-[520px] text-[var(--mutedfg)]", cell: (run) => run.latestError || run.summary || "-" },
+      ]}
+    />
   );
 }

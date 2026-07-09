@@ -1,4 +1,6 @@
 import { api, getCurrentActorPrincipalId } from "@/lib/api";
+import { Card, EmptyState, Table } from "@companyos/ui";
+import { FileText } from "lucide-react";
 import { saveWizardTemplateAction } from "@/modules/intake/actions";
 
 export default async function AdminIntakePage() {
@@ -25,40 +27,24 @@ export default async function AdminIntakePage() {
         <div className="mt-1 text-[var(--font-size-sm)] text-[var(--muted-foreground)]">Global creation wizard review and template administration.</div>
       </div>
 
-      <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
+      <Card>
         <div className="mb-[var(--space-3)] text-[var(--font-size-sm)] font-medium">Packets awaiting action</div>
-        {packets.length === 0 ? (
-          <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No packets awaiting review.</div>
-        ) : (
-          <table className="w-full text-left text-[var(--font-size-sm)]">
-            <thead className="text-[var(--muted-foreground)]">
-              <tr>
-                <th className="pb-2">Scope</th>
-                <th className="pb-2">Status</th>
-                <th className="pb-2">Template</th>
-                <th className="pb-2">Updated</th>
-                <th className="pb-2">Open</th>
-              </tr>
-            </thead>
-            <tbody>
-              {packets.map((packet) => (
-                <tr key={packet.id} className="border-t border-[var(--border)]">
-                  <td className="py-2 font-mono text-xs">{packet.scopePath}</td>
-                  <td className="py-2">{packet.status}</td>
-                  <td className="py-2">{packet.templateSlug}</td>
-                  <td className="py-2 text-[var(--muted-foreground)]">{new Date(packet.updatedAt).toLocaleString()}</td>
-                  <td className="py-2">
-                    <a className="text-[var(--primary)]" href={`/s/${packet.scopePath}?wizard=${packet.id}`}>Review</a>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+        <Table
+          rows={packets}
+          getRowKey={(packet) => packet.id}
+          empty={<EmptyState icon={<FileText size={16} />} title="No packets awaiting review" body="Submitted setup packets will queue here for root-admin review." />}
+          columns={[
+            { key: "scope", header: "Scope", className: "font-mono text-[var(--font-size-xs)]", cell: (packet) => packet.scopePath },
+            { key: "status", header: "Status", cell: (packet) => packet.status },
+            { key: "template", header: "Template", cell: (packet) => packet.templateSlug },
+            { key: "updated", header: "Updated", cell: (packet) => new Date(packet.updatedAt).toLocaleString() },
+            { key: "open", header: "Open", cell: (packet) => <a className="text-[var(--primary)]" href={`/s/${packet.scopePath}?wizard=${packet.id}`}>Review</a> },
+          ]}
+        />
+      </Card>
 
       <div className="grid grid-cols-1 gap-[var(--space-4)] lg:grid-cols-[360px_1fr]">
-        <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
+        <Card>
           <div className="mb-[var(--space-3)] text-[var(--font-size-sm)] font-medium">Wizard templates</div>
           <div className="space-y-2">
             {templates.map((template) => (
@@ -68,8 +54,9 @@ export default async function AdminIntakePage() {
                 {template.errors.length > 0 && <div className="mt-1 text-xs text-[var(--destructive)]">{template.errors.join("; ")}</div>}
               </div>
             ))}
+            {templates.length === 0 ? <EmptyState icon={<FileText size={16} />} title="No wizard templates" body="Template markdown synced from the skills repo will appear here." /> : null}
           </div>
-        </div>
+        </Card>
 
         <form action={saveTemplate} className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
           <div className="mb-[var(--space-3)] text-[var(--font-size-sm)] font-medium">Commit template update</div>
