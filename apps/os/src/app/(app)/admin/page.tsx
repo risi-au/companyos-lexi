@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { api, getCurrentActorPrincipalId } from "@/lib/api";
+import { Card, EmptyState, StatCard } from "@companyos/ui";
+import { Activity } from "lucide-react";
 
 export default async function AdminOverviewPage() {
   const actor = await getCurrentActorPrincipalId();
@@ -24,15 +26,12 @@ export default async function AdminOverviewPage() {
     <div className="space-y-[var(--space-5)]">
       <div className="grid grid-cols-2 gap-[var(--space-3)] lg:grid-cols-4">
         {items.map((item) => (
-          <Link key={item.label} href={item.href} className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)] hover:bg-[var(--muted)]">
-            <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">{item.label}</div>
-            <div className="mt-[var(--space-1)] font-mono text-[var(--font-size-2xl)]">{item.value}</div>
-          </Link>
+          <StatCard key={item.label} label={item.label} value={item.value} href={item.href} />
         ))}
       </div>
 
       <div className="grid grid-cols-1 gap-[var(--space-4)] lg:grid-cols-2">
-        <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
+        <Card>
           <div className="mb-[var(--space-3)] text-[var(--font-size-sm)] font-medium">Recent activity</div>
           <div className="space-y-[var(--space-2)]">
             {events.map((event) => (
@@ -41,11 +40,11 @@ export default async function AdminOverviewPage() {
                 <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">{new Date(event.createdAt).toLocaleString()}</div>
               </div>
             ))}
-            {events.length === 0 ? <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No activity.</div> : null}
+            {events.length === 0 ? <EmptyState icon={<Activity size={16} />} title="No activity yet" body="Instance events will appear here as users and agents make changes." /> : null}
           </div>
-        </div>
+        </Card>
 
-        <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
+        <Card>
           <div className="mb-[var(--space-3)] text-[var(--font-size-sm)] font-medium">Instance settings</div>
           <dl className="grid grid-cols-[140px_1fr] gap-y-[var(--space-2)] text-[var(--font-size-sm)]">
             <dt className="text-[var(--muted-foreground)]">Instance</dt>
@@ -60,7 +59,7 @@ export default async function AdminOverviewPage() {
             <Link href="/admin/mcp" className="rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] hover:bg-[var(--muted)]">MCP usage</Link>
             <Link href="/admin/health" className="rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] hover:bg-[var(--muted)]">Health</Link>
           </div>
-        </div>
+        </Card>
       </div>
     </div>
   );

@@ -14,6 +14,10 @@ Render the `/admin` section for day-to-day instance operations: users, grants, a
 ## Files
 - `actions.ts`: server actions for admin forms.
 - `UserCreateForm.tsx`: client form that displays the one-time temporary password returned from account creation.
+- `ConfirmSubmitButton.tsx`: client submit wrapper for server-action forms that
+  need `useConfirm` before destructive/admin-sensitive actions.
+- Admin pages should stay server components and compose shared `@companyos/ui`
+  Tabs/Table/Card/EmptyState primitives for V2-native surfaces.
 
 ## Tests
 - Service contract tests live in `packages/api/src/modules/admin/admin.test.ts`.

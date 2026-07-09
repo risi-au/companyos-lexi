@@ -1,4 +1,7 @@
 import { api, getCurrentActorPrincipalId } from "@/lib/api";
+import { EmptyState, Table } from "@companyos/ui";
+import { Users } from "lucide-react";
+import { ConfirmSubmitButton } from "@/modules/admin/ConfirmSubmitButton";
 import { UserCreateForm } from "@/modules/admin/UserCreateForm";
 import { disableAdminUserAction, resetAdminUserTempPasswordAction } from "@/modules/admin/actions";
 
@@ -10,54 +13,68 @@ export default async function AdminUsersPage() {
   return (
     <div className="grid grid-cols-1 gap-[var(--space-4)] xl:grid-cols-[360px_1fr]">
       <UserCreateForm />
-      <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)]">
-        <table className="w-full min-w-[900px] text-left text-[var(--font-size-sm)]">
-          <thead className="border-b border-[var(--border)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
-            <tr>
-              <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">User</th>
-              <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Status</th>
-              <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Password</th>
-              <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Grants</th>
-              <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((user) => (
-              <tr key={user.authUserId} className="border-b border-[var(--border)] last:border-b-0">
-                <td className="px-[var(--space-3)] py-[var(--space-2)]">
-                  <div className="font-medium">{user.name}</div>
-                  <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">{user.email}</div>
-                </td>
-                <td className="px-[var(--space-3)] py-[var(--space-2)]">{user.principalStatus ?? "unlinked"}</td>
-                <td className="px-[var(--space-3)] py-[var(--space-2)]">{user.forcePasswordChange ? "change required" : "normal"}</td>
-                <td className="px-[var(--space-3)] py-[var(--space-2)]">
-                  <div className="space-y-1">
-                    {user.grants.map((grant) => (
-                      <div key={`${grant.scopePath}:${grant.role}`} className="font-mono text-[var(--font-size-xs)]">{grant.scopePath}:{grant.role}</div>
-                    ))}
-                    {user.grants.length === 0 ? <span className="text-[var(--muted-foreground)]">none</span> : null}
-                  </div>
-                </td>
-                <td className="px-[var(--space-3)] py-[var(--space-2)]">
-                  <div className="flex flex-wrap gap-[var(--space-2)]">
-                    <form action={resetAdminUserTempPasswordAction}>
-                      <input type="hidden" name="authUserId" value={user.authUserId} />
-                      <button className="rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-xs)] hover:bg-[var(--muted)]">Reset temp</button>
-                    </form>
-                    <form action={disableAdminUserAction}>
-                      <input type="hidden" name="authUserId" value={user.authUserId} />
-                      <button className="rounded-[var(--radius-sm)] border border-[var(--destructive)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-xs)] text-[var(--destructive)] hover:bg-[var(--muted)]">Disable</button>
-                    </form>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {users.length === 0 ? (
-              <tr><td colSpan={5} className="px-[var(--space-3)] py-[var(--space-4)] text-[var(--muted-foreground)]">No users.</td></tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
+      <Table
+        rows={users}
+        minWidth="900px"
+        getRowKey={(user) => user.authUserId}
+        empty={<EmptyState icon={<Users size={16} />} title="No users yet" body="Create the first tenant user from the form beside this table." />}
+        columns={[
+          {
+            key: "user",
+            header: "User",
+            cell: (user) => (
+              <>
+                <div className="font-medium">{user.name}</div>
+                <div className="text-[var(--font-size-xs)] text-[var(--mutedfg)]">{user.email}</div>
+              </>
+            ),
+          },
+          { key: "status", header: "Status", cell: (user) => user.principalStatus ?? "unlinked" },
+          { key: "password", header: "Password", cell: (user) => user.forcePasswordChange ? "change required" : "normal" },
+          {
+            key: "grants",
+            header: "Grants",
+            cell: (user) => (
+              <div className="space-y-1">
+                {user.grants.map((grant) => (
+                  <div key={`${grant.scopePath}:${grant.role}`} className="font-mono text-[var(--font-size-xs)]">{grant.scopePath}:{grant.role}</div>
+                ))}
+                {user.grants.length === 0 ? <span className="text-[var(--mutedfg)]">none</span> : null}
+              </div>
+            ),
+          },
+          {
+            key: "actions",
+            header: "Actions",
+            cell: (user) => (
+              <div className="flex flex-wrap gap-[var(--space-2)]">
+                <form action={resetAdminUserTempPasswordAction}>
+                  <input type="hidden" name="authUserId" value={user.authUserId} />
+                  <ConfirmSubmitButton
+                    title={`Reset temporary password for ${user.name}?`}
+                    body="This creates a new temporary password and forces a password change on next sign-in."
+                    confirmLabel="Reset password"
+                    className="rounded-[var(--radius-3)] border border-[var(--border)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-xs)] hover:bg-[var(--hover)]"
+                  >
+                    Reset temp
+                  </ConfirmSubmitButton>
+                </form>
+                <form action={disableAdminUserAction}>
+                  <input type="hidden" name="authUserId" value={user.authUserId} />
+                  <ConfirmSubmitButton
+                    title={`Disable ${user.name}?`}
+                    body="They lose access immediately. Existing grants stay recorded for audit and later review."
+                    confirmLabel="Disable user"
+                    className="rounded-[var(--radius-3)] border border-[var(--err)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-xs)] text-[var(--err)] hover:bg-[var(--hover)]"
+                  >
+                    Disable
+                  </ConfirmSubmitButton>
+                </form>
+              </div>
+            ),
+          },
+        ]}
+      />
     </div>
   );
 }

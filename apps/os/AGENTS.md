@@ -72,6 +72,14 @@ Update this file when API surface or auth wiring changes. (canvas added M3-03)
 ## Creation Wizard Navigation
 - NewScopeDialog requires a free-text reason; createNewScope stores it on the
   draft intake as answers.reason through ensureDraftIntakeForScope.
+- The scope Intake tab now renders the setup flow as a 6-step shared `Stepper`
+  rail: Basics, Framing, History, Interview, Review, Provision. Keep server
+  action semantics in `src/modules/intake/actions.ts`; the rail is UI
+  organization plus local motion/checklist/provisioning state only.
+- Admin tabs/tables/cards/empty states now compose `@companyos/ui` primitives.
+  Destructive admin server-action forms use the small client
+  `ConfirmSubmitButton` wrapper rather than converting pages to client
+  components.
 
 ## UX-01 Theme Foundations
 - Root layout self-hosts Gantari plus JetBrains Mono via `next/font/local`; `--font-sans` now resolves to Gantari and `--font-mono` remains JetBrains Mono.

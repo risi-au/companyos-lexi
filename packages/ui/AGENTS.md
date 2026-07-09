@@ -24,3 +24,9 @@ Shared UI primitives, global CSS, tokens, and motion helpers for CompanyOS.
 - `ToastProvider`/`useToast` are the canonical feedback primitive for app notifications; use the top-right V2 token-styled toast instead of native `window.alert`.
 - `ConfirmProvider`/`useConfirm` are the canonical destructive-action gate; native `window.confirm`/`confirm()` is banned in `apps/os/src`.
 - Feedback primitive animations must go through `src/motion.ts` (`anim`, `df`, `rm`) and must not import GSAP directly.
+
+## UX-05 Shared Primitives
+
+- `Tabs`, `Table`, `Card`/`StatCard`, `EmptyState`, and `Stepper` are exported from `src/index.ts` for V2-native module surfaces.
+- `Tabs`, `Stepper`, `StatCard`, and any other animated primitive must use `src/motion.ts` helpers only; feature code must not import GSAP directly.
+- `CompletionReward` is the reusable OS-wide "mark done" reward pattern: pop-in circle, ring burst, and rising count text. It currently ships for the intake wizard checklist and should be reused for future completion moments instead of one-off animations.
