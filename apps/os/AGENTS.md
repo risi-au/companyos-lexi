@@ -72,3 +72,10 @@ Update this file when API surface or auth wiring changes. (canvas added M3-03)
 ## Creation Wizard Navigation
 - NewScopeDialog requires a free-text reason; createNewScope stores it on the
   draft intake as answers.reason through ensureDraftIntakeForScope.
+
+## UX-01 Theme Foundations
+- Root layout self-hosts Gantari plus JetBrains Mono via `next/font/local`; `--font-sans` now resolves to Gantari and `--font-mono` remains JetBrains Mono.
+- Theme choice is `localStorage.theme` with `auto | light | green | charcoal`. The pre-hydration script resolves it before paint, stamps `body[data-theme]`, and toggles `.dark` on `<html>` for the dark concrete themes so unmigrated V1 token consumers still render in dark mode.
+- Default with no stored preference is `auto`; this intentionally reverses the earlier dark-default decision per the locked V2 design brief.
+- Shell-level new surfaces should use V2 tokens (`--bg`, `--fg`, `--raised`, `--mutedfg`, etc.) and the additive radius scale (`--radius-2`, `--radius-3`, `--radius-4`). Existing module surfaces remain on V1 tokens until their UX migration package.
+- GSAP motion plumbing is exposed from `@companyos/ui/motion`; feature modules should use the shared `df()` / `rm()` / `anim()` helpers instead of creating local reduced-motion logic.

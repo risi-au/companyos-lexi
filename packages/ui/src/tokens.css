@@ -1,6 +1,8 @@
-/* CompanyOS design tokens — primitive + semantic layers (DESIGN-SYSTEM.md) */
+/* CompanyOS design tokens - primitive + semantic layers (DESIGN-SYSTEM.md) */
 
 :root {
+  /* v1 tokens - migrating to v2 per DESIGN-SYSTEM-V2.md, do not add new consumers */
+
   /* Primitives */
   --primitive-white: #ffffff;
   --primitive-slate-50: #f8fafc;
@@ -29,6 +31,7 @@
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
+  --space-5: 20px;
   --space-6: 24px;
   --space-8: 32px;
   --space-12: 48px;
@@ -38,6 +41,9 @@
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
+  --radius-2: 2px;
+  --radius-3: 3px;
+  --radius-4: 4px;
 
   /* Typography scale */
   --font-size-xs: 12px;
@@ -48,8 +54,13 @@
   --font-size-xl: 24px;
   --font-size-2xl: 30px;
   --font-size-3xl: 36px;
+  --text-page-title: 28px;
+  --text-section: 18px;
+  --text-body: 14px;
+  --text-caption: 12px;
+  --text-code: 12px;
 
-  /* Semantic — light (default) */
+  /* Semantic - light (default) */
   --background: var(--primitive-slate-50);
   --surface: var(--primitive-white);
   --foreground: var(--primitive-slate-900);
@@ -81,7 +92,9 @@
   --shadow-md: 0 4px 12px rgb(15 23 42 / 0.1);
 
   /* Fonts (set by app layout via next/font) */
-  --font-sans: var(--font-inter, "Inter", system-ui, sans-serif);
+  --font-gantari: "Gantari", system-ui, sans-serif;
+  --font-jetbrains-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-sans: var(--font-gantari, "Gantari", system-ui, sans-serif);
   --font-mono: var(--font-jetbrains-mono, "JetBrains Mono", ui-monospace, monospace);
 }
 
@@ -105,6 +118,136 @@
 
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.2);
   --shadow-md: 0 4px 12px rgb(0 0 0 / 0.3);
+}
+
+body[data-theme="light"] {
+  --bg: #f2eee7;
+  --surface: #fbf9f4;
+  --raised: #fbf9f4;
+  --sidebar: #ede8de;
+  --border: #dcd6ca;
+  --borderstrong: #c9c2b3;
+  --hover: #e8e2d6;
+  --active: #e2dbcd;
+  --selected: #be5b4421;
+  --muted: #e6e0d4;
+  --mutedfg: #837c72;
+  --faded: #aba396;
+  --fg: #3b3140;
+  --primary: #be5b44;
+  --primaryhover: #c96a53;
+  --primarydark: #8e4231;
+  --primaryfg: #fbf9f4;
+  --accent: #e8a04c;
+  --accentfg: #4a3416;
+  --ok: #8fa680;
+  --okbg: #edf0e5;
+  --warn: #c07f28;
+  --warnbg: #faf3e6;
+  --err: #b0432e;
+  --errbg: #f6e4de;
+  --info: #837c72;
+  --infobg: #e9e4da;
+  --overlay: rgb(59 49 64 / .4);
+  --shadow: 0 8px 24px rgb(59 49 64 / .14);
+  --bg-dawn: #f3ead8;
+  --bg-dusk: #f0dcc4;
+}
+
+body[data-theme="green"] {
+  --bg: #0f231b;
+  --surface: #17382b;
+  --raised: #1d4030;
+  --sidebar: #12291f;
+  --border: #264434;
+  --borderstrong: #33553f;
+  --hover: #1d4030;
+  --active: #234a37;
+  --selected: #efa43b24;
+  --muted: #1d4030;
+  --mutedfg: #8fac9a;
+  --faded: #7f9c8c;
+  --fg: #ece4d1;
+  --primary: #efa43b;
+  --primaryhover: #f5b155;
+  --primarydark: #b87c26;
+  --primaryfg: #241a09;
+  --accent: #e8a04c;
+  --accentfg: #241a09;
+  --ok: #7fb08a;
+  --okbg: #1d4030;
+  --warn: #e8a04c;
+  --warnbg: #241f12;
+  --err: #e77e67;
+  --errbg: #3a2620;
+  --info: #8fac9a;
+  --infobg: #1d4030;
+  --overlay: rgb(4 12 8 / .55);
+  --shadow: 0 8px 24px rgb(0 0 0 / .35);
+}
+
+body[data-theme="charcoal"] {
+  --bg: #1c1a17;
+  --surface: #262320;
+  --raised: #2b2823;
+  --sidebar: #211e1a;
+  --border: #3a362f;
+  --borderstrong: #4a4539;
+  --hover: #33302a;
+  --active: #3a362e;
+  --selected: #efa43b24;
+  --muted: #33302a;
+  --mutedfg: #9c9483;
+  --faded: #8a8272;
+  --fg: #efe9dc;
+  --primary: #efa43b;
+  --primaryhover: #f5b155;
+  --primarydark: #b87c26;
+  --primaryfg: #241a09;
+  --accent: #e8a04c;
+  --accentfg: #241a09;
+  --ok: #7fb08a;
+  --okbg: #2b3327;
+  --warn: #e8a04c;
+  --warnbg: #2a2415;
+  --err: #e77e67;
+  --errbg: #3a2620;
+  --info: #9c9483;
+  --infobg: #2b2723;
+  --overlay: rgb(0 0 0 / .55);
+  --shadow: 0 8px 24px rgb(0 0 0 / .35);
+}
+
+.theme-swatch-auto {
+  background: linear-gradient(135deg, #f2eee7 50%, #1c1a17 50%);
+}
+
+.theme-swatch-light {
+  background: #f2eee7;
+}
+
+.theme-swatch-green {
+  background: #17382b;
+}
+
+.theme-swatch-charcoal {
+  background: #262320;
+}
+
+@keyframes popIn {
+  0% { transform: scale(.2); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes ringOut {
+  0% { box-shadow: rgba(127, 176, 138, .5) 0 0 0 0; }
+  100% { box-shadow: rgba(127, 176, 138, 0) 0 0 0 18px; }
+}
+
+@keyframes riseFade {
+  0% { opacity: 0; transform: translateY(4px); }
+  15% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-16px); }
 }
 
 @media (prefers-reduced-motion: reduce) {

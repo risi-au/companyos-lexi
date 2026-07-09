@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./motion": "./src/motion.ts",
     "./tokens.css": "./src/tokens.css",
     "./globals.css": "./src/globals.css"
   },
@@ -17,6 +18,9 @@
   "peerDependencies": {
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
+  },
+  "dependencies": {
+    "gsap": "^3.13.0"
   },
   "devDependencies": {
     "@types/react": "^19.1.6",

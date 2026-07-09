@@ -215,7 +215,7 @@ export function CanvasView({ scopePath, initialCanvasSlug, initialAccess }: Canv
         name: newName.trim(),
         scene: await sanitizeSceneForStorage({
           elements: [],
-          appState: { viewBackgroundColor: "#ffffff" },
+          appState: { viewBackgroundColor: getComputedStyle(document.documentElement).getPropertyValue("--primitive-white").trim() },
           files: {},
         }),
       });
