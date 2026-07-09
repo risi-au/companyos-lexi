@@ -5,8 +5,9 @@
   "scripts": {
     "dev": "turbo dev",
     "build": "turbo build",
-    "lint": "eslint . --ignore-pattern \"**/*.fixture.ts\" && turbo lint",
-    "test": "vitest run",
+    "lint": "eslint . --ignore-pattern \"**/*.fixture.ts\" --ignore-pattern \"USER DATA/**\" && node scripts/validate-tokens.mjs && turbo lint",
+    "validate-tokens": "node scripts/validate-tokens.mjs",
+    "test": "vitest run --pool=forks --maxWorkers=1",
     "typecheck": "turbo typecheck",
     "mcp": "node packages/mcp/dist/stdio.js",
     "infra:up": "docker compose -f infra/docker-compose.dev.yml --env-file .env up -d",

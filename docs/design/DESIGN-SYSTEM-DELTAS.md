@@ -1,5 +1,10 @@
 # Design System Deltas — token, type, spacing, color changes (spec, not code)
 
+> **Superseded 2026-07-09 by `docs/design/DESIGN-SYSTEM-V2.md`.** The owner locked a
+> wholesale visual redesign (4 themes, new palette/type/radius/motion) that overturns
+> this doc's §11.F "never changes silently" list in full. Kept for historical record;
+> do not implement anything from it. Read DESIGN-SYSTEM-V2.md instead.
+
 *Companion to `docs/DESIGN-SYSTEM.md`. Everything here evolves the existing token system in `packages/ui/src/tokens.css`; nothing replaces it. Each delta says what changes, why, and what consumes it. An implementer should be able to scope tickets directly from the numbered items.*
 
 *Ground truth read: `packages/ui/src/tokens.css`, `packages/ui/src/globals.css` (via import), `apps/os/src/app/globals.css`, and every UI file cited below.*
