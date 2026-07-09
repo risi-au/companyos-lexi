@@ -106,7 +106,7 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
-      <body className={`${gantari.variable} ${jetbrainsMono.variable} antialiased`}>
+      <body suppressHydrationWarning className={`${gantari.variable} ${jetbrainsMono.variable} antialiased`}>
         {children}
       </body>
     </html>
