@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { Menu } from "lucide-react";
 
 const focusableSelector = [
@@ -13,6 +13,28 @@ const focusableSelector = [
 ].join(",");
 
 const MOBILE_QUERY = "(max-width: 820px)";
+const FONT_SCALE_KEY = "fontScale";
+const THEME_KEY = "theme";
+const BASE_FONT_SIZE = 14;
+const THEME_CHOICES = [
+  { id: "auto", title: "Auto (Circadian)", swatch: "theme-swatch-auto" },
+  { id: "light", title: "Light - Terrazzo Quiet", swatch: "theme-swatch-light" },
+  { id: "green", title: "Dark - Green Hall", swatch: "theme-swatch-green" },
+  { id: "charcoal", title: "Dark - Charcoal", swatch: "theme-swatch-charcoal" },
+] as const;
+
+type ThemeChoice = (typeof THEME_CHOICES)[number]["id"];
+type ConcreteTheme = Exclude<ThemeChoice, "auto">;
+
+interface SidebarDrawerContextValue {
+  closeDrawer: () => void;
+}
+
+const SidebarDrawerContext = createContext<SidebarDrawerContextValue>({ closeDrawer: () => {} });
+
+export function useSidebarDrawer() {
+  return useContext(SidebarDrawerContext);
+}
 
 interface AppShellChromeProps {
   instanceName: string;
@@ -21,22 +43,12 @@ interface AppShellChromeProps {
   children: React.ReactNode;
 }
 
-/**
- * Client shell chrome: owns the mobile-drawer open/close state and renders the
- * burger toggle + <aside> + scrim. The server layout keeps data fetching and
- * passes the rendered sidebar/user-menu/children through as props.
- *
- * Below 820px the <aside> is a slide-in drawer (plain CSS transform transition,
- * 280ms) with an --overlay scrim; at ≥820px the drawer classes are inert and the
- * aside is the normal fixed column.
- */
-export function AppShellChrome({ instanceName, sidebar, userMenu, children }: AppShellChromeProps) {
+export function AppShellChrome({ sidebar, userMenu, children }: AppShellChromeProps) {
   const [open, setOpen] = useState(false);
   const asideRef = useRef<HTMLElement | null>(null);
 
   const close = useCallback(() => setOpen(false), []);
 
-  // Esc closes; move focus into the drawer on open; lock body scroll while open on mobile.
   useEffect(() => {
     if (!open) return;
 
@@ -58,7 +70,6 @@ export function AppShellChrome({ instanceName, sidebar, userMenu, children }: Ap
     };
   }, [open, close]);
 
-  // Close the drawer whenever a nav item (link) or the project-switcher form is activated.
   function handleAsideClick(event: React.MouseEvent<HTMLElement>) {
     if (!open) return;
     const target = event.target as HTMLElement;
@@ -68,50 +79,198 @@ export function AppShellChrome({ instanceName, sidebar, userMenu, children }: Ap
   }
 
   return (
-    <div className="flex min-h-screen bg-[var(--bg)] text-[var(--fg)]">
-      {open && (
-        <div
-          aria-hidden="true"
-          onClick={close}
-          className="fixed inset-0 z-40 hidden bg-[var(--overlay)] max-[820px]:block"
-        />
-      )}
+    <SidebarDrawerContext.Provider value={{ closeDrawer: close }}>
+      <div className="grid h-[100vh] grid-cols-[264px_minmax(0,1fr)] overflow-hidden bg-[var(--bg)] text-[var(--fg)] max-[820px]:grid-cols-1">
+        {open && (
+          <div
+            aria-hidden="true"
+            onClick={close}
+            className="fixed inset-0 z-[75] hidden bg-[var(--overlay)] max-[820px]:block"
+          />
+        )}
 
-      <aside
-        ref={asideRef}
-        onClick={handleAsideClick}
-        id="app-sidebar"
-        className={`flex w-64 flex-col border-r border-[var(--border)] bg-[var(--sidebar)] max-[820px]:fixed max-[820px]:inset-y-0 max-[820px]:left-0 max-[820px]:z-50 max-[820px]:w-[280px] max-[820px]:shadow-[var(--shadow)] max-[820px]:transition-transform max-[820px]:duration-[280ms] max-[820px]:ease-out ${
-          open ? "max-[820px]:translate-x-0" : "max-[820px]:-translate-x-full"
-        }`}
-      >
-        <div className="border-b border-[var(--border)] px-[var(--space-4)] py-[var(--space-3)]">
-          <div className="text-[var(--font-size-lg)] font-semibold tracking-[-0.01em]">{instanceName}</div>
-          <div className="text-[var(--font-size-xs)] text-[var(--mutedfg)]">ops record</div>
+        <aside
+          ref={asideRef}
+          onClick={handleAsideClick}
+          id="app-sidebar"
+          className={`flex min-h-0 w-[264px] flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--sidebar)] max-[820px]:fixed max-[820px]:inset-y-0 max-[820px]:left-0 max-[820px]:z-[80] max-[820px]:h-[100vh] max-[820px]:shadow-[var(--shadow)] max-[820px]:transition-transform max-[820px]:duration-[280ms] max-[820px]:ease-out motion-reduce:max-[820px]:transition-none ${
+            open ? "max-[820px]:translate-x-0" : "max-[820px]:-translate-x-full"
+          }`}
+        >
+          {sidebar}
+
+          <div className="mt-auto border-t border-[var(--border)] p-[var(--space-3)]">{userMenu}</div>
+        </aside>
+
+        <div className="flex h-[100vh] min-w-0 flex-col overflow-hidden">
+          <header className="flex h-[48px] shrink-0 items-center gap-[var(--space-2)] border-b border-[var(--border)] bg-[var(--surface)] px-[20px] text-[var(--font-size-sm)] text-[var(--mutedfg)]">
+            <button
+              type="button"
+              onClick={() => setOpen(true)}
+              aria-label="Open navigation"
+              aria-expanded={open}
+              aria-controls="app-sidebar"
+              className="hidden cursor-pointer items-center justify-center rounded-[var(--radius-3)] p-[var(--space-1)] text-[var(--fg)] hover:bg-[var(--hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)] max-[820px]:inline-flex"
+            >
+              <Menu size={18} />
+            </button>
+            <div className="text-[var(--font-size-xs)]">Scope</div>
+            <div className="ml-auto flex items-center gap-[var(--space-3)]">
+              <FontScaleControl />
+              <ThemeControl />
+            </div>
+          </header>
+
+          <main className="min-h-0 flex-1 overflow-auto">
+            <div className="flex max-w-[1240px] flex-col gap-[20px] p-[22px]">{children}</div>
+          </main>
         </div>
-
-        {sidebar}
-
-        <div className="mt-auto border-t border-[var(--border)] p-[var(--space-3)]">{userMenu}</div>
-      </aside>
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-[var(--space-12)] items-center gap-[var(--space-2)] border-b border-[var(--border)] px-[var(--space-4)] text-[var(--font-size-sm)] text-[var(--mutedfg)]">
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            aria-label="Open navigation"
-            aria-expanded={open}
-            aria-controls="app-sidebar"
-            className="hidden items-center justify-center rounded-[var(--radius-3)] p-[var(--space-1)] text-[var(--fg)] hover:bg-[var(--hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)] max-[820px]:inline-flex"
-          >
-            <Menu size={18} />
-          </button>
-          {/* Breadcrumb rendered by page for active scope; placeholder */}
-          <div className="text-[var(--font-size-xs)]">Scope</div>
-        </header>
-        <main className="flex-1 overflow-auto p-[var(--space-4)]">{children}</main>
       </div>
+    </SidebarDrawerContext.Provider>
+  );
+}
+
+function clampScale(value: number) {
+  return Math.min(1.4, Math.max(0.85, value));
+}
+
+function readFontScale() {
+  if (typeof window === "undefined") return 1;
+  const raw = window.localStorage.getItem(FONT_SCALE_KEY);
+  const parsed = raw ? Number(raw) : 1;
+  return Number.isFinite(parsed) ? clampScale(parsed) : 1;
+}
+
+function applyFontScale(next: number) {
+  const clamped = clampScale(next);
+  document.documentElement.style.setProperty("--os-root-font-size", `${(BASE_FONT_SIZE * clamped).toFixed(2)}px`);
+  document.documentElement.dataset.fontScale = String(clamped);
+  try {
+    window.localStorage.setItem(FONT_SCALE_KEY, String(clamped));
+  } catch {
+    /* ignore storage errors */
+  }
+  return clamped;
+}
+
+function FontScaleControl() {
+  const [scale, setScale] = useState(1);
+
+  useEffect(() => {
+    setScale(applyFontScale(readFontScale()));
+  }, []);
+
+  function step(delta: number) {
+    setScale((current) => {
+      const next = current <= 0.85 && delta > 0 ? 0.95 : current + delta;
+      return applyFontScale(next);
+    });
+  }
+
+  return (
+    <div className="flex h-[30px] items-center overflow-hidden rounded-[var(--radius-3)] border border-[var(--border)] bg-[var(--bg)] text-[var(--font-size-xs)] text-[var(--fg)]">
+      <button
+        type="button"
+        onClick={() => step(-0.1)}
+        disabled={scale <= 0.85}
+        className="h-full cursor-pointer px-[var(--space-2)] font-medium hover:bg-[var(--hover)] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--primary)]"
+        aria-label="Decrease workspace text size"
+      >
+        A-
+      </button>
+      <span className="min-w-[44px] border-x border-[var(--border)] px-[var(--space-2)] text-center text-[var(--mutedfg)]">
+        {Math.round(scale * 100)}%
+      </span>
+      <button
+        type="button"
+        onClick={() => step(0.1)}
+        disabled={scale >= 1.4}
+        className="h-full cursor-pointer px-[var(--space-2)] font-medium hover:bg-[var(--hover)] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--primary)]"
+        aria-label="Increase workspace text size"
+      >
+        A+
+      </button>
+    </div>
+  );
+}
+
+function normalizeTheme(value: string | null): ThemeChoice {
+  return value === "light" || value === "green" || value === "charcoal" || value === "auto" ? value : "auto";
+}
+
+function resolveTheme(choice: ThemeChoice): { theme: ConcreteTheme; bg?: string } {
+  if (choice !== "auto") return { theme: choice };
+  const h = new Date().getHours();
+  if (h >= 21 || h < 5) return { theme: "charcoal" };
+  if (h < 8) return { theme: "light", bg: "var(--bg-dawn)" };
+  if (h >= 17) return { theme: "light", bg: "var(--bg-dusk)" };
+  return { theme: "light" };
+}
+
+function applyThemeChoice(choice: ThemeChoice) {
+  const resolved = resolveTheme(choice);
+  document.documentElement.dataset.theme = resolved.theme;
+  document.body.dataset.theme = resolved.theme;
+  document.documentElement.classList.toggle("dark", resolved.theme === "green" || resolved.theme === "charcoal");
+  if (resolved.bg) {
+    document.documentElement.style.setProperty("--bg", resolved.bg);
+    document.body.style.setProperty("--bg", resolved.bg);
+  } else {
+    document.documentElement.style.removeProperty("--bg");
+    document.body.style.removeProperty("--bg");
+  }
+}
+
+function ThemeControl() {
+  const [theme, setTheme] = useState<ThemeChoice>("auto");
+
+  useEffect(() => {
+    let stored: ThemeChoice = "auto";
+    try {
+      stored = normalizeTheme(window.localStorage.getItem(THEME_KEY));
+    } catch {
+      /* ignore storage errors */
+    }
+    setTheme(stored);
+    applyThemeChoice(stored);
+  }, []);
+
+  useEffect(() => {
+    if (theme !== "auto") return undefined;
+    const timer = window.setInterval(() => applyThemeChoice("auto"), 60_000);
+    return () => window.clearInterval(timer);
+  }, [theme]);
+
+  function choose(next: ThemeChoice) {
+    try {
+      window.localStorage.setItem(THEME_KEY, next);
+    } catch {
+      /* ignore storage errors */
+    }
+    setTheme(next);
+    applyThemeChoice(next);
+  }
+
+  return (
+    <div className="flex items-center gap-[var(--space-1)]" aria-label="Theme">
+      {THEME_CHOICES.map((choice) => (
+        <button
+          key={choice.id}
+          type="button"
+          onClick={() => choose(choice.id)}
+          className="flex h-[28px] w-[28px] cursor-pointer items-center justify-center rounded-[var(--radius-3)] hover:bg-[var(--hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]"
+          title={choice.title}
+          aria-label={choice.title}
+          aria-pressed={theme === choice.id}
+        >
+          <span
+            aria-hidden="true"
+            className={`${choice.swatch} h-[14px] w-[14px] rounded-[var(--radius-2)] border border-[var(--borderstrong)] ${
+              theme === choice.id ? "ring-2 ring-[var(--primary)] ring-offset-1 ring-offset-[var(--surface)]" : ""
+            }`}
+          />
+        </button>
+      ))}
     </div>
   );
 }

@@ -23,6 +23,26 @@ const jetbrainsMono = localFont({
 const themeInitScript = `
 (function () {
   var allowed = { auto: true, light: true, green: true, charcoal: true };
+  var fontKey = "fontScale";
+  var themeKey = "theme";
+  var baseFont = 14;
+  function clampScale(value) {
+    var parsed = Number(value);
+    if (!Number.isFinite(parsed)) parsed = 1;
+    return Math.min(1.4, Math.max(0.85, parsed));
+  }
+  function storedScale() {
+    try {
+      return clampScale(localStorage.getItem(fontKey));
+    } catch (_) {
+      return 1;
+    }
+  }
+  function applyFontScale() {
+    var scale = storedScale();
+    document.documentElement.style.setProperty("--os-root-font-size", (baseFont * scale).toFixed(2) + "px");
+    document.documentElement.dataset.fontScale = String(scale);
+  }
   function resolveTheme(choice) {
     var theme = allowed[choice] ? choice : "auto";
     var bg = "";
@@ -39,26 +59,36 @@ const themeInitScript = `
   }
   function storedTheme() {
     try {
-      return localStorage.getItem("theme") || "auto";
+      return localStorage.getItem(themeKey) || "auto";
     } catch (_) {
       return "auto";
     }
   }
-  var resolved = resolveTheme(storedTheme());
-  document.documentElement.classList.toggle("dark", resolved.theme === "green" || resolved.theme === "charcoal");
+  function applyTheme() {
+    var resolved = resolveTheme(storedTheme());
+    document.documentElement.dataset.theme = resolved.theme;
+    document.documentElement.classList.toggle("dark", resolved.theme === "green" || resolved.theme === "charcoal");
+    if (resolved.bg) document.documentElement.style.setProperty("--bg", resolved.bg);
+    else document.documentElement.style.removeProperty("--bg");
+    stampBody(resolved);
+  }
   function stampBody() {
+    var resolved = arguments.length > 0 && arguments[0] ? arguments[0] : resolveTheme(storedTheme());
     if (!document.body) return false;
     document.body.dataset.theme = resolved.theme;
     if (resolved.bg) document.body.style.setProperty("--bg", resolved.bg);
     else document.body.style.removeProperty("--bg");
     return true;
   }
+  applyFontScale();
+  applyTheme();
   if (!stampBody()) {
     var observer = new MutationObserver(function () {
       if (stampBody()) observer.disconnect();
     });
     observer.observe(document.documentElement, { childList: true, subtree: true });
   }
+  window.setInterval(applyTheme, 60000);
 })();`;
 
 export const metadata: Metadata = {
@@ -76,7 +106,7 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
-      <body data-theme="light" className={`${gantari.variable} ${jetbrainsMono.variable} antialiased`}>
+      <body suppressHydrationWarning className={`${gantari.variable} ${jetbrainsMono.variable} antialiased`}>
         {children}
       </body>
     </html>

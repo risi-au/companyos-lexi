@@ -4,8 +4,9 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { anim, df, rm, useToast } from "@companyos/ui";
-import { Activity, BrainCircuit, ChevronRight, ExternalLink, Home, Plus, Shield } from "lucide-react";
+import { Activity, BrainCircuit, ChevronDown, ChevronRight, ExternalLink, Home, Plus, Search, Shield, X } from "lucide-react";
 import type { Scope } from "@companyos/db";
+import { useSidebarDrawer } from "./AppShellChrome";
 import { setSelectedProject, createNewScope } from "./actions";
 
 interface SidebarProps {
@@ -31,6 +32,11 @@ const MODULES: Array<{ tab: string; label: string }> = [
 ];
 
 const INDENT_STEP = 16; // px per depth level (design-system-v2 §5)
+
+const hoverUnderlineClass =
+  "[background-image:linear-gradient(var(--accent),var(--accent))] [background-position:0_100%] [background-repeat:no-repeat] [background-size:0%_1.5px] transition-[background-size,background-color,color] duration-[250ms] ease-out hover:[background-size:100%_1.5px] motion-reduce:transition-none";
+const activeUnderlineClass =
+  "[background-image:linear-gradient(var(--primary),var(--primary))] [background-position:0_100%] [background-repeat:no-repeat] [background-size:100%_2px]";
 
 type TreeNodeData = { scope: Scope; children: TreeNodeData[] };
 
@@ -61,6 +67,18 @@ function buildForest(scopes: Scope[]): TreeNodeData[] {
   return roots;
 }
 
+function filterForest(nodes: TreeNodeData[], query: string): TreeNodeData[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return nodes;
+
+  return nodes.flatMap((node) => {
+    const children = filterForest(node.children, q);
+    const scope = node.scope;
+    const selfMatch = scope.name.toLowerCase().includes(q) || scope.path.toLowerCase().includes(q);
+    return selfMatch || children.length > 0 ? [{ scope, children }] : [];
+  });
+}
+
 /** Every path segment prefix of `path`, e.g. "a/b/c" → {a, a/b, a/b/c}. */
 function ancestorsOf(path: string): Set<string> {
   const set = new Set<string>();
@@ -80,12 +98,15 @@ interface NodeContext {
   taskManagerUrl: string | null;
   expandedInit: Set<string>;
   instanceName: string;
+  searchQuery: string;
 }
 
 export function Sidebar({ tree, selected = null, taskManagerUrl = null, instanceName = "CompanyOS", rootRole = null }: SidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [showNew, setShowNew] = useState(false);
+  const [query, setQuery] = useState("");
+  const { closeDrawer } = useSidebarDrawer();
 
   const currentPath = pathname?.startsWith("/s/") ? pathname.replace("/s/", "").split("?")[0] : "";
   const currentTab = searchParams?.get("tab") || "";
@@ -96,6 +117,7 @@ export function Sidebar({ tree, selected = null, taskManagerUrl = null, instance
   const activeScope = currentPath || (selected ?? "");
 
   const forest = useMemo(() => buildForest(tree), [tree]);
+  const visibleForest = useMemo(() => filterForest(forest, query), [forest, query]);
   const expandedInit = useMemo(() => ancestorsOf(activeScope), [activeScope]);
 
   const ctx: NodeContext = {
@@ -105,9 +127,45 @@ export function Sidebar({ tree, selected = null, taskManagerUrl = null, instance
     taskManagerUrl,
     expandedInit,
     instanceName,
+    searchQuery: query,
   };
 
   return (
+    <>
+    <div className="border-b border-[var(--border)] p-[var(--space-3)]">
+      <div className="flex h-[34px] items-center gap-[var(--space-2)]">
+        <div className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[7px] bg-[var(--primary)] text-[var(--font-size-sm)] font-semibold text-[var(--primaryfg)]">
+          {instanceName.trim().charAt(0).toUpperCase() || "C"}
+        </div>
+        <div
+          className="flex min-w-0 flex-1 items-center gap-[var(--space-1)] rounded-[var(--radius-3)] px-[var(--space-1)] py-[var(--space-1)] text-left text-[var(--font-size-sm)] font-medium text-[var(--fg)]"
+          aria-label="Workspace switcher"
+        >
+          <span className="truncate">{instanceName}</span>
+          <ChevronDown size={14} className="shrink-0 text-[var(--mutedfg)]" />
+        </div>
+        <button
+          type="button"
+          onClick={closeDrawer}
+          className="hidden h-[28px] w-[28px] cursor-pointer items-center justify-center rounded-[var(--radius-3)] text-[var(--mutedfg)] hover:bg-[var(--hover)] hover:text-[var(--fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)] max-[820px]:inline-flex"
+          aria-label="Close navigation"
+        >
+          <X size={16} />
+        </button>
+      </div>
+
+      <label className="mt-[var(--space-3)] flex h-[34px] items-center gap-[var(--space-2)] rounded-[var(--radius-3)] border border-[var(--border)] bg-[var(--bg)] px-[var(--space-2)] text-[var(--font-size-sm)] text-[var(--mutedfg)] focus-within:border-[var(--borderstrong)] focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[var(--primary)]">
+        <Search size={14} className="shrink-0" />
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          className="min-w-0 flex-1 bg-transparent text-[var(--fg)] outline-none placeholder:text-[var(--mutedfg)]"
+          placeholder="Search"
+          aria-label="Filter navigation"
+        />
+      </label>
+    </div>
+
     <div className="flex-1 overflow-auto p-[var(--space-2)] text-[var(--font-size-sm)] text-[var(--fg)]">
       {/* work group — expand/collapse project tree */}
       <div className="mb-[var(--space-4)]">
@@ -129,13 +187,13 @@ export function Sidebar({ tree, selected = null, taskManagerUrl = null, instance
           </button>
         </div>
 
-        {forest.length === 0 ? (
+        {visibleForest.length === 0 ? (
           <div className="px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-xs)] text-[var(--mutedfg)]">
-            No visible projects.
+            {query.trim() ? "No matching projects." : "No visible projects."}
           </div>
         ) : (
           <div>
-            {forest.map((node) => (
+            {visibleForest.map((node) => (
               <TreeNode key={node.scope.id} node={node} level={0} ctx={ctx} />
             ))}
           </div>
@@ -177,6 +235,7 @@ export function Sidebar({ tree, selected = null, taskManagerUrl = null, instance
         />
       )}
     </div>
+    </>
   );
 }
 
@@ -185,8 +244,8 @@ function SystemLink({ href, active, icon, label }: { href: string; active: boole
     <Link
       href={href}
       aria-current={active ? "page" : undefined}
-      className={`flex items-center gap-[var(--space-2)] rounded-[var(--radius-3)] px-[var(--space-2)] py-[var(--space-2)] text-[var(--font-size-sm)] hover:bg-[var(--hover)] ${
-        active ? "bg-[var(--selected)] font-medium text-[var(--primary)]" : "text-[var(--mutedfg)]"
+      className={`flex items-center gap-[var(--space-2)] rounded-[var(--radius-3)] px-[var(--space-2)] py-[var(--space-2)] text-[var(--font-size-sm)] ${hoverUnderlineClass} ${
+        active ? `bg-[var(--active)] font-medium text-[var(--primary)] ${activeUnderlineClass}` : "text-[var(--mutedfg)] hover:bg-[var(--hover)]"
       }`}
     >
       {icon}
@@ -250,15 +309,17 @@ function TreeNode({ node, level, ctx }: { node: TreeNodeData; level: number; ctx
 
   const labelInner = (
     <>
-      {isActive && <span aria-hidden className="h-[6px] w-[6px] shrink-0 rounded-full bg-[var(--primary)]" />}
       {isRoot && !isActive && <Home size={14} className="shrink-0 text-[var(--mutedfg)]" />}
       <span className="truncate">{label}</span>
     </>
   );
 
-  const labelClass = `flex min-w-0 flex-1 items-center gap-[var(--space-2)] rounded-[var(--radius-3)] px-[var(--space-2)] py-[var(--space-1)] text-left hover:bg-[var(--hover)] ${
-    isActive ? "bg-[var(--selected)] font-medium text-[var(--primary)]" : "text-[var(--fg)]"
+  const labelClass = `relative flex min-w-0 flex-1 items-center gap-[var(--space-2)] rounded-[var(--radius-3)] px-[var(--space-2)] py-[var(--space-1)] text-left ${hoverUnderlineClass} ${
+    isActive ? "bg-[var(--active)] font-medium text-[var(--primary)]" : "text-[var(--fg)] hover:bg-[var(--hover)]"
   } focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]`;
+  const activeTick = isActive ? (
+    <span aria-hidden="true" className="absolute left-0 top-[5px] h-[calc(100%-10px)] w-[3px] rounded-r-[var(--radius-2)] bg-[var(--primary)]" />
+  ) : null;
 
   return (
     <div>
@@ -284,11 +345,13 @@ function TreeNode({ node, level, ctx }: { node: TreeNodeData; level: number; ctx
           <form action={setSelectedProject} className="flex min-w-0 flex-1">
             <input type="hidden" name="path" value={scope.path} />
             <button type="submit" aria-current={isActive ? "page" : undefined} className={`${labelClass} cursor-pointer`}>
+              {activeTick}
               {labelInner}
             </button>
           </form>
         ) : (
           <Link href={`/s/${scope.path}`} aria-current={isActive ? "page" : undefined} className={labelClass}>
+            {activeTick}
             {labelInner}
           </Link>
         )}
@@ -297,7 +360,7 @@ function TreeNode({ node, level, ctx }: { node: TreeNodeData; level: number; ctx
       {/* Module rows render inline under the active scope leaf */}
       {isActive && <ModuleRows scope={scope} level={level + 1} ctx={ctx} />}
 
-      {hasChildren && open && (
+      {hasChildren && (open || ctx.searchQuery.trim()) && (
         <div ref={childrenRef}>
           {node.children.map((child) => (
             <TreeNode key={child.scope.id} node={child} level={level + 1} ctx={ctx} />
@@ -329,8 +392,8 @@ function ModuleRows({ scope, level, ctx }: { scope: Scope; level: number; ctx: N
             key={tab}
             href={`/s/${scope.path}?tab=${tab}`}
             aria-current={active ? "page" : undefined}
-            className={`block rounded-[var(--radius-3)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-sm)] hover:bg-[var(--hover)] ${
-              active ? "bg-[var(--selected)] font-medium text-[var(--primary)]" : "text-[var(--mutedfg)]"
+            className={`block rounded-[var(--radius-3)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-sm)] ${hoverUnderlineClass} ${
+              active ? `bg-[var(--active)] font-medium text-[var(--primary)] ${activeUnderlineClass}` : "text-[var(--mutedfg)] hover:bg-[var(--hover)]"
             }`}
           >
             {label}
@@ -343,7 +406,7 @@ function ModuleRows({ scope, level, ctx }: { scope: Scope; level: number; ctx: N
           href={ctx.taskManagerUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-[var(--space-1)] flex items-center gap-[var(--space-1)] rounded-[var(--radius-3)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-sm)] text-[var(--mutedfg)] hover:bg-[var(--hover)] hover:text-[var(--fg)]"
+          className={`mt-[var(--space-1)] flex items-center gap-[var(--space-1)] rounded-[var(--radius-3)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-sm)] text-[var(--mutedfg)] hover:bg-[var(--hover)] hover:text-[var(--fg)] ${hoverUnderlineClass}`}
         >
           Task Manager <ExternalLink size={14} />
         </a>

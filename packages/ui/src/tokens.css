@@ -1,31 +1,6 @@
-/* CompanyOS design tokens - primitive + semantic layers (DESIGN-SYSTEM.md) */
+/* CompanyOS design tokens - active theme maps + compatibility aliases. */
 
 :root {
-  /* v1 tokens - migrating to v2 per DESIGN-SYSTEM-V2.md, do not add new consumers */
-
-  /* Primitives */
-  --primitive-white: #ffffff;
-  --primitive-slate-50: #f8fafc;
-  --primitive-slate-100: #f1f5f9;
-  --primitive-slate-200: #e2e8f0;
-  --primitive-slate-400: #94a3b8;
-  --primitive-slate-500: #64748b;
-  --primitive-slate-800: #1e293b;
-  --primitive-slate-900: #0f172a;
-  --primitive-slate-950: #0b1220;
-  --primitive-blue-700: #1e40af;
-  --primitive-blue-500: #3b82f6;
-  --primitive-amber-600: #d97706;
-  --primitive-amber-500: #f59e0b;
-  --primitive-red-600: #dc2626;
-  --primitive-red-400: #f87171;
-  --primitive-green-600: #16a34a;
-  --primitive-green-400: #4ade80;
-  --primitive-yellow-500: #fbbf24;
-  --primitive-teal-500: #14b8a6;
-  --primitive-violet-500: #8b5cf6;
-  --primitive-rose-500: #f43f5e;
-
   /* Spacing (4px base grid) */
   --space-1: 4px;
   --space-2: 8px;
@@ -54,42 +29,46 @@
   --font-size-xl: 24px;
   --font-size-2xl: 30px;
   --font-size-3xl: 36px;
+  --os-root-font-size: 14px;
   --text-page-title: 28px;
   --text-section: 18px;
   --text-body: 14px;
   --text-caption: 12px;
   --text-code: 12px;
 
-  /* Semantic - light (default) */
-  --background: var(--primitive-slate-50);
-  --surface: var(--primitive-white);
-  --foreground: var(--primitive-slate-900);
-  --muted: #e9eef6;
-  --muted-foreground: var(--primitive-slate-500);
-  --border: var(--primitive-slate-200);
-  --primary: var(--primitive-blue-700);
-  --primary-foreground: var(--primitive-white);
-  --accent: var(--primitive-amber-600);
-  --destructive: var(--primitive-red-600);
+  /* Compatibility aliases - all active color reads resolve through the theme maps below. */
+  --background: var(--bg);
+  --foreground: var(--fg);
+  --muted-foreground: var(--mutedfg);
+  --card: var(--surface);
+  --card-foreground: var(--fg);
+  --popover: var(--raised);
+  --popover-foreground: var(--fg);
+  --secondary: var(--muted);
+  --secondary-foreground: var(--fg);
+  --primary-foreground: var(--primaryfg);
+  --primary-old: var(--primary);
+  --destructive: var(--err);
+  --destructive-foreground: var(--primaryfg);
   --ring: var(--primary);
 
   /* Status */
-  --status-ok: var(--primitive-green-600);
-  --status-warn: var(--primitive-amber-600);
-  --status-error: var(--primitive-red-600);
-  --status-neutral: var(--muted-foreground);
+  --status-ok: var(--ok);
+  --status-warn: var(--warn);
+  --status-error: var(--err);
+  --status-neutral: var(--mutedfg);
 
   /* Chart palette */
-  --chart-1: var(--primitive-blue-700);
-  --chart-2: var(--primitive-teal-500);
-  --chart-3: var(--primitive-amber-600);
-  --chart-4: var(--primitive-violet-500);
-  --chart-5: var(--primitive-rose-500);
-  --chart-6: var(--primitive-slate-500);
+  --chart-1: var(--primary);
+  --chart-2: var(--ok);
+  --chart-3: var(--accent);
+  --chart-4: var(--info);
+  --chart-5: var(--err);
+  --chart-6: var(--mutedfg);
 
   /* Elevation */
-  --shadow-sm: 0 1px 2px rgb(15 23 42 / 0.06);
-  --shadow-md: 0 4px 12px rgb(15 23 42 / 0.1);
+  --shadow-sm: var(--shadow);
+  --shadow-md: var(--shadow);
 
   /* Fonts (set by app layout via next/font) */
   --font-gantari: "Gantari", system-ui, sans-serif;
@@ -99,27 +78,20 @@
 }
 
 .dark {
-  --background: var(--primitive-slate-950);
-  --surface: #111a2e;
-  --foreground: #e2e8f0;
-  --muted: #1b2740;
-  --muted-foreground: #8fa3c0;
-  --border: #243352;
-  --primary: var(--primitive-blue-500);
-  --primary-foreground: var(--primitive-slate-950);
-  --accent: var(--primitive-amber-500);
-  --destructive: var(--primitive-red-400);
+  --background: var(--bg);
+  --foreground: var(--fg);
+  --muted-foreground: var(--mutedfg);
+  --primary-foreground: var(--primaryfg);
+  --destructive: var(--err);
   --ring: var(--primary);
-
-  --status-ok: var(--primitive-green-400);
-  --status-warn: var(--primitive-yellow-500);
-  --status-error: var(--primitive-red-400);
-  --status-neutral: var(--muted-foreground);
-
-  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.2);
-  --shadow-md: 0 4px 12px rgb(0 0 0 / 0.3);
+  --status-ok: var(--ok);
+  --status-warn: var(--warn);
+  --status-error: var(--err);
+  --status-neutral: var(--mutedfg);
 }
 
+:root,
+html[data-theme="light"],
 body[data-theme="light"] {
   --bg: #f2eee7;
   --surface: #fbf9f4;
@@ -154,6 +126,7 @@ body[data-theme="light"] {
   --bg-dusk: #f0dcc4;
 }
 
+html[data-theme="green"],
 body[data-theme="green"] {
   --bg: #0f231b;
   --surface: #17382b;
@@ -186,6 +159,7 @@ body[data-theme="green"] {
   --shadow: 0 8px 24px rgb(0 0 0 / .35);
 }
 
+html[data-theme="charcoal"],
 body[data-theme="charcoal"] {
   --bg: #1c1a17;
   --surface: #262320;

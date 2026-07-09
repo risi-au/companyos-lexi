@@ -2,16 +2,16 @@
 @import "tailwindcss";
 
 @theme inline {
-  --color-background: var(--background);
+  --color-background: var(--bg);
   --color-surface: var(--surface);
-  --color-foreground: var(--foreground);
+  --color-foreground: var(--fg);
   --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
+  --color-muted-foreground: var(--mutedfg);
   --color-border: var(--border);
   --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-foreground: var(--primaryfg);
   --color-accent: var(--accent);
-  --color-destructive: var(--destructive);
+  --color-destructive: var(--err);
   --color-ring: var(--ring);
   --color-status-ok: var(--status-ok);
   --color-status-warn: var(--status-warn);
@@ -26,10 +26,21 @@
   --shadow-md: var(--shadow-md);
 }
 
+html {
+  font-size: var(--os-root-font-size, 14px);
+}
+
+html,
 body {
-  background-color: var(--background);
-  color: var(--foreground);
+  transition:
+    background .6s ease,
+    color .6s ease;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--fg);
   font-family: var(--font-sans);
-  font-size: var(--font-size-md);
+  font-size: 1rem;
   line-height: 1.5;
 }
