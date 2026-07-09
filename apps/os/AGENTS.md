@@ -58,7 +58,11 @@ Update this file when API surface or auth wiring changes. (canvas added M3-03)
 - `/admin/health` is a root-admin-only panel for credential expiry, capability liveness, webhook/skills recency, recent run logs, and deduplicated alert email surfacing.
 - It calls `@companyos/api` health services through `src/lib/api.ts`; SMTP and LiteLLM probe config stays in `src/lib/ops-health.ts`.
 
-## Navigation (M4-02)
+## Navigation (UX-04 sidebar tree + mobile drawer)
+- `Sidebar.tsx` is a real expand/collapse tree: a mono-labelled `work` group (project forest built from `Scope.path`, per-node collapse with `aria-expanded`, GSAP chevron-rotate + child stagger via `@companyos/ui` `anim()/df()/rm()`) and a flat `system` group (Brain/Ops Health/Admin, gated on `rootRole` owner/admin). The `<select>` switcher is gone; top-level project rows submit `setSelectedProject` (keeps the `nav.selectedProject` cookie), subprojects are `/s/{path}` links, and the real module set (Dashboard…Intake + conditional Members/Task Manager) renders inline under the active scope with unchanged `?tab=` targets.
+- The shell (`layout.tsx`) stays an async server component and passes the rendered `<Sidebar>`/`<UserMenu>` into `AppShellChrome.tsx`, a `"use client"` wrapper that owns the mobile-drawer state: below `@media (max-width: 820px)` the aside slides in (CSS transform, 280ms) behind an `--overlay` scrim with a header burger toggle; scrim, nav-item, and Esc close it; ≥820px it is the normal fixed column.
+
+## Navigation (M4-02, superseded by UX-04 above — kept for history)
 - Sidebar replaced with project switcher (cookie-persisted via setSelectedProject action) + per-project module sidebar.
 - Root owner/admin users also see a Brain nav entry for `/brain`; non-root and root-viewer users do not.
 - Switcher lists visible top-level projects (via getVisibleTree) + "⌂ overview" first for root-grant users.
