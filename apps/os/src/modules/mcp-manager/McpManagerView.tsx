@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { useConfirm } from "@companyos/ui";
 import { RefreshCw, ShieldAlert, UserX } from "lucide-react";
 import {
   listMcpConnectionsAction,
@@ -44,6 +45,7 @@ function scopeSummary(paths: string[]): string {
 }
 
 export function McpManagerView({ initialConnections }: { initialConnections: AdminConnectionRow[] }) {
+  const requestConfirm = useConfirm();
   const [connections, setConnections] = useState<AdminConnectionRow[]>(initialConnections);
   const [scopePath, setScopePath] = useState("");
   const [principalId, setPrincipalId] = useState("");
@@ -102,12 +104,12 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
     });
   }
 
-  function onRevokeScope() {
+  async function onRevokeScope() {
     const target = scopePath.trim() || "root";
     const blastRows = connections.filter((row) => !row.revoked && branchMatches(row.scopePath, target));
     const blastScopes = Array.from(new Set(blastRows.map((row) => row.scopePath))).sort();
     const text = `Revoke ${blastRows.length} active tokens across ${target}${blastScopes.length ? ` (${scopeSummary(blastScopes)})` : ""}?`;
-    if (!window.confirm(text)) return;
+    if (!(await requestConfirm({ title: "Revoke subtree access?", body: text, confirmLabel: "Revoke" }))) return;
 
     startTransition(async () => {
       try {
@@ -121,12 +123,16 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
     });
   }
 
-  function onOffboardPrincipal() {
+  async function onOffboardPrincipal() {
     if (!selectedPrincipalId) return;
     const personRows = connections.filter((row) => row.principalId === selectedPrincipalId && !row.revoked);
     const personName = connections.find((row) => row.principalId === selectedPrincipalId)?.principalName || selectedPrincipalId;
     const scopes = Array.from(new Set(personRows.map((row) => row.scopePath))).sort();
-    if (!window.confirm(`Offboard ${personName} by revoking ${personRows.length} active tokens across ${scopeSummary(scopes)}?`)) {
+    if (!(await requestConfirm({
+      title: `Offboard ${personName}?`,
+      body: `Offboard ${personName} by revoking ${personRows.length} active tokens across ${scopeSummary(scopes)}?`,
+      confirmLabel: "Offboard",
+    }))) {
       return;
     }
 

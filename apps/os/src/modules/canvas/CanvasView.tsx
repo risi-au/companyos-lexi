@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
+import { useConfirm } from "@companyos/ui";
 import {
   listCanvasesAction,
   getCanvasAction,
@@ -40,6 +41,7 @@ type SaveState = "saved" | "saving" | "error";
 export function CanvasView({ scopePath, initialCanvasSlug, initialAccess }: CanvasViewProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const requestConfirm = useConfirm();
 
   const [canvases, setCanvases] = useState<CanvasListItem[]>([]);
   const [selectedSlug, setSelectedSlug] = useState<string | null>(initialCanvasSlug || null);
@@ -242,7 +244,7 @@ export function CanvasView({ scopePath, initialCanvasSlug, initialAccess }: Canv
 
   const archiveSelected = async () => {
     if (!selectedSlug) return;
-    if (!confirm("Archive this canvas?")) return;
+    if (!(await requestConfirm({ title: "Archive this canvas?", body: "Archive this canvas?", confirmLabel: "Archive" }))) return;
     try {
       await archiveCanvasAction(scopePath, selectedSlug);
       await refreshList();

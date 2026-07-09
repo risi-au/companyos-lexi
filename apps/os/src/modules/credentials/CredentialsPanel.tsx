@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useConfirm } from "@companyos/ui";
 import { KeyRound, Pencil, RefreshCw, Save, Trash2, X } from "lucide-react";
 import {
   deleteCredentialAction,
@@ -50,6 +51,7 @@ export function CredentialsPanel({
   requiredCredentials?: RequiredCredential[];
   setupMode?: boolean;
 }) {
+  const requestConfirm = useConfirm();
   const [rows, setRows] = useState<CredentialRow[]>([]);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -102,7 +104,7 @@ export function CredentialsPanel({
   }
 
   async function onDelete(row: CredentialRow) {
-    if (!confirm(`Delete credential "${row.name}"?`)) return;
+    if (!(await requestConfirm({ title: `Delete credential "${row.name}"?`, body: `Delete credential "${row.name}"?`, confirmLabel: "Delete" }))) return;
     setError(null);
     try {
       await deleteCredentialAction({ scopePath, name: row.name });

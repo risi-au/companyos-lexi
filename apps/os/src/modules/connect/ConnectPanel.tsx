@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useConfirm } from "@companyos/ui";
 import { Check, Clipboard, PlugZap, RefreshCw, RotateCcw, Shield, Trash2 } from "lucide-react";
 import {
   getConnectConfigAction,
@@ -95,6 +96,7 @@ function SnippetBlock({ title, text }: { title: string; text: string }) {
 }
 
 export function ConnectPanel({ scopePath, initialAccess }: { scopePath: string; initialAccess: AccessRole | null }) {
+  const requestConfirm = useConfirm();
   const [connections, setConnections] = useState<ConnectionRow[]>([]);
   const [mcpUrl, setMcpUrl] = useState("<MCP_PUBLIC_URL>");
   const [name, setName] = useState(`${scopePath} MCP`);
@@ -176,7 +178,7 @@ Header: ${authHeader}`,
   }
 
   async function onRevoke(tokenId: string) {
-    if (!confirm("Revoke this connection token?")) return;
+    if (!(await requestConfirm({ title: "Revoke connection token?", body: "Revoke this connection token?", confirmLabel: "Revoke" }))) return;
     setError(null);
     try {
       await revokeConnectionTokenAction(scopePath, tokenId);
