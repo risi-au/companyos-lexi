@@ -31,6 +31,7 @@ import {
   rm,
   useConfirm,
   useToast,
+  viewEnter,
 } from "@companyos/ui";
 import {
   acceptReusePatternAction,
@@ -151,15 +152,17 @@ function initialStep(status: string): number {
   return statusStep(status);
 }
 
+function openQuestionText(item: unknown): string {
+  if (typeof item === "string") return item;
+  if (isRecord(item)) return String(item.t ?? item.question ?? item.title ?? item.text ?? "");
+  return String(item ?? "");
+}
+
 function parseOpenQuestions(value: string): string[] {
   try {
     const parsed = JSON.parse(value);
     if (Array.isArray(parsed)) {
-      return parsed.map((item) => {
-        if (typeof item === "string") return item;
-        if (isRecord(item)) return String(item.question ?? item.title ?? item.text ?? JSON.stringify(item));
-        return String(item ?? "");
-      }).filter(Boolean);
+      return parsed.map(openQuestionText).filter(Boolean);
     }
     if (isRecord(parsed)) {
       return Object.entries(parsed).map(([key, item]) => `${key}: ${typeof item === "string" ? item : JSON.stringify(item)}`);
@@ -168,6 +171,18 @@ function parseOpenQuestions(value: string): string[] {
     /* keep markdown/plain text fallback below */
   }
   return value.split(/\r?\n/).map((line) => line.replace(/^[-*]\s*/, "").trim()).filter(Boolean);
+}
+
+function deriveCheckedQuestions(raw: unknown, texts: string[], status: string): boolean[] {
+  if (status === "approved" || status === "provisioned") {
+    return texts.map(() => true);
+  }
+  if (!Array.isArray(raw)) return texts.map(() => false);
+  return texts.map((text, index) => {
+    const item = raw[index];
+    if (isRecord(item) && typeof item.done === "boolean") return item.done;
+    return raw.some((entry) => isRecord(entry) && openQuestionText(entry) === text && entry.done === true);
+  });
 }
 
 function delay(ms: number) {
@@ -335,7 +350,9 @@ function WizardWorkspace({
   const [currentStep, setCurrentStep] = useState(initialStep(intake.status));
   const [localMaxStep, setLocalMaxStep] = useState(initialStep(intake.status));
   const [menuOpen, setMenuOpen] = useState(false);
-  const [checkedQuestions, setCheckedQuestions] = useState<boolean[]>([]);
+  const [checkedQuestions, setCheckedQuestions] = useState<boolean[]>(() =>
+    deriveCheckedQuestions(intake.openQuestions, parseOpenQuestions(pretty(intake.openQuestions)), intake.status),
+  );
   const [burstQuestion, setBurstQuestion] = useState<number | null>(null);
   const [provisionStatuses, setProvisionStatuses] = useState<ProvisionStatus[]>(() => PROVISION_ITEMS.map(() => intake.status === "provisioned" ? "done" : "pending"));
   const [provisionRunning, setProvisionRunning] = useState(false);
@@ -359,18 +376,26 @@ function WizardWorkspace({
   }, [intake.status]);
 
   useEffect(() => {
-    setCheckedQuestions(openQuestions.map(() => false));
-    setBurstQuestion(null);
-  }, [openQuestions.length]);
+    setCheckedQuestions((current) => {
+      const derived = deriveCheckedQuestions(intake.openQuestions, openQuestions, intake.status);
+      return openQuestions.map((text, index) => {
+        if (current[index] !== undefined && openQuestions[index] === text) return current[index];
+        return derived[index] ?? false;
+      });
+    });
+  }, [openQuestions, intake.openQuestions, intake.status]);
+
+  useEffect(() => {
+    if (burstQuestion === null || rm()) return;
+    const timeout = window.setTimeout(() => setBurstQuestion(null), 1800);
+    return () => window.clearTimeout(timeout);
+  }, [burstQuestion]);
 
   useEffect(() => {
     const stage = stageRef.current;
-    if (!stage || rm()) return;
-    void anim((gsap) => {
-      const items = stage.querySelectorAll("[data-stage-item]");
-      gsap.fromTo(stage, { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: df(0.22), ease: "power3.out", clearProps: "transform,opacity" });
-      gsap.fromTo(items, { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: df(0.2), stagger: df(0.05), delay: df(0.04), ease: "power2.out", clearProps: "transform,opacity" });
-    });
+    if (!stage) return;
+    const items = stage.querySelectorAll("[data-stage-item]");
+    void viewEnter(stage, items);
   }, [currentStep]);
 
   const runAction = useCallback((fn: () => Promise<void>, success?: string) => {
@@ -505,16 +530,16 @@ function WizardWorkspace({
         </div>
       </div>
 
-      <div className="wiz-grid grid grid-cols-1 gap-[var(--space-5)] lg:grid-cols-[220px_1fr]">
+      <div className="wiz-grid grid grid-cols-1 gap-[var(--space-5)] min-[821px]:grid-cols-[210px_1fr]">
         <Stepper
           steps={WIZARD_STEPS}
           current={currentStep}
           maxReached={maxReached}
           onStepClick={goStep}
-          className="border-b border-[var(--border)] pb-[var(--space-3)] lg:border-b-0 lg:border-r lg:pr-[var(--space-4)]"
+          className="border-b border-[var(--border)] pb-[var(--space-3)] min-[821px]:border-b-0 min-[821px]:border-r min-[821px]:pr-[var(--space-4)]"
         />
 
-        <div ref={stageRef} className="min-w-0 space-y-[var(--space-4)]">
+        <div ref={stageRef} data-viewroot="wizard" className="min-w-0 space-y-[var(--space-4)]">
           {currentStep === 1 ? (
             <BasicsStep intake={intake} reasonText={reasonText} onContinue={() => continueTo(2)} />
           ) : null}
@@ -824,8 +849,8 @@ function InterviewStep(props: {
       </button>
       {props.pack ? (
         <div data-stage-item className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <PackBox label="Paste-back pack" value={props.pack.pasteBack} buttonRef={props.packButtonRef} onCopy={() => props.onCopy(props.pack!.pasteBack, props.packButtonRef, "Pack")} buttonLabel="Copy pack" />
-          <PackBox label="MCP variant" value={props.pack.mcp} buttonRef={props.mcpButtonRef} onCopy={() => props.onCopy(props.pack!.mcp, props.mcpButtonRef, "MCP variant")} buttonLabel="Copy MCP" secondary />
+          <PackBox label="Paste-back pack" value={props.pack.pasteBack} buttonRef={props.packButtonRef} onCopy={() => props.onCopy(props.pack!.pasteBack, props.packButtonRef, "Pack")} buttonLabel="Copy pack" minWidth={120} />
+          <PackBox label="MCP variant" value={props.pack.mcp} buttonRef={props.mcpButtonRef} onCopy={() => props.onCopy(props.pack!.mcp, props.mcpButtonRef, "MCP variant")} buttonLabel="Copy MCP config" secondary minWidth={172} />
         </div>
       ) : null}
       <textarea value={props.paste} onChange={(e) => props.setPaste(e.target.value)} className="min-h-32 w-full rounded-[var(--radius-3)] border border-[var(--border)] bg-[var(--bg)] p-3 text-[var(--font-size-sm)]" placeholder="Paste external packet markdown here" />
@@ -854,7 +879,31 @@ function InterviewStep(props: {
   );
 }
 
-function PackBox({ label, value, buttonRef, onCopy, buttonLabel, secondary = false }: { label: string; value: string; buttonRef: React.RefObject<HTMLButtonElement | null>; onCopy: () => void; buttonLabel: string; secondary?: boolean }) {
+function PackBox({
+  label,
+  value,
+  buttonRef,
+  onCopy,
+  buttonLabel,
+  secondary = false,
+  minWidth = 120,
+}: {
+  label: string;
+  value: string;
+  buttonRef: React.RefObject<HTMLButtonElement | null>;
+  onCopy: () => void;
+  buttonLabel: string;
+  secondary?: boolean;
+  minWidth?: number;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy() {
+    onCopy();
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 2000);
+  }
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
@@ -862,10 +911,11 @@ function PackBox({ label, value, buttonRef, onCopy, buttonLabel, secondary = fal
         <button
           ref={buttonRef}
           type="button"
-          onClick={onCopy}
-          className={`inline-flex min-h-[36px] w-36 cursor-pointer items-center justify-center gap-1 rounded-[var(--radius-3)] px-[var(--space-2)] text-[var(--font-size-xs)] ${secondary ? "border border-[var(--border)] text-[var(--fg)] hover:bg-[var(--hover)]" : "bg-[var(--primary)] text-[var(--primaryfg)] hover:bg-[var(--primaryhover)]"}`}
+          onClick={handleCopy}
+          style={{ minWidth: `${minWidth}px` }}
+          className={`inline-flex min-h-[36px] cursor-pointer items-center justify-center gap-1 rounded-[var(--radius-3)] px-[var(--space-2)] text-[var(--font-size-xs)] ${secondary ? "border border-[var(--border)] text-[var(--fg)] hover:bg-[var(--hover)]" : "bg-[var(--primary)] text-[var(--primaryfg)] hover:bg-[var(--primaryhover)]"}`}
         >
-          <Copy size={13} /> {buttonLabel}
+          <Copy size={13} /> {copied ? "Copied" : buttonLabel}
         </button>
       </div>
       <textarea readOnly value={value} className="min-h-48 w-full rounded-[var(--radius-3)] border border-[var(--border)] bg-[var(--bg)] p-3 font-mono text-[var(--font-size-xs)]" />
@@ -936,15 +986,20 @@ function ReviewStep(props: {
                   key={`${question}-${index}`}
                   type="button"
                   onClick={() => props.toggleQuestion(index)}
-                  className={`flex w-full cursor-pointer items-start gap-3 rounded-[var(--radius-3)] px-[var(--space-2)] py-[var(--space-2)] text-left text-[var(--font-size-sm)] hover:bg-[var(--hover)] ${checked ? "text-[var(--mutedfg)] line-through" : "text-[var(--fg)]"}`}
+                  className="flex w-full cursor-pointer items-start gap-3 rounded-[var(--radius-3)] px-[var(--space-2)] py-[var(--space-2)] text-left text-[var(--font-size-sm)] hover:bg-[var(--hover)]"
                 >
                   <CompletionReward
                     active={props.burstQuestion === index}
                     checked={checked}
-                    cheer={remainingAfter === 0 ? "all clear" : `${remainingAfter} to go`}
-                    onConsumed={() => props.setBurstQuestion(null)}
                   />
-                  <span>{question}</span>
+                  <span className={`inline-flex flex-wrap items-center gap-2 ${checked ? "text-[var(--mutedfg)] line-through" : "text-[var(--fg)]"}`}>
+                    {question}
+                    {props.burstQuestion === index && !rm() ? (
+                      <span className="completion-cheer pointer-events-none whitespace-nowrap font-mono text-[var(--font-size-xs)] text-[var(--ok)]">
+                        {remainingAfter === 0 ? "all clear ✓" : `${remainingAfter} to go`}
+                      </span>
+                    ) : null}
+                  </span>
                 </button>
               );
             })}

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { anim, df, rm } from "../motion";
+import "../motion.css";
 
 export interface StepperStep {
   id: string;
@@ -23,17 +24,23 @@ export function Stepper({ steps, current, maxReached, onStepClick, className = "
   useEffect(() => {
     const el = fillRef.current;
     if (!el) return;
-    if (rm()) {
+    const setFinal = () => {
       el.style.height = `${progress}%`;
+    };
+    if (rm()) {
+      setFinal();
       return;
     }
-    void anim((gsap) => {
-      gsap.to(el, {
-        height: `${progress}%`,
-        duration: df(0.35),
-        ease: "power2.out",
-      });
-    });
+    void anim(
+      (gsap) => {
+        gsap.to(el, {
+          height: `${progress}%`,
+          duration: df(0.35),
+          ease: "power2.out",
+        });
+      },
+      setFinal,
+    );
   }, [progress]);
 
   return (
@@ -52,6 +59,7 @@ export function Stepper({ steps, current, maxReached, onStepClick, className = "
               <button
                 type="button"
                 disabled={locked}
+                data-stepmark={stepNumber}
                 aria-current={active ? "step" : undefined}
                 onClick={() => onStepClick(stepNumber)}
                 className={`wiz-step flex w-full cursor-pointer items-center gap-[var(--space-3)] rounded-[var(--radius-3)] px-[var(--space-2)] py-[var(--space-2)] text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-50 ${active ? "bg-[var(--selected)]" : "hover:bg-[var(--hover)]"}`}
