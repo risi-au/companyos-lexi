@@ -49,7 +49,7 @@ role definitions and the review/escalation loop.
 **Corrected template (2026-07-09, grok 0.2.93):**
 
 ```
-grok agent -m grok-composer-2.5-fast --always-approve --no-auto-update --cwd <worktree> "<prompt>"
+grok -p "<prompt>" -m grok-composer-2.5-fast --always-approve --no-auto-update --cwd <worktree>
 ```
 
 **The single most important fix: `--always-approve`.** The old template used
@@ -63,8 +63,10 @@ confirm at.
 
 Flag notes (grok 0.2.93):
 
-- `agent` is the headless/non-interactive subcommand; `-p`/`--single "<prompt>"` also works
-  for a one-shot. Add `--output-format json` if you want to parse the result.
+- Use the top-level `-p`/`--single "<prompt>"` one-shot form, NOT the `agent` subcommand —
+  `agent` does not reliably execute writes headlessly (verified 2026-07-09 on UX-06B: the
+  `-p` form worked, `agent` did not). Add `--output-format json` if you want to parse the
+  result.
 - `--no-auto-update` suppresses the background update check/prompt in automated runs.
 - `-m grok-composer-2.5-fast` is the default and is preferred (owner call). `grok-4.5` is
   also available (`grok models`) — reach for it only on a genuinely hard task.
