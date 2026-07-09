@@ -21,3 +21,6 @@ Shared UI primitives, global CSS, tokens, and motion helpers for CompanyOS.
 - `src/motion.ts` exports the shared GSAP guard pattern: `df()`, `rm()`, and `anim(fn)`.
 - Motion intensity is persisted in `localStorage.motionIntensity` as `0 | 1 | 2 | 3`, mapping to multipliers `0 | 0.7 | 1 | 1.4`; OS reduced motion forces `0`.
 - Later packages should call `rm()` before non-GSAP motion and wrap GSAP calls in `anim((gsap) => ...)` rather than importing GSAP directly in feature modules.
+- `ToastProvider`/`useToast` are the canonical feedback primitive for app notifications; use the top-right V2 token-styled toast instead of native `window.alert`.
+- `ConfirmProvider`/`useConfirm` are the canonical destructive-action gate; native `window.confirm`/`confirm()` is banned in `apps/os/src`.
+- Feedback primitive animations must go through `src/motion.ts` (`anim`, `df`, `rm`) and must not import GSAP directly.

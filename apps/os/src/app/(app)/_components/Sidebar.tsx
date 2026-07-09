@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import { useToast } from "@companyos/ui";
 import { Activity, BrainCircuit, ExternalLink, Plus, Shield } from "lucide-react";
 import type { Scope } from "@companyos/db";
 import { setSelectedProject, createNewScope } from "./actions";
@@ -203,6 +204,7 @@ export function Sidebar({ tree, selected, taskManagerUrl, instanceName = "Compan
 
 /** Minimal inline dialog using the createNewScope server action */
 function NewScopeDialog({ tree, defaultParent, onClose }: { tree: Scope[]; defaultParent: string; onClose: () => void }) {
+  const { toast } = useToast();
   const [pending, setPending] = useState(false);
   const [parent, setParent] = useState(defaultParent);
 
@@ -216,13 +218,13 @@ function NewScopeDialog({ tree, defaultParent, onClose }: { tree: Scope[]; defau
     try {
       const res = await createNewScope(formData);
       if (res?.error) {
-        alert(res.error);
+        toast.error(res.error);
       } else if (res?.path) {
         onClose();
         window.location.href = `/s/${res.path}?wizard=${encodeURIComponent(res.intakeId || "new")}`;
       }
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Create scope failed");
+      toast.error(e instanceof Error ? e.message : "Create scope failed");
     } finally {
       setPending(false);
     }

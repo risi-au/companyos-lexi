@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useConfirm, useToast } from "@companyos/ui";
 import { DocEditor } from "./DocEditor";
 import {
   listDocsAction,
@@ -44,6 +45,8 @@ interface InheritedWiki {
 export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const requestConfirm = useConfirm();
+  const { toast } = useToast();
 
   const [docs, setDocs] = useState<DocListItem[]>([]);
   const [selectedSlug, setSelectedSlug] = useState<string | null>(initialDocSlug || null);
@@ -184,7 +187,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
       await loadDoc(created.slug);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed to create doc";
-      alert(msg);
+      toast.error(msg);
     } finally {
       setIsCreating(false);
     }
@@ -211,7 +214,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Rename failed";
-      alert(msg);
+      toast.error(msg);
     } finally {
       cancelRename();
     }
@@ -224,7 +227,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
 
   // Archive with confirm
   const archiveDoc = async (slug: string, title: string) => {
-    if (!confirm(`Archive "${title}"? It will be hidden from list.`)) return;
+    if (!(await requestConfirm({ title: `Archive "${title}"?`, body: `Archive "${title}"? It will be hidden from list.`, confirmLabel: "Archive" }))) return;
     try {
       await archiveDocAction(scopePath, slug);
       await refreshList();
@@ -238,7 +241,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Archive failed";
-      alert(msg);
+      toast.error(msg);
     }
   };
 
@@ -272,7 +275,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
 
   const restoreRevision = async (revId: string) => {
     if (!historyForSlug) return;
-    if (!confirm("Restore this revision? Current content will be replaced.")) return;
+    if (!(await requestConfirm({ title: "Restore this revision?", body: "Restore this revision? Current content will be replaced.", confirmLabel: "Restore", tone: "default" }))) return;
     try {
       await revertDocAction(scopePath, historyForSlug, revId);
       closeHistory();
@@ -281,7 +284,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
       await refreshList();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Restore failed";
-      alert(msg);
+      toast.error(msg);
     }
   };
 

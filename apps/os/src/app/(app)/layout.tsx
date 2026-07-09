@@ -4,6 +4,7 @@ import { headers, cookies } from "next/headers";
 import { api, getCurrentActorPrincipalId } from "@/lib/api";
 import { Sidebar } from "./_components/Sidebar";
 import { UserMenu } from "./_components/UserMenu";
+import { FeedbackProviders } from "./_components/FeedbackProviders";
 import type { Scope } from "@companyos/db";
 
 export default async function AppLayout({
@@ -58,38 +59,40 @@ export default async function AppLayout({
   }
 
   return (
-    <div className="flex min-h-screen bg-[var(--background)] text-[var(--foreground)]">
-      {/* Sidebar */}
-      <aside className="flex w-64 flex-col border-r border-[var(--border)] bg-[var(--surface)]"> {/* structural width; tokens used for inner spacing per design system */}
-        <div className="px-[var(--space-4)] py-[var(--space-3)] border-b border-[var(--border)]">
-          <div className="text-[var(--font-size-lg)] font-semibold tracking-[-0.01em]">{process.env.INSTANCE_NAME || "CompanyOS"}</div>
-          <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">ops record</div>
-        </div>
+    <FeedbackProviders>
+      <div className="flex min-h-screen bg-[var(--background)] text-[var(--foreground)]">
+        {/* Sidebar */}
+        <aside className="flex w-64 flex-col border-r border-[var(--border)] bg-[var(--surface)]"> {/* structural width; tokens used for inner spacing per design system */}
+          <div className="px-[var(--space-4)] py-[var(--space-3)] border-b border-[var(--border)]">
+            <div className="text-[var(--font-size-lg)] font-semibold tracking-[-0.01em]">{process.env.INSTANCE_NAME || "CompanyOS"}</div>
+            <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">ops record</div>
+          </div>
 
-        <Sidebar
-          tree={tree}
-          selected={resolvedSelected}
-          taskManagerUrl={taskManagerUrl}
-          instanceName={process.env.INSTANCE_NAME || "CompanyOS"}
-          rootRole={rootRole}
-        />
-
-        <div className="mt-auto border-t border-[var(--border)] p-[var(--space-3)]">
-          <UserMenu
-            name={session.user.name || session.user.email || "User"}
-            email={session.user.email || undefined}
+          <Sidebar
+            tree={tree}
+            selected={resolvedSelected}
+            taskManagerUrl={taskManagerUrl}
+            instanceName={process.env.INSTANCE_NAME || "CompanyOS"}
+            rootRole={rootRole}
           />
-        </div>
-      </aside>
 
-      {/* Main content */}
-      <div className="flex flex-1 flex-col">
-        <header className="flex h-[var(--space-12)] items-center border-b border-[var(--border)] px-[var(--space-4)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
-          {/* Breadcrumb rendered by page for active scope; placeholder */}
-          <div className="text-[var(--font-size-xs)]">Scope</div>
-        </header>
-        <main className="flex-1 overflow-auto p-[var(--space-4)]">{children}</main>
+          <div className="mt-auto border-t border-[var(--border)] p-[var(--space-3)]">
+            <UserMenu
+              name={session.user.name || session.user.email || "User"}
+              email={session.user.email || undefined}
+            />
+          </div>
+        </aside>
+
+        {/* Main content */}
+        <div className="flex flex-1 flex-col">
+          <header className="flex h-[var(--space-12)] items-center border-b border-[var(--border)] px-[var(--space-4)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
+            {/* Breadcrumb rendered by page for active scope; placeholder */}
+            <div className="text-[var(--font-size-xs)]">Scope</div>
+          </header>
+          <main className="flex-1 overflow-auto p-[var(--space-4)]">{children}</main>
+        </div>
       </div>
-    </div>
+    </FeedbackProviders>
   );
 }
