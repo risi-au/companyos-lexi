@@ -27,4 +27,10 @@ Built as a SaaS, used internally first. Tenant #1 is our own multi-business hold
 
 ## Status
 
-Pre-M1. See `docs/DESIGN.md` §7 for the milestone roadmap.
+Live on staging (https://cos-staging.risi.au, instance #1) at v0.7.x, approaching v0.8.0.
+Shipped: the full kernel spine, all core modules (records, docs, canvas, metrics,
+dashboards, sessions), MCP server (57 tools), Plane + n8n + LiteLLM integration, brain
+engine (nightly wiki maintenance + hybrid search), creation wizard v2, credential vault,
+tenant admin, ops health panel, native arm64 release pipeline, nightly encrypted backups.
+Next: UX overhaul (UX-01..05), then v0.8.0 and live promotion. `docs/tasks/*.md` status
+lines are authoritative; see [COMPANYOS-PRIMER.md](COMPANYOS-PRIMER.md) §10 for detail.

@@ -21,16 +21,13 @@ see other users' homes. Treat it as disposable.
 
 ## Connecting
 
-- Credentials: `vps-login.txt` in the repo root (gitignored — never commit it).
-- `ssh aios@159.13.38.87` — **password auth only; sshd rejects public keys for this user**
-  (keys in `~/.ssh/authorized_keys` are ignored). Interactive terminals work normally.
-- **Non-interactive automation from the dev machine: use PuTTY plink/pscp** — the Windows
-  `sshpass` port mangles the password and plink needs the pinned host key:
-  ```
-  plink -ssh -batch -hostkey "SHA256:Hj8NIK9s/sARPI38/RcyWPn6cR2dWMA+Uhngydk9YVM" \
-        -pw <password> aios@159.13.38.87 "<command>"
-  ```
-  (pscp: same flags for file copies.)
+- `ssh aios@159.13.38.87` — **key-based auth works** (enabled 2026-07-07; the dev machine's
+  key is in `authorized_keys`, and the GitHub Actions deploy job uses its own key via
+  `STAGING_SSH_KEY`). Plain `ssh`/`scp` from scripts is fine.
+- Fallback only (pre-2026-07-07 setups): password auth via `vps-login.txt` in the repo root
+  (gitignored — never commit it); non-interactive password automation needs PuTTY plink/pscp
+  with the pinned host key `SHA256:Hj8NIK9s/sARPI38/RcyWPn6cR2dWMA+Uhngydk9YVM` (the Windows
+  `sshpass` port mangles passwords).
 - App dir: `/home/aios/app` (compose file + `.env` + configs). Data dir: `/home/aios/data`
   (not currently used; container named volumes hold postgres/n8n data).
 - `.env` on the VPS is the source of truth for that environment's config. The initial copy is
@@ -38,8 +35,10 @@ see other users' homes. Treat it as disposable.
 
 ## Host facts (staging — discovered 2026-07-03)
 
-- **linux/arm64 (aarch64)** — images must be multi-arch (release.yml builds amd64+arm64
-  since v0.5.2; earlier tags are amd64-only and will NOT run here).
+- **linux/arm64 (aarch64)** — release.yml builds **arm64-only** images on GitHub's native
+  ARM runner (M9-02, 2026-07-07; killed the 70–100min QEMU-emulated multi-arch builds).
+  No amd64 images are published; local dev builds its own. Tags older than v0.5.2 are
+  amd64-only and will NOT run here.
 - 4-core equiv / 23GB RAM / 190GB disk.
 - **Rootless Podman 4.9 emulating docker.** The distro `docker-compose` is legacy v1 (python)
   and cannot parse our compose file. Setup done by the architect (survives reboots):
@@ -71,11 +70,14 @@ local dev  --merge-->  main  --build :main-->  staging fast path
      on every push to `main`.
    - Release path: when a state is intended to eventually reach `live`, tag `vX.Y.Z`, deploy
      that tag to staging, and run the full smoke/sign-off process before live promotion.
-4. **Deploy to staging** (from `~/app` on the VPS, as `aios`):
+4. **Deploy to staging** (from `~/app` on the VPS, as `aios`) — normally automatic via
+   release.yml deploy-staging; manual equivalent:
    ```bash
    # set COMPANYOS_TAG=main or COMPANYOS_TAG=<new release tag> in .env first (or pass inline)
-   docker compose --env-file .env -f docker-compose.prod.yml pull
-   docker compose --env-file .env -f docker-compose.prod.yml up -d
+   # pull named services only: with COMPOSE_PROFILES containing "backup", a plain `pull`
+   # fails on the locally-built backup image (no registry copy exists)
+   docker compose --env-file .env -f docker-compose.prod.yml pull postgres litellm n8n migrate os brain-cron
+   docker compose --env-file .env -f docker-compose.prod.yml up -d --build
    docker compose --env-file .env -f docker-compose.prod.yml logs migrate   # must end successfully
    ```
 5. **Staging smoke test** (minimum before any promotion):
@@ -122,9 +124,11 @@ Staging auto-deploy uses GitHub Actions SSH secrets; see `infra/README.md` "Stag
 
 ## Current state
 
-- **Staging**: manual deployment supports `COMPANYOS_TAG=main` for rolling fast-path fixes
-  and `COMPANYOS_TAG=vX.Y.Z` for release validation. The release workflow also includes a
-  staging auto-deploy job once the required GitHub secrets are configured.
+- **Staging**: auto-deploys on every green push to `main` (release.yml deploy-staging;
+  secrets configured, verified end-to-end 2026-07-08, ~9min push-to-deployed). Manual
+  deployment still supported for `COMPANYOS_TAG=vX.Y.Z` release validation.
+- **Backups**: `backup` sidecar running (`COMPOSE_PROFILES=brain,backup`); dump+encrypt
+  verified; offsite upload pending an R2 token permission fix (M5-03 status line).
 - Hostname convention: staging = `*-cos-staging.risi.au` flat names (Cloudflare free-tier
   certs don't cover multi-level subdomains); clean `cos.risi.au` names reserved for live.
 - n8n on staging expects hostname `n8n-cos-staging.risi.au` — tunnel route + compose port
