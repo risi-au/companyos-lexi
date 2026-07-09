@@ -51,7 +51,7 @@ export function MetricCard({ title, value, prevValue, metricName, loading }: Met
           </span>
         )}
       </div>
-      {prevValue == null && <div className="mt-1 text-[var(--font-size-xs)] text-[var(--muted-foreground)]">— no prior</div>}
+      {prevValue == null && <div className="mt-1 text-[var(--font-size-xs)] text-[var(--muted-foreground)]">no previous period</div>}
     </div>
   );
 }

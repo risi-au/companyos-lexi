@@ -54,9 +54,21 @@ interface UsagePayload {
 }
 
 const PRESET_IMPACT: Record<"lean" | "standard" | "deep", string> = {
-  lean: "lowest estimate; fewer records, wiki rows, and optional sections",
-  standard: "baseline estimate; conservative default",
-  deep: "highest estimate; larger record/wiki/search budgets",
+  lean: "Lowest estimate: fewer records, wiki rows, and optional sections.",
+  standard: "Baseline estimate: conservative default.",
+  deep: "Highest estimate: larger record, wiki, and search budgets.",
+};
+
+const GROUP_BY_LABELS: Record<GroupBy, string> = {
+  operation: "Operation",
+  scope: "Project",
+  principal: "Person or agent",
+  token: "Token",
+  connection: "Connection",
+  session: "Session",
+  source: "Source",
+  model: "Model",
+  success: "Status",
 };
 
 function isoDaysAgo(days: number): string {
@@ -133,7 +145,7 @@ export function UsageDashboardView({ initial }: { initial: UsagePayload }) {
         });
         setPayload(next as UsagePayload);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to query usage");
+        setError(err instanceof Error ? err.message : "Couldn't query usage. Check the filters and retry.");
       }
     });
   }
@@ -146,7 +158,7 @@ export function UsageDashboardView({ initial }: { initial: UsagePayload }) {
         setMessage(`Saved ${preset} profile. Estimated impact: ${result.impact.comparedToStandard} tokens vs standard.`);
         refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to save profile");
+        setError(err instanceof Error ? err.message : "Couldn't save the profile. Check your access and retry.");
       }
     });
   }
@@ -156,7 +168,7 @@ export function UsageDashboardView({ initial }: { initial: UsagePayload }) {
       <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
         <div className="mb-[var(--space-3)] flex flex-wrap items-end gap-[var(--space-3)]">
           <label className="block min-w-56 flex-1">
-            <span className="block text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Scope subtree</span>
+            <span className="block text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Project subtree</span>
             <input value={scope} onChange={(event) => setScope(event.target.value)} className="h-10 w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--background)] px-[var(--space-2)] text-[var(--font-size-sm)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]" />
           </label>
           <label className="block">
@@ -171,7 +183,7 @@ export function UsageDashboardView({ initial }: { initial: UsagePayload }) {
           <label className="block">
             <span className="block text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Group by</span>
             <select value={groupBy} onChange={(event) => setGroupBy(event.target.value as GroupBy)} className="h-10 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--background)] px-[var(--space-2)] text-[var(--font-size-sm)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]">
-              {["operation", "scope", "principal", "token", "connection", "session", "source", "model", "success"].map((item) => <option key={item} value={item}>{item}</option>)}
+              {(Object.keys(GROUP_BY_LABELS) as GroupBy[]).map((item) => <option key={item} value={item}>{GROUP_BY_LABELS[item]}</option>)}
             </select>
           </label>
           <button type="button" onClick={() => refresh()} disabled={isPending} className="inline-flex h-10 items-center gap-[var(--space-2)] rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-3)] text-[var(--font-size-sm)] hover:bg-[var(--muted)] disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-[var(--ring)]">
@@ -183,7 +195,7 @@ export function UsageDashboardView({ initial }: { initial: UsagePayload }) {
         <div className="grid gap-[var(--space-3)] md:grid-cols-5">
           {[
             ["Operation", operation, setOperation],
-            ["Principal", principalId, setPrincipalId],
+            ["Person or agent", principalId, setPrincipalId],
             ["Token", tokenId, setTokenId],
             ["Connection", connectionId, setConnectionId],
             ["Session", sessionId, setSessionId],
@@ -216,16 +228,16 @@ export function UsageDashboardView({ initial }: { initial: UsagePayload }) {
           <div>
             <div className="text-[var(--font-size-sm)] font-medium">Context profile</div>
             <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
-              Effective: {payload.profile.profile?.name || "standard fallback"} - {fmt(payload.profile.impact.estimatedTokens)} estimated tokens
+              Effective: {payload.profile.profile?.name || "Standard fallback"}, {fmt(payload.profile.impact.estimatedTokens)} estimated tokens
             </div>
           </div>
           <div className="flex flex-wrap items-end gap-[var(--space-2)]">
             <label>
               <span className="block text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Preset</span>
               <select value={preset} onChange={(event) => setPreset(event.target.value as "lean" | "standard" | "deep")} className="h-10 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--background)] px-[var(--space-2)] text-[var(--font-size-sm)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]">
-                <option value="lean">lean</option>
-                <option value="standard">standard</option>
-                <option value="deep">deep</option>
+                <option value="lean">Lean</option>
+                <option value="standard">Standard</option>
+                <option value="deep">Deep</option>
               </select>
             </label>
             <button type="button" onClick={saveProfile} disabled={isPending} className="inline-flex h-10 items-center gap-[var(--space-2)] rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-3)] text-[var(--font-size-sm)] hover:bg-[var(--muted)] disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-[var(--ring)]">
@@ -239,7 +251,7 @@ export function UsageDashboardView({ initial }: { initial: UsagePayload }) {
 
       {payload.recommendations.length ? (
         <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
-          <div className="mb-[var(--space-2)] text-[var(--font-size-sm)] font-medium">Recommended trims</div>
+          <div className="mb-[var(--space-2)] text-[var(--font-size-sm)] font-medium">Suggested savings</div>
           <ul className="space-y-[var(--space-1)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
             {payload.recommendations.map((item) => <li key={item}>{item}</li>)}
           </ul>
@@ -282,7 +294,7 @@ export function UsageDashboardView({ initial }: { initial: UsagePayload }) {
             <tr>
               <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Time</th>
               <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Operation</th>
-              <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Scope</th>
+              <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Project path</th>
               <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Session</th>
               <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Token</th>
               <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Estimate</th>
@@ -299,7 +311,7 @@ export function UsageDashboardView({ initial }: { initial: UsagePayload }) {
                 <td className="px-[var(--space-3)] py-[var(--space-2)] font-mono text-[var(--font-size-xs)]">{event.sessionId || "-"}</td>
                 <td className="px-[var(--space-3)] py-[var(--space-2)] font-mono text-[var(--font-size-xs)]">{event.tokenId || "-"}</td>
                 <td className="px-[var(--space-3)] py-[var(--space-2)] tabular-nums">{fmt(event.totalTokensEst)}</td>
-                <td className="px-[var(--space-3)] py-[var(--space-2)]">{event.success ? "success" : event.errorCode || "error"}</td>
+                <td className="px-[var(--space-3)] py-[var(--space-2)]">{event.success ? "Success" : event.errorCode || "Error"}</td>
                 <td className="px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">{metadataSummary(event.metadata || {})}</td>
               </tr>
             ))}

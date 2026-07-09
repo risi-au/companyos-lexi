@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { api, getCurrentActorPrincipalId } from "@/lib/api";
+import { labelForRole, labelForScopeStatus } from "@/lib/labels";
 import { DashboardRenderer, DashboardEmptyState, RangePicker } from "@/modules/dashboards";
 import { DocsView } from "@/modules/docs";
 import { CanvasView } from "@/modules/canvas";
@@ -164,9 +165,9 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
           <div className="flex items-center gap-[var(--space-2)]">
             <h1 className="text-[var(--font-size-2xl)] font-semibold tracking-[-0.01em]">{scope.name}</h1>
             <span className="inline-block rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
-              {scope.type === "project" ? "Project / Client" : scope.type === "subproject" ? "Sub-project" : scope.type}
+              {scope.type === "project" ? "Project" : scope.type === "subproject" ? "Sub-project" : scope.type}
             </span>
-            <span className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">· {scope.status}</span>
+            <span className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">{labelForScopeStatus(scope.status)}</span>
           </div>
           <div className="mt-[var(--space-1)] flex items-center gap-[var(--space-1)] text-[var(--font-size-sm)] text-[var(--muted-foreground)] font-mono">
             {scope.path.split("/").map((seg: string, i: number, arr: string[]) => (
@@ -178,7 +179,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
           </div>
         </div>
         <div className="flex items-center gap-[var(--space-2)]">
-          <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Role: {access}</div>
+          <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Role: {labelForRole(access)}</div>
           <AskOSButton scopePath={scopePath} />
         </div>
       </div>
@@ -197,7 +198,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
           { id: "canvas", label: "Canvas", href: makeTabHref("canvas") },
           { id: "connect", label: "Connect", href: makeTabHref("connect") },
           { id: "credentials", label: "Credentials", href: makeTabHref("credentials") },
-          { id: "intake", label: "Intake", href: makeTabHref("intake") },
+          { id: "intake", label: "Setup", href: makeTabHref("intake") },
           ...(canManageMembers ? [{ id: "members", label: "Members", href: makeTabHref("members") }] : []),
         ]}
       />
@@ -257,11 +258,11 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
           <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
             <div className="mb-[var(--space-3)] flex items-center justify-between">
               <div className="text-[var(--font-size-sm)] font-medium">Open tasks</div>
-              <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">via Plane</div>
+              <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Synced from your task board</div>
             </div>
             {tasks.length === 0 ? (
               <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
-                {process.env.PLANE_API_TOKEN ? "No open tasks." : "Plane not configured — tasks hidden."}
+                {process.env.PLANE_API_TOKEN ? "No open tasks." : "Task sync isn't set up yet. Connect it in Admin Settings."}
               </div>
             ) : (
               <ul className="space-y-[var(--space-2)]">
@@ -269,7 +270,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
                 {tasks.map((t: any, idx: number) => (
                   <li key={t.id || idx} className="rounded border border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)]">
                     <div className="font-medium">{t.title || t.name}</div>
-                    {t.url && <a href={t.url} target="_blank" className="text-[var(--font-size-xs)] text-[var(--primary)]">open ↗</a>}
+                    {t.url && <a href={t.url} target="_blank" aria-label={`Open task ${t.title || t.name || "untitled"}`} className="text-[var(--font-size-xs)] text-[var(--primary)]">Open task</a>}
                   </li>
                 ))}
               </ul>
@@ -286,7 +287,6 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
             <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No events.</div>
           ) : (
             <ol className="space-y-[var(--space-3)] border-l border-[var(--border)] pl-[var(--space-4)] text-[var(--font-size-sm)]">
-              { }
               {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
             {events.map((ev: any) => (
                 <li key={ev.id} className="relative">
@@ -379,7 +379,6 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
                 <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No records yet.</div>
               ) : (
                 <ul className="space-y-[var(--space-2)]">
-                  { }
                   {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
           {records.map((r: any) => (
                     <li key={r.id} className="flex items-center justify-between rounded border border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)]">
@@ -398,21 +397,19 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
             <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
               <div className="mb-[var(--space-3)] flex items-center justify-between">
                 <div className="text-[var(--font-size-sm)] font-medium">Open tasks</div>
-                <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">via Plane</div>
+              <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Synced from your task board</div>
               </div>
               {tasks.length === 0 ? (
                 <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
-                  {process.env.PLANE_API_TOKEN ? "No open tasks." : "Plane not configured — tasks hidden."}
+                  {process.env.PLANE_API_TOKEN ? "No open tasks." : "Task sync isn't set up yet. Connect it in Admin Settings."}
                 </div>
               ) : (
                 <ul className="space-y-[var(--space-2)]">
-                  { }
-                  { }
           {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
           {tasks.map((t: any, idx: number) => (
                     <li key={t.id || idx} className="rounded border border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)]">
                       <div className="font-medium">{t.title || t.name}</div>
-                      {t.url && <a href={t.url} target="_blank" className="text-[var(--font-size-xs)] text-[var(--primary)]">open ↗</a>}
+                      {t.url && <a href={t.url} target="_blank" aria-label={`Open task ${t.title || t.name || "untitled"}`} className="text-[var(--font-size-xs)] text-[var(--primary)]">Open task</a>}
                     </li>
                   ))}
                 </ul>
@@ -425,7 +422,6 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
               <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No events.</div>
             ) : (
               <ol className="space-y-[var(--space-3)] border-l border-[var(--border)] pl-[var(--space-4)] text-[var(--font-size-sm)]">
-                { }
                 {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
             {events.map((ev: any) => (
                   <li key={ev.id} className="relative">
@@ -457,10 +453,10 @@ async function MembersTab({ scopePath, actor }: { scopePath: string; actor: stri
   return (
     <div className="space-y-[var(--space-4)]">
       <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
-        <div className="mb-[var(--space-3)] text-[var(--font-size-sm)] font-medium">Project members (grants on this scope)</div>
+        <div className="mb-[var(--space-3)] text-[var(--font-size-sm)] font-medium">Project members</div>
 
         {grants.length === 0 ? (
-          <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No direct grants on this scope.</div>
+          <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No direct members on this project.</div>
         ) : (
           <table className="w-full text-[var(--font-size-sm)]">
             <thead>
@@ -475,17 +471,17 @@ async function MembersTab({ scopePath, actor }: { scopePath: string; actor: stri
               {grants.map((g: { grantId: string; principalId: string; principalName: string; principalEmail: string | null; role: string }) => (
                 <tr key={g.grantId} className="border-t border-[var(--border)]">
                   <td className="py-[var(--space-2)]">{g.principalName}</td>
-                  <td className="py-[var(--space-2)] text-[var(--muted-foreground)]">{g.principalEmail || "—"}</td>
+                  <td className="py-[var(--space-2)] text-[var(--muted-foreground)]">{g.principalEmail || "-"}</td>
                   <td className="py-[var(--space-2)]">
                     <form action={changeMemberRole} className="inline-flex gap-1">
                       <input type="hidden" name="scopePath" value={scopePath} />
                       <input type="hidden" name="principalId" value={g.principalId} />
                       <select name="role" defaultValue={g.role} className="rounded border border-[var(--border)] bg-[var(--background)] px-2 py-0.5 text-xs">
-                        <option value="owner">owner</option>
-                        <option value="admin">admin</option>
-                        <option value="editor">editor</option>
-                        <option value="viewer">viewer</option>
-                        <option value="agent">agent</option>
+                        <option value="owner">{labelForRole("owner")}</option>
+                        <option value="admin">{labelForRole("admin")}</option>
+                        <option value="editor">{labelForRole("editor")}</option>
+                        <option value="viewer">{labelForRole("viewer")}</option>
+                        <option value="agent">{labelForRole("agent")}</option>
                       </select>
                       <button type="submit" className="rounded border border-[var(--border)] px-2 py-0.5 text-xs hover:bg-[var(--muted)]">Save</button>
                     </form>
@@ -494,7 +490,7 @@ async function MembersTab({ scopePath, actor }: { scopePath: string; actor: stri
                     <form action={revokeMember} className="inline">
                       <input type="hidden" name="scopePath" value={scopePath} />
                       <input type="hidden" name="principalId" value={g.principalId} />
-                      <button type="submit" className="rounded border border-[var(--destructive)] px-2 py-0.5 text-xs text-[var(--destructive)] hover:bg-[var(--muted)]">Revoke</button>
+                      <button type="submit" className="rounded border border-[var(--destructive)] px-2 py-0.5 text-xs text-[var(--destructive)] hover:bg-[var(--muted)]">Remove access</button>
                     </form>
                   </td>
                 </tr>
@@ -505,7 +501,7 @@ async function MembersTab({ scopePath, actor }: { scopePath: string; actor: stri
       </div>
 
       <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
-        <div className="mb-[var(--space-3)] text-[var(--font-size-sm)] font-medium">Add member (existing user by email; default editor)</div>
+        <div className="mb-[var(--space-3)] text-[var(--font-size-sm)] font-medium">Add member (existing user by email, default editor)</div>
         <form action={addMemberToScope} className="flex flex-wrap gap-[var(--space-2)] items-end">
           <input type="hidden" name="scopePath" value={scopePath} />
           <div>
@@ -515,16 +511,16 @@ async function MembersTab({ scopePath, actor }: { scopePath: string; actor: stri
           <div>
             <label className="block text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Role</label>
             <select name="role" defaultValue="editor" className="rounded border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-sm">
-              <option value="owner">owner</option>
-              <option value="admin">admin</option>
-              <option value="editor">editor (default)</option>
-              <option value="viewer">viewer</option>
-              <option value="agent">agent</option>
+              <option value="owner">{labelForRole("owner")}</option>
+              <option value="admin">{labelForRole("admin")}</option>
+              <option value="editor">{labelForRole("editor")} (default)</option>
+              <option value="viewer">{labelForRole("viewer")}</option>
+              <option value="agent">{labelForRole("agent")}</option>
             </select>
           </div>
           <button type="submit" className="rounded bg-[var(--primary)] px-3 py-1 text-sm text-[var(--primary-foreground)]">Add member</button>
         </form>
-        <p className="mt-2 text-[var(--font-size-xs)] text-[var(--muted-foreground)]">User must already have signed up (auth principal exists).</p>
+        <p className="mt-2 text-[var(--font-size-xs)] text-[var(--muted-foreground)]">The user must already have signed up.</p>
       </div>
     </div>
   );

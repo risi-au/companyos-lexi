@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Activity, AlertTriangle, CheckCircle2, CircleHelp, XCircle } from "lucide-react";
 import { api, getCurrentActorPrincipalId } from "@/lib/api";
+import { labelForHealthStatus } from "@/lib/labels";
 import { opsHealthDeps, opsHealthEnvironment } from "@/lib/ops-health";
 import type { HealthStatus, OpsHealthCheck, OpsRunLogRow } from "@companyos/api";
 import { EmptyState, Table } from "@companyos/ui";
@@ -56,7 +57,7 @@ export default async function HealthPage({
         <div>
           <h1 className="text-[var(--font-size-2xl)] font-semibold tracking-[-0.01em]">Ops Health</h1>
           <div className="mt-[var(--space-1)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
-            Credential expiry, job liveness, webhook delivery, and alert surfacing.
+            Is everything running? Credentials, jobs, webhooks, alerts.
           </div>
         </div>
         <div className="font-mono text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
@@ -107,7 +108,7 @@ function HealthTable({ checks }: { checks: OpsHealthCheck[] }) {
       rows={checks}
       minWidth="980px"
       getRowKey={(check) => check.key}
-      empty={<EmptyState icon={<Activity size={16} />} title="No health checks" body="Configured component checks will appear here after the first run." />}
+      empty={<EmptyState icon={<Activity size={16} />} title="No health checks" body="Health checks will appear here after the first run." />}
       columns={[
         {
           key: "component",
@@ -125,12 +126,12 @@ function HealthTable({ checks }: { checks: OpsHealthCheck[] }) {
           cell: (check) => (
             <div className="inline-flex items-center gap-[var(--space-1)]">
               <StatusIcon status={check.status} />
-              <span className={statusClass(check.status)}>{check.status}</span>
+              <span className={statusClass(check.status)}>{labelForHealthStatus(check.status)}</span>
             </div>
           ),
         },
         { key: "last", header: "Last activity", className: "font-mono text-[var(--font-size-xs)]", cell: (check) => fmtDate(check.lastActivityAt) },
-        { key: "expiry", header: "Expiry / next expected", className: "font-mono text-[var(--font-size-xs)]", cell: (check) => fmtDate(check.expiryAt || check.nextExpectedAt) },
+        { key: "expiry", header: "Next expected", className: "font-mono text-[var(--font-size-xs)]", cell: (check) => fmtDate(check.expiryAt || check.nextExpectedAt) },
         { key: "error", header: "Latest error", className: "max-w-[360px] text-[var(--mutedfg)]", cell: (check) => check.latestError || "-" },
         { key: "drill", header: "Drill-down", cell: (check) => check.href ? <Link className="text-[var(--primary)] hover:underline" href={check.href}>Open</Link> : "-" },
       ]}
@@ -147,11 +148,11 @@ function RunTable({ runs }: { runs: OpsRunLogRow[] }) {
       empty={<EmptyState icon={<Activity size={16} />} title="No matching runs" body="Run logs matching this filter will appear after capabilities report activity." />}
       columns={[
         { key: "started", header: "Started", className: "font-mono text-[var(--font-size-xs)]", cell: (run) => fmtDate(run.startedAt) },
-        { key: "capability", header: "Capability", cell: (run) => run.href ? <Link className="text-[var(--primary)] hover:underline" href={run.href}>{run.capability}</Link> : run.capability },
-        { key: "scope", header: "Scope", className: "font-mono text-[var(--font-size-xs)]", cell: (run) => run.scopePath },
+        { key: "capability", header: "Automation", cell: (run) => run.href ? <Link className="text-[var(--primary)] hover:underline" href={run.href}>{run.capability}</Link> : run.capability },
+        { key: "scope", header: "Project path", className: "font-mono text-[var(--font-size-xs)]", cell: (run) => run.scopePath },
         { key: "status", header: "Status", cell: (run) => run.status },
         { key: "tokens", header: "Tokens", className: "font-mono", cell: (run) => run.tokenSpend ?? "-" },
-        { key: "summary", header: "Summary / error", className: "max-w-[520px] text-[var(--mutedfg)]", cell: (run) => run.latestError || run.summary || "-" },
+        { key: "summary", header: "Result", className: "max-w-[520px] text-[var(--mutedfg)]", cell: (run) => run.latestError || run.summary || "-" },
       ]}
     />
   );

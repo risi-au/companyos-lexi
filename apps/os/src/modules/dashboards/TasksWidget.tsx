@@ -17,7 +17,7 @@ export function TasksWidget({ title = "Open tasks", tasks, empty = "No open task
     <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)] h-full flex flex-col">
       <div className="mb-[var(--space-2)] flex items-center justify-between text-[var(--font-size-sm)] font-medium">
         <span>{title}</span>
-        <span className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">via Plane</span>
+        <span className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Synced from your task board</span>
       </div>
       {tasks.length === 0 ? (
         <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)] mt-auto">{empty}</div>
@@ -28,7 +28,7 @@ export function TasksWidget({ title = "Open tasks", tasks, empty = "No open task
               <div className="font-medium truncate">{t.title || "Untitled"}</div>
               {t.url && (
                 <a href={t.url} target="_blank" rel="noopener noreferrer" className="text-[var(--font-size-xs)] text-[var(--primary)] hover:underline">
-                  open ↗
+                  Open task
                 </a>
               )}
             </li>

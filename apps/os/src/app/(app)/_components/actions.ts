@@ -14,16 +14,16 @@ export async function createNewScope(formData: FormData): Promise<{ path?: strin
   const type: "project" | "subproject" = parentPath ? "subproject" : "project";
 
   if (!name || !slug || !reason) {
-    return { error: "Name, slug, and reason required" };
+    return { error: "Add a name and a reason. (URL name is optional.)" };
   }
 
   const actor = await getCurrentActorPrincipalId();
-  if (!actor) return { error: "Not authenticated" };
+  if (!actor) return { error: "Your session expired. Sign in again." };
 
   // Enforce at least admin on the parent (or root for top-level creates)
   const canCreate = await api.resolveAccess(actor, parentPath || "root");
   if (!canCreate || !["owner", "admin"].includes(canCreate)) {
-    return { error: "Insufficient permissions to create scope" };
+    return { error: "You need admin access on this project to do that." };
   }
 
   const created = await api.createScope({ slug, name, type, parentPath }, actor);
@@ -42,17 +42,17 @@ export async function addMemberToScope(formData: FormData): Promise<void> {
   if (!scopePath || !email) throw new Error("Scope and email required");
 
   const actor = await getCurrentActorPrincipalId();
-  if (!actor) throw new Error("Not authenticated");
+  if (!actor) throw new Error("Your session expired. Sign in again.");
 
   // UI guard: only owner/admin on this scope or root should reach, but recheck
   const myAccess = await api.resolveAccess(actor, scopePath);
   if (!myAccess || !["owner", "admin"].includes(myAccess)) {
-    throw new Error("Insufficient permissions to manage members");
+    throw new Error("You need admin access on this project to do that.");
   }
 
   const principal = await api.getPrincipalByEmail(email);
   if (!principal) {
-    throw new Error(`No existing user with email "${email}". (User must sign up first; invites in M5)`);
+    throw new Error(`No account with that email yet. They need to sign up first.`);
   }
 
   await api.grantRole({ principalId: principal.id, scopePath, role }, actor);
@@ -64,14 +64,14 @@ export async function changeMemberRole(formData: FormData): Promise<void> {
   const principalId = (formData.get("principalId") as string || "").trim();
   const role = (formData.get("role") as "owner" | "admin" | "editor" | "viewer" | "agent") || "editor";
 
-  if (!scopePath || !principalId) throw new Error("Scope and principal required");
+  if (!scopePath || !principalId) throw new Error("Select a person and a project.");
 
   const actor = await getCurrentActorPrincipalId();
-  if (!actor) throw new Error("Not authenticated");
+  if (!actor) throw new Error("Your session expired. Sign in again.");
 
   const myAccess = await api.resolveAccess(actor, scopePath);
   if (!myAccess || !["owner", "admin"].includes(myAccess)) {
-    throw new Error("Insufficient permissions to manage members");
+    throw new Error("You need admin access on this project to do that.");
   }
 
   await api.grantRole({ principalId, scopePath, role }, actor);
@@ -82,14 +82,14 @@ export async function revokeMember(formData: FormData): Promise<void> {
   const scopePath = (formData.get("scopePath") as string || "").trim();
   const principalId = (formData.get("principalId") as string || "").trim();
 
-  if (!scopePath || !principalId) throw new Error("Scope and principal required");
+  if (!scopePath || !principalId) throw new Error("Select a person and a project.");
 
   const actor = await getCurrentActorPrincipalId();
-  if (!actor) throw new Error("Not authenticated");
+  if (!actor) throw new Error("Your session expired. Sign in again.");
 
   const myAccess = await api.resolveAccess(actor, scopePath);
   if (!myAccess || !["owner", "admin"].includes(myAccess)) {
-    throw new Error("Insufficient permissions to manage members");
+    throw new Error("You need admin access on this project to do that.");
   }
 
   await api.revokeGrant({ principalId, scopePath }, actor);

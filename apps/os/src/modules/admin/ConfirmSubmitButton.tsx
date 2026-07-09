@@ -36,7 +36,7 @@ export function ConfirmSubmitButton({
       onClick={onClick}
       className={className}
     >
-      {pending ? "Working..." : children}
+      {pending ? "Working…" : children}
     </button>
   );
 }

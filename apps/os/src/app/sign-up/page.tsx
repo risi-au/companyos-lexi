@@ -25,7 +25,7 @@ export default function SignUpPage() {
     });
 
     if (res.error) {
-      setError(res.error.message || "Sign up failed");
+      setError(res.error.message || "Couldn't create the account. Check the fields and retry.");
       setLoading(false);
       return;
     }
@@ -42,7 +42,7 @@ export default function SignUpPage() {
           Create account
         </h1>
         <p className="mb-[var(--space-6)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
-          First user becomes owner of the root workspace
+          The first account becomes this instance's owner.
         </p>
 
         <form onSubmit={onSubmit} className="space-y-[var(--space-4)]">
@@ -55,7 +55,7 @@ export default function SignUpPage() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--background)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-md)] text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
-              placeholder="Ada Lovelace"
+              placeholder="Your name"
               disabled={loading}
             />
           </div>
@@ -96,7 +96,7 @@ export default function SignUpPage() {
           )}
 
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "Creating account..." : "Create account"}
+            {loading ? "Creating account…" : "Create account"}
           </Button>
         </form>
 

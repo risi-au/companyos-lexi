@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { api, getCurrentActorPrincipalId } from "@/lib/api";
+import { labelForIntegrationState } from "@/lib/labels";
 import { Card, EmptyState, StatCard } from "@companyos/ui";
 import { Activity } from "lucide-react";
 
@@ -17,7 +18,7 @@ export default async function AdminOverviewPage() {
 
   const items = [
     { label: "Users", value: users.length, href: "/admin/users" },
-    { label: "Grants", value: grants.length, href: "/admin/grants" },
+    { label: "Access", value: grants.length, href: "/admin/grants" },
     { label: "Automations", value: automations.length, href: "/admin/automations" },
     { label: "Alerts", value: alerts.length, href: "/admin/automations" },
   ];
@@ -52,7 +53,7 @@ export default async function AdminOverviewPage() {
             <dt className="text-[var(--muted-foreground)]">Skills repo</dt>
             <dd className="font-mono text-[var(--font-size-xs)]">{settings.skillsRepo ?? "-"}</dd>
             <dt className="text-[var(--muted-foreground)]">LiteLLM</dt>
-            <dd>{settings.integrations.litellm ? "configured" : "not configured"}</dd>
+            <dd>{labelForIntegrationState(settings.integrations.litellm)}</dd>
           </dl>
           <div className="mt-[var(--space-4)] flex flex-wrap gap-[var(--space-2)]">
             <Link href="/admin/settings" className="rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] hover:bg-[var(--muted)]">Settings</Link>

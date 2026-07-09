@@ -182,7 +182,7 @@ export async function DashboardRenderer({ spec, scopePath, actor, rangeKey }: Da
         }
         return (
           <div key={w.id} className="dashboard-widget rounded border p-3" style={style}>
-            Unknown widget type: {w.type}
+            This widget type isn't supported yet ({w.type}).
           </div>
         );
       })}
@@ -195,10 +195,10 @@ export function DashboardEmptyState({ scopePath }: { scopePath: string }) {
     <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-6)]">
       <div className="text-[var(--font-size-sm)] font-medium mb-2">No dashboard yet</div>
       <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
-        An agent can create one with <span className="font-mono">save_dashboard</span> for this scope.
+        No dashboard yet. Ask an agent to create one, or use Ask OS right here.
       </div>
       <div className="mt-3 text-[var(--font-size-xs)] text-[var(--muted-foreground)] font-mono break-all">
-        scope: {scopePath}
+        Project path: {scopePath}
       </div>
     </div>
   );

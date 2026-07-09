@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
+import { labelForSessionStatus } from "@/lib/labels";
 import { listSessionsAction } from "./actions";
 
 type SessionStatus = "running" | "waiting" | "idle" | "completed" | "error";
@@ -70,7 +71,7 @@ export function SessionsView({
         });
         setSessions(next as SessionRow[]);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load sessions");
+        setError(err instanceof Error ? err.message : "Couldn't load sessions. Refresh and try again.");
       }
     });
   }, [scopePath, status]);
@@ -100,17 +101,17 @@ export function SessionsView({
         </div>
 
         <div className="min-w-64 flex-1">
-          <label className="block text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Scope path</label>
+          <label className="block text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Project path</label>
           <input
             value={scopeFilter}
             onChange={(event) => setScopeFilter(event.target.value)}
             className="h-10 w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--background)] px-[var(--space-2)] text-[var(--font-size-sm)]"
-            placeholder="Filter by client/sub-scope"
+            placeholder="Filter by project/sub-project"
           />
         </div>
 
         <div className="pb-[var(--space-2)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
-          {isPending ? "Loading..." : `${visibleSessions.length} sessions`}
+          {isPending ? "Loading…" : `${visibleSessions.length} sessions`}
         </div>
       </div>
 
@@ -129,7 +130,7 @@ export function SessionsView({
           <table className="w-full text-left text-[var(--font-size-sm)]">
             <thead className="border-b border-[var(--border)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
               <tr>
-                <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Scope</th>
+                <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Project path</th>
                 <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Title</th>
                 <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Engine</th>
                 <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Status</th>
@@ -153,11 +154,11 @@ export function SessionsView({
                   <td className="px-[var(--space-3)] py-[var(--space-2)]">
                     <div className="flex flex-wrap gap-[var(--space-1)]">
                       <span className={`inline-flex rounded-[var(--radius-sm)] border px-[var(--space-2)] py-px text-[var(--font-size-xs)] ${statusClass(session.status)}`}>
-                        {session.status}
+                        {labelForSessionStatus(session.status)}
                       </span>
                       {session.stale ? (
                         <span className="inline-flex rounded-[var(--radius-sm)] border border-red-300 bg-red-50 px-[var(--space-2)] py-px text-[var(--font-size-xs)] text-red-700">
-                          stale
+                          {labelForSessionStatus("stale")}
                         </span>
                       ) : null}
                     </div>

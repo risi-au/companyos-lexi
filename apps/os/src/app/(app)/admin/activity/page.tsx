@@ -15,8 +15,8 @@ export default async function AdminActivityPage() {
       columns={[
         { key: "time", header: "Time", className: "tabular-nums", cell: (event) => new Date(event.createdAt).toLocaleString() },
         { key: "type", header: "Type", className: "font-mono text-[var(--font-size-xs)]", cell: (event) => event.type },
-        { key: "principal", header: "Principal", className: "font-mono text-[var(--font-size-xs)]", cell: (event) => event.principalId ?? "-" },
-        { key: "payload", header: "Payload", cell: (event) => <pre className="max-w-xl overflow-auto whitespace-pre-wrap text-[var(--font-size-xs)]">{JSON.stringify(event.payload, null, 2)}</pre> },
+        { key: "principal", header: "Who", className: "font-mono text-[var(--font-size-xs)]", cell: (event) => event.principalId ?? "-" },
+        { key: "payload", header: "Details", cell: (event) => <pre className="max-w-xl overflow-auto whitespace-pre-wrap text-[var(--font-size-xs)]">{JSON.stringify(event.payload, null, 2)}</pre> },
       ]}
     />
   );

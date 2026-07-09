@@ -21,7 +21,7 @@ export interface MintLiteLlmKeyActionState {
 }
 
 function getActorOrThrow(actor: string | null): string {
-  if (!actor) throw new Error("Not authenticated");
+  if (!actor) throw new Error("Your session expired. Sign in again.");
   return actor;
 }
 
@@ -49,7 +49,7 @@ export async function createAdminUserAction(
       tempPassword: result.tempPassword,
     };
   } catch (error) {
-    return { error: error instanceof Error ? error.message : "Failed to create user" };
+    return { error: error instanceof Error ? error.message : "Couldn't create the account. Fix the fields and retry." };
   }
 }
 
@@ -119,11 +119,11 @@ export async function mintLiteLlmKeyStateAction(
     }, actor);
     revalidatePath("/admin/settings");
     return {
-      message: `${result.alias ?? "Key"} minted. Store this value outside CompanyOS.`,
+      message: `${result.alias ?? "Key"} created. Store this value outside CompanyOS.`,
       key: result.key ?? undefined,
     };
   } catch (error) {
-    return { error: error instanceof Error ? error.message : "Failed to mint LiteLLM key" };
+    return { error: error instanceof Error ? error.message : "Couldn't create the key. Check the settings and retry." };
   }
 }
 
@@ -149,7 +149,7 @@ export async function revokeLiteLlmKeyAction(formData: FormData) {
 export async function completeTempPasswordChangeAction(formData: FormData) {
   const actor = getActorOrThrow(await getCurrentActorPrincipalId());
   const authApi = auth.api as unknown as Partial<Record<string, (input: unknown) => Promise<unknown>>>;
-  if (!authApi.changePassword) throw new Error("Better Auth changePassword API is not available");
+  if (!authApi.changePassword) throw new Error("Password change isn't available right now, contact your admin.");
   await authApi.changePassword({
     headers: await headers(),
     body: {

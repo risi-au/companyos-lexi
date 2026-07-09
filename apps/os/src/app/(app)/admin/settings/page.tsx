@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { api, getCurrentActorPrincipalId } from "@/lib/api";
+import { labelForIntegrationState } from "@/lib/labels";
 import { Card, EmptyState, Table } from "@companyos/ui";
 import { KeyRound, Settings } from "lucide-react";
 import { ConfirmSubmitButton } from "@/modules/admin/ConfirmSubmitButton";
@@ -39,7 +39,7 @@ export default async function AdminSettingsPage() {
             {Object.entries(settings.integrations).map(([name, present]) => (
               <div key={name} className="flex items-center justify-between rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)]">
                 <span>{name}</span>
-                <span className="text-[var(--muted-foreground)]">{present ? "configured" : "missing"}</span>
+                <span className="text-[var(--muted-foreground)]">{labelForIntegrationState(present)}</span>
               </div>
             ))}
           </div>
@@ -48,9 +48,9 @@ export default async function AdminSettingsPage() {
 
       <section className="space-y-[var(--space-4)]">
         <div>
-          <h2 className="text-[var(--font-size-xl)] font-semibold tracking-[-0.01em]">LLM & keys</h2>
+          <h2 className="text-[var(--font-size-xl)] font-semibold tracking-[-0.01em]">Models & keys</h2>
           <div className="mt-[var(--space-1)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
-            LiteLLM virtual keys, aliases, provider key presence, and spend. Agent-side token usage is in <Link href="/admin/mcp" className="text-[var(--primary)]">MCP Manager</Link>; probes are in <Link href="/admin/health" className="text-[var(--primary)]">Health</Link>.
+            API keys, model aliases, and spend for this instance.
           </div>
         </div>
 
@@ -67,7 +67,7 @@ export default async function AdminSettingsPage() {
             rows={llm.keys}
             minWidth="980px"
             getRowKey={(key) => key.id}
-            empty={<EmptyState icon={<KeyRound size={16} />} title="No LiteLLM keys" body="Mint a virtual key to give an agent budgeted model access." />}
+            empty={<EmptyState icon={<KeyRound size={16} />} title="No keys yet" body="Create a key to give an agent budgeted model access." />}
             columns={[
               {
                 key: "alias",
@@ -98,7 +98,7 @@ export default async function AdminSettingsPage() {
                       <input type="hidden" name="key" value={key.id} />
                       <input type="hidden" name="alias" value={key.alias ?? ""} />
                       <input name="budgetUsd" type="number" min="0" step="0.01" defaultValue={key.budgetUsd ?? llm.defaultBudgetUsd} className="w-24 rounded-[var(--radius-3)] border border-[var(--border)] bg-[var(--bg)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-xs)]" />
-                      <button className="rounded-[var(--radius-3)] border border-[var(--border)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-xs)] hover:bg-[var(--hover)]">Set</button>
+                      <button className="rounded-[var(--radius-3)] border border-[var(--border)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-xs)] hover:bg-[var(--hover)]">Save budget</button>
                     </form>
                     <form action={revokeLiteLlmKeyAction}>
                       <input type="hidden" name="key" value={key.id} />
@@ -124,9 +124,13 @@ export default async function AdminSettingsPage() {
             <div className="mb-[var(--space-3)] text-[var(--font-size-sm)] font-medium">Aliases</div>
             <div className="space-y-[var(--space-2)]">
               {llm.aliases.map((alias) => (
-                <div key={alias.alias} className="font-mono text-[var(--font-size-xs)]">{alias.alias} -&gt; {alias.model}{alias.provider ? ` (${alias.provider})` : ""}</div>
+                <div key={alias.alias} className="text-[var(--font-size-xs)]">
+                  <span className="font-mono">{alias.alias}</span>
+                  <span className="text-[var(--muted-foreground)]"> maps to </span>
+                  <span className="font-mono">{alias.model}{alias.provider ? ` (${alias.provider})` : ""}</span>
+                </div>
               ))}
-              {llm.aliases.length === 0 ? <EmptyState icon={<Settings size={16} />} title="No aliases returned" body="Configured model aliases will appear here when LiteLLM reports them." /> : null}
+              {llm.aliases.length === 0 ? <EmptyState icon={<Settings size={16} />} title="No aliases configured" body="Model aliases appear here after they are configured." /> : null}
             </div>
           </Card>
           <Card>
@@ -135,7 +139,7 @@ export default async function AdminSettingsPage() {
               {llm.providerKeys.map((key) => (
                 <div key={key.name} className="flex justify-between rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-2)] py-[var(--space-1)]">
                   <span className="font-mono">{key.name}</span>
-                  <span className="text-[var(--muted-foreground)]">{key.present ? "present" : "missing"}</span>
+                  <span className="text-[var(--muted-foreground)]">{labelForIntegrationState(key.present)}</span>
                 </div>
               ))}
             </div>
@@ -149,7 +153,7 @@ export default async function AdminSettingsPage() {
                   <span>{money(spend.spendUsd)}</span>
                 </div>
               ))}
-              {llm.spendByModel.length === 0 ? <EmptyState icon={<KeyRound size={16} />} title="No spend returned" body="Model spend appears after agents report usage." /> : null}
+              {llm.spendByModel.length === 0 ? <EmptyState icon={<KeyRound size={16} />} title="No spend recorded yet" body="Model spend appears after agents report usage." /> : null}
             </div>
           </Card>
         </div>

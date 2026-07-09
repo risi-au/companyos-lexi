@@ -1,4 +1,5 @@
 import { api, getCurrentActorPrincipalId } from "@/lib/api";
+import { labelForRole } from "@/lib/labels";
 import { McpManagerView, UsageDashboardView } from "@/modules/mcp-manager";
 
 function isRootAdmin(access: string | null): boolean {
@@ -17,7 +18,7 @@ export default async function McpAdminPage() {
       <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
         <div className="text-[var(--font-size-sm)] font-medium">Not authorized</div>
         <div className="mt-[var(--space-1)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
-          MCP connection management requires admin access on the root scope.
+          MCP connection management requires admin access for this instance.
         </div>
       </div>
     );
@@ -36,18 +37,18 @@ export default async function McpAdminPage() {
         <div>
           <h1 className="text-[var(--font-size-2xl)] font-semibold tracking-[-0.01em]">MCP Manager</h1>
           <div className="mt-[var(--space-1)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
-            Fleet-level connection tokens, subtree revocation, and principal offboarding.
+            Agent connections across all projects: review, revoke, offboard.
           </div>
         </div>
-        <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Role: {rootAccess}</div>
+        <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Role: {labelForRole(rootAccess)}</div>
       </div>
 
       <McpManagerView initialConnections={initialConnections} />
       <div className="border-t border-[var(--border)] pt-[var(--space-6)]">
         <div className="mb-[var(--space-4)]">
-          <h2 className="text-[var(--font-size-xl)] font-semibold tracking-[-0.01em]">Usage Observability</h2>
+          <h2 className="text-[var(--font-size-xl)] font-semibold tracking-[-0.01em]">Usage</h2>
           <div className="mt-[var(--space-1)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
-            Estimated CompanyOS MCP and context overhead. Actual model tokens appear only when clients provide them.
+            Estimated context tokens used by agents. Model-side token counts appear when clients report them.
           </div>
         </div>
         <UsageDashboardView initial={{ usage, recommendations, profile }} />

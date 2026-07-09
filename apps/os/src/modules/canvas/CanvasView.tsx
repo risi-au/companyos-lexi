@@ -244,7 +244,7 @@ export function CanvasView({ scopePath, initialCanvasSlug, initialAccess }: Canv
 
   const archiveSelected = async () => {
     if (!selectedSlug) return;
-    if (!(await requestConfirm({ title: "Archive this canvas?", body: "Archive this canvas?", confirmLabel: "Archive" }))) return;
+    if (!(await requestConfirm({ title: "Archive canvas", body: "This canvas will be hidden from the list but its saved history remains in the record.", confirmLabel: "Archive canvas" }))) return;
     try {
       await archiveCanvasAction(scopePath, selectedSlug);
       await refreshList();
@@ -270,14 +270,14 @@ export function CanvasView({ scopePath, initialCanvasSlug, initialAccess }: Canv
             className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-[var(--space-2)] py-0.5 text-[var(--font-size-xs)] hover:bg-[var(--muted)] disabled:opacity-50"
             aria-label="New canvas"
           >
-            <Plus size={14} /> New
+            <Plus size={14} /> New canvas
           </button>
         </div>
 
         {isLoadingList ? (
           <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Loading…</div>
         ) : canvases.length === 0 ? (
-          <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">No canvases yet. Create one.</div>
+          <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">No canvases yet. Sketches and diagrams live here.</div>
         ) : (
           <ul className="flex-1 space-y-1 overflow-auto text-[var(--font-size-sm)]">
             {canvases.map((c) => (
@@ -305,7 +305,6 @@ export function CanvasView({ scopePath, initialCanvasSlug, initialAccess }: Canv
           </button>
         )}
 
-        <div className="mt-auto pt-2 text-[10px] text-[var(--muted-foreground)]">Excalidraw • 2MB cap</div>
       </div>
 
       {/* Right: editor or placeholder */}
@@ -366,7 +365,7 @@ export function CanvasView({ scopePath, initialCanvasSlug, initialAccess }: Canv
                 disabled={!newName.trim() || isCreating}
                 className="rounded bg-[var(--primary)] px-3 py-1 text-sm text-[var(--primary-foreground)] disabled:opacity-50"
               >
-                {isCreating ? "Creating..." : "Create"}
+                {isCreating ? "Creating…" : "Create"}
               </button>
             </div>
           </div>

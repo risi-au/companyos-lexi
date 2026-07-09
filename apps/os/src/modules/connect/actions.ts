@@ -5,7 +5,7 @@ import { api, getCurrentActorPrincipalId } from "@/lib/api";
 
 export async function listConnectionTokensAction(scopePath: string) {
   const actor = await getCurrentActorPrincipalId();
-  if (!actor) throw new Error("Not authenticated");
+  if (!actor) throw new Error("Your session expired. Sign in again.");
   return api.listConnectionTokens({ scopePath }, actor);
 }
 
@@ -16,7 +16,7 @@ export async function mintConnectionTokenAction(input: {
   expiresAt?: string | null;
 }) {
   const actor = await getCurrentActorPrincipalId();
-  if (!actor) throw new Error("Not authenticated");
+  if (!actor) throw new Error("Your session expired. Sign in again.");
   const minted = await api.mintConnectionToken({
     scopePath: input.scopePath,
     name: input.name,
@@ -29,7 +29,7 @@ export async function mintConnectionTokenAction(input: {
 
 export async function revokeConnectionTokenAction(scopePath: string, tokenId: string) {
   const actor = await getCurrentActorPrincipalId();
-  if (!actor) throw new Error("Not authenticated");
+  if (!actor) throw new Error("Your session expired. Sign in again.");
   await api.revokeConnectionToken({ tokenId }, actor);
   revalidatePath(`/s/${scopePath}?tab=connect`);
 }

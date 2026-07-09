@@ -23,7 +23,7 @@ export default function SignInPage() {
     });
 
     if (res.error) {
-      setError(res.error.message || "Sign in failed");
+      setError(res.error.message || "Couldn't sign in. Check your email and password, then retry.");
       setLoading(false);
       return;
     }
@@ -70,7 +70,7 @@ export default function SignInPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--background)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-md)] text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
-              placeholder="••••••••"
+              placeholder="At least 8 characters"
               disabled={loading}
             />
           </div>
@@ -80,7 +80,7 @@ export default function SignInPage() {
           )}
 
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "Signing in..." : "Sign in"}
+            {loading ? "Signing in…" : "Sign in"}
           </Button>
         </form>
 

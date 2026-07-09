@@ -17,7 +17,7 @@ export default async function ChangePasswordPage() {
       <form action={completeTempPasswordChangeAction} className="w-full max-w-[420px] space-y-[var(--space-4)] rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-6)] shadow-sm">
         <div>
           <h1 className="text-[var(--font-size-2xl)] font-semibold tracking-[-0.01em]">Change password</h1>
-          <div className="mt-[var(--space-1)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">This account was created with a temporary password.</div>
+          <div className="mt-[var(--space-1)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">Welcome to this instance. Set your own password to finish signing in.</div>
         </div>
         <label className="block">
           <span className="mb-[var(--space-1)] block text-[var(--font-size-sm)] font-medium">Current password</span>

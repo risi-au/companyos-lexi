@@ -56,7 +56,7 @@ export function UserCreateForm() {
       ) : null}
       {state.message ? <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">{state.message}</div> : null}
       <button type="submit" disabled={pending} className="inline-flex min-h-10 items-center rounded-[var(--radius-sm)] bg-[var(--primary)] px-[var(--space-3)] text-[var(--font-size-sm)] text-[var(--primary-foreground)] disabled:opacity-60">
-        {pending ? "Creating..." : "Create user"}
+          {pending ? "Creating…" : "Create user"}
       </button>
     </form>
   );

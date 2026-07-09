@@ -5,7 +5,7 @@ import type { RelatedHistorySelection } from "@companyos/api";
 import { revalidatePath } from "next/cache";
 
 function requireActor(actor: string | null): string {
-  if (!actor) throw new Error("Not authenticated");
+  if (!actor) throw new Error("Your session expired. Sign in again.");
   return actor;
 }
 

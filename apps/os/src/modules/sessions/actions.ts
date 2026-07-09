@@ -10,7 +10,7 @@ export interface ListSessionsActionInput {
 
 export async function listSessionsAction(input: ListSessionsActionInput) {
   const actor = await getCurrentActorPrincipalId();
-  if (!actor) throw new Error("Not authenticated");
+  if (!actor) throw new Error("Your session expired. Sign in again.");
 
   return api.listSessions(
     {

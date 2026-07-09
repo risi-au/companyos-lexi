@@ -208,7 +208,7 @@ export function BrainGraphCanvas({ graph }: { graph: BrainGraphResult }) {
           value={scopePrefix}
           onChange={(event) => setScopePrefix(event.target.value)}
           className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-[var(--space-2)] py-[var(--space-2)] text-[var(--font-size-sm)]"
-          aria-label="Filter by scope subtree"
+          aria-label="Filter by project subtree"
         >
           {scopeOptions.map((scope) => (
             <option key={scope} value={scope}>{scope}</option>
@@ -233,7 +233,7 @@ export function BrainGraphCanvas({ graph }: { graph: BrainGraphResult }) {
         <canvas
           ref={canvasRef}
           className="h-full w-full cursor-pointer"
-          aria-label="Second brain global graph"
+          aria-label="Brain knowledge graph"
           onMouseMove={(event) => setHovered(nodeAt(event.clientX, event.clientY))}
           onMouseLeave={() => setHovered(null)}
           onClick={(event) => {

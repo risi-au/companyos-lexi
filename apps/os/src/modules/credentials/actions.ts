@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { api, getCurrentActorPrincipalId } from "@/lib/api";
 
 function requireActor(actor: string | null): string {
-  if (!actor) throw new Error("Not authenticated");
+  if (!actor) throw new Error("Your session expired. Sign in again.");
   return actor;
 }
 

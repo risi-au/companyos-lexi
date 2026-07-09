@@ -33,6 +33,7 @@ import {
   useToast,
   viewEnter,
 } from "@companyos/ui";
+import { labelForIntakeStatus } from "@/lib/labels";
 import {
   acceptReusePatternAction,
   approveIntakeAction,
@@ -98,11 +99,11 @@ const WIZARD_STEPS = [
   { id: "history", label: "History" },
   { id: "interview", label: "Interview" },
   { id: "review", label: "Review" },
-  { id: "provision", label: "Provision" },
+  { id: "provision", label: "Create" },
 ];
 
 const PROVISION_ITEMS = [
-  { label: "Create scope registry", tag: "scope" },
+  { label: "Create project registry", tag: "scope" },
   { label: "Attach default modules", tag: "modules" },
   { label: "Generate starter records", tag: "records" },
   { label: "Queue workbench sync", tag: "workbench" },
@@ -112,10 +113,6 @@ type ProvisionStatus = "pending" | "running" | "done";
 
 function pretty(value: unknown): string {
   return JSON.stringify(value ?? {}, null, 2);
-}
-
-function statusLabel(status: string): string {
-  return status.replace(/_/g, " ");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -224,17 +221,17 @@ export function IntakePanel({
 
   async function dismissResume(intakeId: string) {
     const ok = await confirm({
-      title: "Dismiss setup?",
-      body: "This archives the intake packet and removes it from the active setup queue.",
-      confirmLabel: "Dismiss",
+      title: "Discard setup?",
+      body: "This discards the setup and removes it from the active queue.",
+      confirmLabel: "Discard setup",
     });
     if (!ok) return;
     startTransition(async () => {
       try {
         mergeIntake(await dismissIntakeAction({ intakeId, scopePath }) as Intake);
-        toast.warn("Setup dismissed.");
+        toast.warn("Setup discarded.");
       } catch (error) {
-        toast.error(errorMessage(error, "Failed to dismiss setup"));
+        toast.error(errorMessage(error, "Couldn't discard the setup. Check your access and try again."));
       }
     });
   }
@@ -245,9 +242,9 @@ export function IntakePanel({
         <div className="rounded-[var(--radius-4)] bg-[var(--surface)] p-[var(--space-4)] shadow-[var(--shadow)]">
           <div className="flex flex-wrap items-center justify-between gap-[var(--space-3)]">
             <div>
-              <div className="text-[var(--font-size-sm)] font-medium">Setup incomplete</div>
+              <div className="text-[var(--font-size-sm)] font-medium">Finish setting up {scopePath}</div>
               <div className="mt-1 text-[var(--font-size-xs)] text-[var(--mutedfg)]">
-                {statusLabel(resume.status)} / {resume.templateSlug}
+                Step {initialStep(resume.status)} of 6, {labelForIntakeStatus(resume.status)}
               </div>
             </div>
             <div className="flex gap-[var(--space-2)]">
@@ -259,7 +256,7 @@ export function IntakePanel({
                   onClick={() => void dismissResume(resume.id)}
                   className="inline-flex min-h-[44px] cursor-pointer items-center gap-1 rounded-[var(--radius-3)] border border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] text-[var(--fg)] hover:bg-[var(--hover)]"
                 >
-                  <X size={14} /> Dismiss
+                  <X size={14} /> Discard setup
                 </button>
               )}
             </div>
@@ -269,18 +266,18 @@ export function IntakePanel({
 
       <div className="grid grid-cols-1 gap-[var(--space-4)] lg:grid-cols-[280px_1fr]">
         <div className="rounded-[var(--radius-4)] bg-[var(--surface)] p-[var(--space-3)] shadow-[var(--shadow)]">
-          <div className="mb-[var(--space-2)] text-[var(--font-size-sm)] font-medium">Intake</div>
+          <div className="mb-[var(--space-2)] text-[var(--font-size-sm)] font-medium">Setup</div>
           <div className="space-y-1">
             {intakes.length === 0 ? (
-              <EmptyState icon={<FileText size={16} />} title="No intake packets" body="New scopes create their setup packet here." />
+              <EmptyState icon={<FileText size={16} />} title="No setups yet for this project" body="New projects create setup details here." />
             ) : intakes.map((intake) => (
               <button
                 key={intake.id}
                 onClick={() => setActiveId(intake.id)}
                 className={`w-full cursor-pointer rounded-[var(--radius-3)] px-[var(--space-2)] py-[var(--space-2)] text-left text-[var(--font-size-sm)] ${activeId === intake.id ? "bg-[var(--selected)] text-[var(--fg)]" : "text-[var(--mutedfg)] hover:bg-[var(--hover)] hover:text-[var(--fg)]"}`}
               >
-                <div className="font-medium">{statusLabel(intake.status)}</div>
-                <div className="mt-1 truncate font-mono text-[var(--font-size-xs)]">{intake.id}</div>
+                <div className="font-medium">{labelForIntakeStatus(intake.status)}</div>
+                <div className="mt-1 truncate text-[var(--font-size-xs)] text-[var(--mutedfg)]">{intake.templateSlug}</div>
               </button>
             ))}
           </div>
@@ -300,7 +297,7 @@ export function IntakePanel({
               framingTemplates={framingTemplates}
             />
           ) : (
-            <EmptyState icon={<FileText size={16} />} title="No intake selected" body="Choose an intake packet to continue setup." />
+            <EmptyState icon={<FileText size={16} />} title="Select a setup on the left" body="Setup details appear here." />
           )}
         </div>
       </div>
@@ -404,7 +401,7 @@ function WizardWorkspace({
         await fn();
         if (success) toast.success(success);
       } catch (error) {
-        toast.error(errorMessage(error, "Action failed"));
+        toast.error(errorMessage(error, "Couldn't complete the action. Check the setup and try again."));
       }
     });
   }, [run, toast]);
@@ -431,7 +428,7 @@ function WizardWorkspace({
         });
       }
     } catch (error) {
-      toast.error(errorMessage(error, "Copy failed"));
+      toast.error(errorMessage(error, "Couldn't copy the text. Select it manually and try again."));
     }
   }
 
@@ -439,19 +436,19 @@ function WizardWorkspace({
     const config = kind === "sendBack"
       ? {
           title: "Send setup back?",
-          body: "The intake returns to the interview step so the external packet can be revised.",
+          body: "The setup returns to the interview step so the results can be revised.",
           confirmLabel: "Send back",
         }
       : kind === "reject"
         ? {
-            title: "Reject setup?",
-            body: "This rejects the intake packet. Add a reason in the review step before confirming if the requester needs context.",
-            confirmLabel: "Reject setup",
+            title: "Send setup back?",
+            body: "This sends the setup back with the reason from the review step.",
+            confirmLabel: "Send back",
           }
         : {
-            title: "Dismiss setup?",
-            body: "This archives the packet and removes it from the active setup queue.",
-            confirmLabel: "Dismiss",
+            title: "Discard setup?",
+            body: "This removes the setup from the active queue.",
+            confirmLabel: "Discard setup",
           };
     const ok = await confirm(config);
     if (!ok) return;
@@ -464,7 +461,7 @@ function WizardWorkspace({
           : await dismissIntakeAction({ intakeId: intake.id, scopePath }) as Intake;
       mergeIntake(next);
       if (kind === "sendBack") continueTo(4);
-    }, kind === "sendBack" ? "Interview reopened." : kind === "reject" ? "Setup rejected." : "Setup dismissed.");
+    }, kind === "sendBack" ? "Interview reopened." : kind === "reject" ? "Setup sent back." : "Setup discarded.");
   }
 
   async function runProvision() {
@@ -498,12 +495,12 @@ function WizardWorkspace({
     <div className="space-y-[var(--space-5)]">
       <div className="flex flex-wrap items-start justify-between gap-[var(--space-3)]">
         <div>
-          <div className="text-[var(--font-size-md)] font-medium">Creation wizard</div>
-          <div className="mt-1 font-mono text-[var(--font-size-xs)] text-[var(--mutedfg)]">{intake.id} / {statusLabel(intake.status)}</div>
+          <div className="text-[var(--font-size-md)] font-medium">Set up {scopePath}</div>
+          <div className="mt-1 text-[var(--font-size-xs)] text-[var(--mutedfg)]">Step {currentStep} of 6, {labelForIntakeStatus(intake.status)}</div>
         </div>
         <div className="relative flex items-center gap-[var(--space-2)]">
           <span className="rounded-[var(--radius-3)] bg-[var(--infobg)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-xs)] text-[var(--info)]">
-            {scopeLive ? "Live" : currentStep === 6 ? "Provisioning" : intake.status === "needs_review" ? "Needs review" : "In setup"}
+            {scopeLive ? "Live" : currentStep === 6 ? "Creating" : labelForIntakeStatus(intake.status)}
           </span>
           {intake.status === "dismissed" && canAdmin ? (
             <button onClick={() => runAction(async () => mergeIntake(await reopenIntakeAction({ intakeId: intake.id, scopePath }) as Intake), "Setup reopened.")} className="inline-flex min-h-[44px] cursor-pointer items-center gap-1 rounded-[var(--radius-3)] border border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] hover:bg-[var(--hover)]">
@@ -523,8 +520,8 @@ function WizardWorkspace({
           {menuOpen ? (
             <div className="absolute right-0 top-12 z-10 w-48 rounded-[var(--radius-4)] border border-[var(--border)] bg-[var(--raised)] p-1 shadow-[var(--shadow)]">
               <button type="button" onClick={() => void menuAction("sendBack")} className="block w-full rounded-[var(--radius-3)] px-[var(--space-3)] py-[var(--space-2)] text-left text-[var(--font-size-sm)] hover:bg-[var(--hover)]">Send back</button>
-              <button type="button" onClick={() => void menuAction("reject")} className="block w-full rounded-[var(--radius-3)] px-[var(--space-3)] py-[var(--space-2)] text-left text-[var(--font-size-sm)] text-[var(--err)] hover:bg-[var(--hover)]">Reject</button>
-              <button type="button" onClick={() => void menuAction("dismiss")} className="block w-full rounded-[var(--radius-3)] px-[var(--space-3)] py-[var(--space-2)] text-left text-[var(--font-size-sm)] hover:bg-[var(--hover)]">Dismiss</button>
+              <button type="button" onClick={() => void menuAction("reject")} className="block w-full rounded-[var(--radius-3)] px-[var(--space-3)] py-[var(--space-2)] text-left text-[var(--font-size-sm)] text-[var(--err)] hover:bg-[var(--hover)]">Send back with reason</button>
+              <button type="button" onClick={() => void menuAction("dismiss")} className="block w-full rounded-[var(--radius-3)] px-[var(--space-3)] py-[var(--space-2)] text-left text-[var(--font-size-sm)] hover:bg-[var(--hover)]">Discard setup</button>
             </div>
           ) : null}
         </div>
@@ -661,7 +658,7 @@ function WizardWorkspace({
               running={provisionRunning}
               live={scopeLive}
               canProvision={canAdmin && intake.status === "approved"}
-              onProvision={() => runAction(runProvision, "Scope is live.")}
+              onProvision={() => runAction(runProvision, "Project is live.")}
             />
           ) : null}
         </div>
@@ -682,13 +679,13 @@ function StepTitle({ title, body }: { title: string; body: string }) {
 function BasicsStep({ intake, reasonText, onContinue }: { intake: Intake; reasonText: string; onContinue: () => void }) {
   return (
     <section className="space-y-[var(--space-4)]">
-      <StepTitle title="Basics" body="Confirm the scope request before filling the structured setup packet." />
+      <StepTitle title="Basics" body="Confirm the project request before filling the setup details." />
       <div data-stage-item className="rounded-[var(--radius-4)] bg-[var(--raised)] p-[var(--space-4)]">
         <div className="text-[var(--font-size-xs)] text-[var(--mutedfg)]">Reason</div>
-        <div className="mt-1 whitespace-pre-wrap text-[var(--font-size-sm)]">{reasonText || "No reason captured."}</div>
+        <div className="mt-1 whitespace-pre-wrap text-[var(--font-size-sm)]">{reasonText || "No reason recorded yet. Add one."}</div>
       </div>
       <div data-stage-item className="grid grid-cols-1 gap-[var(--space-3)] md:grid-cols-3">
-        <Meta label="Status" value={statusLabel(intake.status)} />
+        <Meta label="Status" value={labelForIntakeStatus(intake.status)} />
         <Meta label="Template" value={intake.templateSlug} />
         <Meta label="Updated" value={new Date(intake.updatedAt).toLocaleString()} />
       </div>
@@ -737,9 +734,9 @@ function HistoryStep(props: {
       <div data-stage-item className="space-y-[var(--space-2)]">
         <div className="text-[var(--font-size-sm)] font-medium">Related history</div>
         <div className="flex flex-col gap-2 sm:flex-row">
-          <input value={props.historyQuery} onChange={(e) => props.setHistoryQuery(e.target.value)} className="min-h-[44px] flex-1 rounded-[var(--radius-3)] border border-[var(--border)] bg-[var(--bg)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)]" placeholder="Optional extra search terms" />
+          <input value={props.historyQuery} onChange={(e) => props.setHistoryQuery(e.target.value)} aria-label="Search past records and docs" className="min-h-[44px] flex-1 rounded-[var(--radius-3)] border border-[var(--border)] bg-[var(--bg)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)]" placeholder="client name, domain, old project path" />
           <button disabled={props.busy} onClick={() => props.runAction(async () => props.setHistoryHits(await findRelatedHistoryAction({ intakeId: props.intake.id, query: props.historyQuery, scopePath: props.scopePath }) as RelatedHistoryHit[]))} className="inline-flex min-h-[44px] cursor-pointer items-center gap-1 rounded-[var(--radius-3)] border border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] hover:bg-[var(--hover)] disabled:cursor-not-allowed disabled:opacity-50">
-            <Search size={14} /> Find
+            <Search size={14} /> Search history
           </button>
         </div>
         {props.historyHits.length > 0 ? (
@@ -779,11 +776,11 @@ function HistoryStep(props: {
       </div>
 
       <div data-stage-item className="space-y-[var(--space-2)]">
-        <div className="text-[var(--font-size-sm)] font-medium">Brain reuse</div>
+        <div className="text-[var(--font-size-sm)] font-medium">Starting points</div>
         <div className="flex flex-col gap-2 sm:flex-row">
-          <input value={props.query} onChange={(e) => props.setQuery(e.target.value)} className="min-h-[44px] flex-1 rounded-[var(--radius-3)] border border-[var(--border)] bg-[var(--bg)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)]" placeholder="meta ads, client launch, codebase docs" />
+          <input value={props.query} onChange={(e) => props.setQuery(e.target.value)} aria-label="What kind of work is this?" className="min-h-[44px] flex-1 rounded-[var(--radius-3)] border border-[var(--border)] bg-[var(--bg)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)]" placeholder="meta ads, client launch, codebase docs" />
           <button disabled={props.busy} onClick={() => props.runAction(async () => props.setPatterns(await findReusePatternsAction({ scopePath: props.scopePath, query: props.query }) as Pattern[]))} className="inline-flex min-h-[44px] cursor-pointer items-center gap-1 rounded-[var(--radius-3)] border border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] hover:bg-[var(--hover)] disabled:cursor-not-allowed disabled:opacity-50">
-            <Search size={14} /> Check
+            <Search size={14} /> Search patterns
           </button>
         </div>
         {props.patterns.length > 0 ? (
@@ -792,7 +789,7 @@ function HistoryStep(props: {
               <div key={pattern.slug} className="rounded-[var(--radius-3)] bg-[var(--raised)] p-3">
                 <div className="font-medium">{pattern.title}</div>
                 <div className="mt-1 text-[var(--font-size-xs)] text-[var(--mutedfg)]">{pattern.summary || pattern.slug}</div>
-                {pattern.sourceScopePath && pattern.sourceVisible ? <div className="mt-1 text-[var(--font-size-xs)] text-[var(--mutedfg)]">In use at {pattern.sourceScopePath}</div> : null}
+                {pattern.sourceScopePath && pattern.sourceVisible ? <div className="mt-1 text-[var(--font-size-xs)] text-[var(--mutedfg)]">Currently used by {pattern.sourceScopePath}</div> : null}
                 <button disabled={!pattern.reusable || !props.canEdit || props.busy} onClick={() => props.runAction(async () => {
                   const next = await acceptReusePatternAction({ intakeId: props.intake.id, patternSlug: pattern.slug, scopePath: props.scopePath }) as Intake;
                   props.setSpec(pretty(next.proposedProvisionSpec));
@@ -801,7 +798,7 @@ function HistoryStep(props: {
                   props.setWiki(pretty(next.proposedWikiUpdates));
                   props.mergeIntake(next);
                 }, "Reuse pattern applied.")} className="mt-3 rounded-[var(--radius-3)] border border-[var(--border)] px-2 py-1 text-[var(--font-size-xs)] hover:bg-[var(--hover)] disabled:opacity-50">
-                  Use template
+                  Start from this
                 </button>
               </div>
             ))}
@@ -840,21 +837,25 @@ function InterviewStep(props: {
 }) {
   return (
     <section className="space-y-[var(--space-4)]">
-      <StepTitle title="Interview" body="Assemble the external LLM pack, copy it out, then paste the markdown return here." />
+      <StepTitle title="Interview" body="Copy the interview pack, send it out, then paste the full reply here." />
       <div data-stage-item className="rounded-[var(--radius-3)] bg-[var(--warnbg)] p-[var(--space-3)] text-[var(--font-size-sm)] text-[var(--warn)]">
-        Markdown-only returns are accepted, but fenced JSON packets are checked first and reduce manual review.
+        Markdown-only results are accepted, but structured replies are checked first and reduce manual review.
       </div>
-      <button disabled={!props.canEdit || props.busy} onClick={() => props.runAction(async () => props.setPack(await externalPackAction({ intakeId: props.intake.id, scopePath: props.scopePath })), "External pack assembled.")} className="inline-flex min-h-[44px] cursor-pointer items-center gap-1 rounded-[var(--radius-3)] border border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] hover:bg-[var(--hover)] disabled:cursor-not-allowed disabled:opacity-50">
-        <Clipboard size={14} /> Assemble pack
+      <button disabled={!props.canEdit || props.busy} onClick={() => props.runAction(async () => props.setPack(await externalPackAction({ intakeId: props.intake.id, scopePath: props.scopePath })), "Interview pack ready to copy.")} className="inline-flex min-h-[44px] cursor-pointer items-center gap-1 rounded-[var(--radius-3)] border border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] hover:bg-[var(--hover)] disabled:cursor-not-allowed disabled:opacity-50">
+        <Clipboard size={14} /> Copy interview pack
       </button>
       {props.pack ? (
         <div data-stage-item className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <PackBox label="Paste-back pack" value={props.pack.pasteBack} buttonRef={props.packButtonRef} onCopy={() => props.onCopy(props.pack!.pasteBack, props.packButtonRef, "Pack")} buttonLabel="Copy pack" minWidth={120} />
+          <PackBox label="Interview pack" value={props.pack.pasteBack} buttonRef={props.packButtonRef} onCopy={() => props.onCopy(props.pack!.pasteBack, props.packButtonRef, "Pack")} buttonLabel="Copy pack" minWidth={120} />
           <PackBox label="MCP variant" value={props.pack.mcp} buttonRef={props.mcpButtonRef} onCopy={() => props.onCopy(props.pack!.mcp, props.mcpButtonRef, "MCP variant")} buttonLabel="Copy MCP config" secondary minWidth={172} />
         </div>
       ) : null}
-      <textarea value={props.paste} onChange={(e) => props.setPaste(e.target.value)} className="min-h-32 w-full rounded-[var(--radius-3)] border border-[var(--border)] bg-[var(--bg)] p-3 text-[var(--font-size-sm)]" placeholder="Paste external packet markdown here" />
-      {props.errors.length > 0 ? <div className="rounded-[var(--radius-3)] bg-[var(--errbg)] p-2 text-[var(--font-size-xs)] text-[var(--err)]">{props.errors.join(" / ")}</div> : null}
+      <textarea value={props.paste} onChange={(e) => props.setPaste(e.target.value)} className="min-h-32 w-full rounded-[var(--radius-3)] border border-[var(--border)] bg-[var(--bg)] p-3 text-[var(--font-size-sm)]" placeholder="Paste the LLM's full reply here, don't trim it." />
+      {props.errors.length > 0 ? (
+        <ul className="rounded-[var(--radius-3)] bg-[var(--errbg)] p-2 text-[var(--font-size-xs)] text-[var(--err)]">
+          {props.errors.map((error) => <li key={error}>{error}</li>)}
+        </ul>
+      ) : null}
       <button disabled={!props.canEdit || props.busy} onClick={() => props.runAction(async () => {
         const result = await submitPasteAction({ intakeId: props.intake.id, pasteText: props.paste, scopePath: props.scopePath });
         if (result.errors?.length) {
@@ -872,8 +873,8 @@ function InterviewStep(props: {
         props.setRisks(pretty(next.riskNotes));
         props.mergeIntake(next);
         props.onReviewed();
-      }, "Return submitted for review.")} className="min-h-[44px] cursor-pointer rounded-[var(--radius-3)] bg-[var(--primary)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] text-[var(--primaryfg)] hover:bg-[var(--primaryhover)] disabled:cursor-not-allowed disabled:opacity-50">
-        Submit return
+      }, "Interview results submitted for review.")} className="min-h-[44px] cursor-pointer rounded-[var(--radius-3)] bg-[var(--primary)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] text-[var(--primaryfg)] hover:bg-[var(--primaryhover)] disabled:cursor-not-allowed disabled:opacity-50">
+        Submit results
       </button>
     </section>
   );
@@ -959,12 +960,12 @@ function ReviewStep(props: {
       <StepTitle title="Review" body="Check the generated setup artifacts, clear open questions, then approve the build." />
       {props.markdownOnlyWarning ? (
         <div data-stage-item className="flex gap-2 rounded-[var(--radius-3)] bg-[var(--errbg)] p-3 text-[var(--font-size-sm)] font-medium text-[var(--err)]">
-          <AlertTriangle size={16} /> Markdown-only return: no fenced JSON packet was found. Review every field manually before approval.
+          <AlertTriangle size={16} /> No structured reply found. You can continue, every review field will start empty and must be filled by hand.
         </div>
       ) : null}
       {props.intake.packSnapshot ? (
         <details data-stage-item className="rounded-[var(--radius-3)] bg-[var(--raised)] p-3">
-          <summary className="cursor-pointer text-[var(--font-size-sm)] font-medium">Pack snapshot sent to external agent</summary>
+          <summary className="cursor-pointer text-[var(--font-size-sm)] font-medium">What was sent to the interview</summary>
           <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap text-[var(--font-size-xs)]">{props.intake.packSnapshot}</pre>
         </details>
       ) : null}
@@ -975,7 +976,7 @@ function ReviewStep(props: {
           <span className="font-mono text-[var(--font-size-xs)] text-[var(--mutedfg)]">{props.remainingQuestions} open</span>
         </div>
         {props.openQuestions.length === 0 ? (
-          <EmptyState icon={<Check size={16} />} title="No open questions" body="The packet can move straight to approval." />
+          <EmptyState icon={<Check size={16} />} title="No open questions" body="This setup can move straight to approval." />
         ) : (
           <div className="space-y-1">
             {props.openQuestions.map((question, index) => {
@@ -1006,16 +1007,16 @@ function ReviewStep(props: {
           </div>
         )}
       </div>
-      <LabeledArea label="Provision spec" value={props.spec} onChange={props.setSpec} />
-      <LabeledArea label="Docs" value={props.docs} onChange={props.setDocs} />
+      <LabeledArea label="What will be created" value={props.spec} onChange={props.setSpec} />
+      <LabeledArea label="Documents" value={props.docs} onChange={props.setDocs} />
       <LabeledArea label="Tasks" value={props.tasks} onChange={props.setTasks} />
       <LabeledArea label="Wiki updates" value={props.wiki} onChange={props.setWiki} />
       <LabeledArea label="Open questions JSON / notes" value={props.questions} onChange={props.setQuestions} />
       <LabeledArea label="Risk notes" value={props.risks} onChange={props.setRisks} />
       {props.canAdmin ? (
         <label className="block">
-          <span className="mb-1 block text-[var(--font-size-xs)] text-[var(--mutedfg)]">Reject reason</span>
-          <input value={props.reason} onChange={(e) => props.setReason(e.target.value)} className="min-h-[44px] w-full rounded-[var(--radius-3)] border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-[var(--font-size-sm)]" placeholder="Reason used by the header reject action" />
+          <span className="mb-1 block text-[var(--font-size-xs)] text-[var(--mutedfg)]">Why is this going back?</span>
+          <input value={props.reason} onChange={(e) => props.setReason(e.target.value)} className="min-h-[44px] w-full rounded-[var(--radius-3)] border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-[var(--font-size-sm)]" placeholder="Reason for the setup menu action" />
         </label>
       ) : null}
       <div className="flex flex-wrap gap-2">
@@ -1036,7 +1037,7 @@ function ReviewStep(props: {
 function ProvisionStep({ statuses, running, live, canProvision, onProvision }: { statuses: ProvisionStatus[]; running: boolean; live: boolean; canProvision: boolean; onProvision: () => void }) {
   return (
     <section className="space-y-[var(--space-4)]">
-      <StepTitle title={live ? "Scope is live" : "Provision"} body="Run the deterministic setup sequence and watch each operation complete." />
+      <StepTitle title={live ? "Project is live" : "Create everything"} body="Run the setup sequence and watch each operation complete." />
       <div data-stage-item className="space-y-2">
         {PROVISION_ITEMS.map((item, index) => (
           <div key={item.tag} className="flex items-center justify-between rounded-[var(--radius-3)] bg-[var(--raised)] px-[var(--space-3)] py-[var(--space-2)]">
@@ -1049,10 +1050,10 @@ function ProvisionStep({ statuses, running, live, canProvision, onProvision }: {
         ))}
       </div>
       {live ? (
-        <div data-stage-item className="rounded-[var(--radius-4)] bg-[var(--okbg)] p-[var(--space-4)] text-[var(--ok)]">Scope is live.</div>
+        <div data-stage-item className="rounded-[var(--radius-4)] bg-[var(--okbg)] p-[var(--space-4)] text-[var(--ok)]">Project is live.</div>
       ) : null}
       <button disabled={!canProvision || running || live} onClick={onProvision} className="inline-flex min-h-[44px] cursor-pointer items-center gap-1 rounded-[var(--radius-3)] bg-[var(--primary)] px-3 py-2 text-[var(--font-size-sm)] text-[var(--primaryfg)] hover:bg-[var(--primaryhover)] disabled:cursor-not-allowed disabled:opacity-50">
-        <Play size={14} /> {running ? "Provisioning..." : "Provision scope"}
+        <Play size={14} /> {running ? "Creating…" : "Create everything"}
       </button>
     </section>
   );

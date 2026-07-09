@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useConfirm } from "@companyos/ui";
+import { labelForCredentialState } from "@/lib/labels";
 import { KeyRound, Pencil, RefreshCw, Save, Trash2, X } from "lucide-react";
 import {
   deleteCredentialAction,
@@ -68,7 +69,7 @@ export function CredentialsPanel({
       setError(null);
     } catch (e) {
       setRows([]);
-      setError(e instanceof Error ? e.message : "Failed to load credentials");
+      setError(e instanceof Error ? e.message : "Couldn't load credentials. Refresh and try again.");
     } finally {
       setLoading(false);
     }
@@ -97,20 +98,20 @@ export function CredentialsPanel({
       clearForm();
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save credential");
+      setError(e instanceof Error ? e.message : "Couldn't save the credential. Check the fields and retry.");
     } finally {
       setSubmitting(false);
     }
   }
 
   async function onDelete(row: CredentialRow) {
-    if (!(await requestConfirm({ title: `Delete credential "${row.name}"?`, body: `Delete credential "${row.name}"?`, confirmLabel: "Delete" }))) return;
+    if (!(await requestConfirm({ title: "Delete credential", body: `This removes "${row.name}" from this project. Values cannot be recovered.`, confirmLabel: "Delete credential" }))) return;
     setError(null);
     try {
       await deleteCredentialAction({ scopePath, name: row.name });
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to delete credential");
+      setError(e instanceof Error ? e.message : "Couldn't delete the credential. Refresh and try again.");
     }
   }
 
@@ -133,8 +134,8 @@ export function CredentialsPanel({
           <div className="flex items-center gap-[var(--space-2)]">
             <KeyRound size={18} />
             <div>
-              <div className="text-[var(--font-size-sm)] font-medium">{setupMode ? "Setup credentials" : "Credential vault"}</div>
-              <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Values are write-only in the OS UI.</div>
+              <div className="text-[var(--font-size-sm)] font-medium">{setupMode ? "Setup credentials" : "Credentials"}</div>
+              <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Stored encrypted. Values can be replaced but never read back.</div>
             </div>
           </div>
           <button
@@ -156,7 +157,7 @@ export function CredentialsPanel({
 
         {requiredCredentials.length > 0 && (
           <div className="mb-[var(--space-4)] space-y-[var(--space-2)]">
-            <div className="text-[var(--font-size-xs)] font-medium text-[var(--muted-foreground)]">Requested during intake</div>
+            <div className="text-[var(--font-size-xs)] font-medium text-[var(--muted-foreground)]">Requested during setup</div>
             <div className="grid gap-[var(--space-2)]">
               {requiredCredentials.map((required) => {
                 const existing = existingByName(rows, required.name);
@@ -165,12 +166,12 @@ export function CredentialsPanel({
                     <div className="min-w-0">
                       <div className="text-[var(--font-size-sm)] font-medium">{required.name}</div>
                       <div className="mt-1 text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
-                        {required.whatFor || "No use specified."}
-                        {required.loginMethodNotes ? ` | ${required.loginMethodNotes}` : ""}
+                        {required.whatFor || "No description."}
+                        {required.loginMethodNotes ? <span className="block">{required.loginMethodNotes}</span> : null}
                       </div>
                     </div>
                     <div className="flex items-center gap-[var(--space-2)]">
-                      <span className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">{existing ? "set" : "unset"}</span>
+                      <span className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">{labelForCredentialState(!!existing)}</span>
                       {mayManage && (
                         <button
                           type="button"
@@ -247,11 +248,11 @@ export function CredentialsPanel({
       </div>
 
       <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
-        <div className="mb-[var(--space-3)] text-[var(--font-size-sm)] font-medium">This scope&apos;s credentials</div>
+        <div className="mb-[var(--space-3)] text-[var(--font-size-sm)] font-medium">Credentials in this project</div>
         {loading ? (
-          <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">Loading credentials...</div>
+          <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">Loading credentials…</div>
         ) : rows.length === 0 ? (
-          <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No credentials set for this scope.</div>
+          <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No credentials set for this project.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] text-left text-[var(--font-size-sm)]">
@@ -270,7 +271,7 @@ export function CredentialsPanel({
                   <tr key={row.id} className="border-t border-[var(--border)]">
                     <td className="py-[var(--space-2)] font-medium">{row.name}</td>
                     <td className="py-[var(--space-2)] text-[var(--muted-foreground)]">{row.description || "-"}</td>
-                    <td className="py-[var(--space-2)]">set</td>
+                    <td className="py-[var(--space-2)]">{labelForCredentialState(true)}</td>
                     <td className="py-[var(--space-2)] tabular-nums">{formatDate(row.updatedAt)}</td>
                     <td className="py-[var(--space-2)] tabular-nums">{formatDate(row.lastAccessedAt)}</td>
                     <td className="py-[var(--space-2)]">

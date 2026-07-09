@@ -121,14 +121,14 @@ export function DocEditor({
   const statusText = useMemo(() => {
     if (saveState === "saving") return "Saving…";
     if (saveState === "error") return "Save failed";
-    if (lastSaved) return `Saved · ${lastSaved}`;
+    if (lastSaved) return `Saved ${lastSaved}`;
     return "Saved";
   }, [saveState, lastSaved]);
 
   return (
     <div className="flex h-full flex-col rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)]">
       <div className="flex items-center justify-between border-b border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
-        <div>{readOnly ? "Read-only (viewer)" : "Markdown canonical • autosaves on idle"}</div>
+        <div>{readOnly ? "Read-only (viewer)" : "Autosaves as you work"}</div>
         <div className={saveState === "error" ? "text-[var(--destructive)]" : ""}>{statusText}</div>
       </div>
 

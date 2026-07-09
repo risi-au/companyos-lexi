@@ -186,7 +186,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
       // select it
       await loadDoc(created.slug);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to create doc";
+      const msg = e instanceof Error ? e.message : "Couldn't create the doc. Check the title and retry.";
       toast.error(msg);
     } finally {
       setIsCreating(false);
@@ -213,7 +213,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
         setCurrentDoc({ ...currentDoc, title: newT });
       }
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Rename failed";
+      const msg = e instanceof Error ? e.message : "Couldn't rename the doc. Check the title and retry.";
       toast.error(msg);
     } finally {
       cancelRename();
@@ -227,7 +227,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
 
   // Archive with confirm
   const archiveDoc = async (slug: string, title: string) => {
-    if (!(await requestConfirm({ title: `Archive "${title}"?`, body: `Archive "${title}"? It will be hidden from list.`, confirmLabel: "Archive" }))) return;
+    if (!(await requestConfirm({ title: "Archive document", body: `"${title}" will be hidden from the list (not deleted).`, confirmLabel: "Archive document" }))) return;
     try {
       await archiveDocAction(scopePath, slug);
       await refreshList();
@@ -240,7 +240,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
         if (fresh.length > 0) await loadDoc(fresh[0]!.slug);
       }
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Archive failed";
+      const msg = e instanceof Error ? e.message : "Couldn't archive the doc. Refresh and try again.";
       toast.error(msg);
     }
   };
@@ -275,7 +275,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
 
   const restoreRevision = async (revId: string) => {
     if (!historyForSlug) return;
-    if (!(await requestConfirm({ title: "Restore this revision?", body: "Restore this revision? Current content will be replaced.", confirmLabel: "Restore", tone: "default" }))) return;
+    if (!(await requestConfirm({ title: "Restore revision", body: "This creates a new revision from the selected version and replaces the current content.", confirmLabel: "Restore revision", tone: "default" }))) return;
     try {
       await revertDocAction(scopePath, historyForSlug, revId);
       closeHistory();
@@ -283,7 +283,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
       await loadDoc(historyForSlug);
       await refreshList();
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Restore failed";
+      const msg = e instanceof Error ? e.message : "Couldn't restore the revision. Refresh and try again.";
       toast.error(msg);
     }
   };
@@ -319,7 +319,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
               className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-xs)] hover:bg-[var(--muted)]"
               aria-label="New doc"
             >
-              <Plus size={14} /> New
+              <Plus size={14} /> New doc
             </button>
           )}
         </div>
@@ -327,7 +327,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
         {inheritedWiki && (
           <div className="mb-[var(--space-2)] rounded-[var(--radius-sm)] border border-[var(--primary)] px-[var(--space-2)] py-[var(--space-2)] text-[var(--font-size-xs)]">
             <div className="mb-1 flex items-center gap-1 font-medium text-[var(--primary)]">
-              <BookOpen size={13} /> Inherited wiki — from {inheritedWiki.scopePath}
+              <BookOpen size={13} /> Inherited wiki (from {inheritedWiki.scopePath})
             </div>
             <ul className="space-y-0.5">
               {inheritedWiki.docs.map((d) => (
@@ -348,7 +348,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
           <div className="p-3 text-[var(--font-size-sm)] text-[var(--muted-foreground)]">Loading…</div>
         ) : !hasDocs ? (
           <div className="px-[var(--space-2)] py-[var(--space-3)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
-            No docs yet. Create the first doc — agents can also write here via save_doc.
+            No docs yet. Create the first one; agents can add docs here too.
           </div>
         ) : (
           <ul className="space-y-[var(--space-1)] overflow-auto">
@@ -503,7 +503,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
                     <div className="min-w-0">
                       <div className="truncate">{r.title}</div>
                       <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)] tabular-nums">
-                        {new Date(r.createdAt).toLocaleString()} · {r.savedBy.slice(0, 8)}
+                        {new Date(r.createdAt).toLocaleString()}, by {r.savedBy}
                       </div>
                     </div>
                     {!readOnly && (
@@ -518,7 +518,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
                 ))}
               </ul>
             )}
-            <div className="mt-3 text-[10px] text-[var(--muted-foreground)]">Reverting creates a new revision.</div>
+            <div className="mt-3 text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Reverting creates a new revision.</div>
           </div>
         </div>
       )}

@@ -12,7 +12,7 @@ export interface ListWorkLogRecordsInput {
 
 export async function listWorkLogRecordsAction(input: ListWorkLogRecordsInput) {
   const actor = await getCurrentActorPrincipalId();
-  if (!actor) throw new Error("Not authenticated");
+  if (!actor) throw new Error("Your session expired. Sign in again.");
 
   return api.listRecords(
     {

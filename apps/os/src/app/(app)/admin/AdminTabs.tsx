@@ -6,7 +6,7 @@ import { Tabs } from "@companyos/ui";
 const tabs = [
   { href: "/admin", id: "overview", label: "Overview" },
   { href: "/admin/users", id: "users", label: "Users" },
-  { href: "/admin/grants", id: "grants", label: "Grants" },
+  { href: "/admin/grants", id: "grants", label: "Access" },
   { href: "/admin/activity", id: "activity", label: "Activity" },
   { href: "/admin/automations", id: "automations", label: "Automations" },
   { href: "/admin/settings", id: "settings", label: "Settings" },

@@ -52,7 +52,7 @@ export function TableWidget({ title, series, loading, error }: TableWidgetProps)
         <table className="w-full border-collapse">
           <thead>
             <tr className="border-b border-[var(--border)]">
-              <th className="text-left py-1 pr-2 font-medium text-[var(--muted-foreground)]">Date/Dim</th>
+              <th className="text-left py-1 pr-2 font-medium text-[var(--muted-foreground)]">Date</th>
               {cols.map((c, idx) => (
                 <th key={idx} className="text-right py-1 px-2 font-medium text-[var(--muted-foreground)] tabular-nums">{c.label}</th>
               ))}

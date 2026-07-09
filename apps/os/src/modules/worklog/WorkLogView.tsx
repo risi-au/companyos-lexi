@@ -62,7 +62,7 @@ export function WorkLogView({
         });
         setRecords(next as WorkLogRecord[]);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load work log");
+        setError(err instanceof Error ? err.message : "Couldn't load the work log. Refresh and try again.");
       }
     });
   }, [scopePath, kind, sincePreset]);
@@ -107,17 +107,17 @@ export function WorkLogView({
         </div>
 
         <div className="min-w-64 flex-1">
-          <label className="block text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Scope path</label>
+          <label className="block text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Project path</label>
           <input
             value={scopeFilter}
             onChange={(event) => setScopeFilter(event.target.value)}
             className="h-10 w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--background)] px-[var(--space-2)] text-[var(--font-size-sm)]"
-            placeholder="Filter by client/sub-scope"
+            placeholder="Filter by project/sub-project"
           />
         </div>
 
         <div className="pb-[var(--space-2)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
-          {isPending ? "Loading..." : `${visibleRecords.length} records`}
+          {isPending ? "Loading…" : `${visibleRecords.length} records`}
         </div>
       </div>
 
@@ -136,7 +136,7 @@ export function WorkLogView({
           <table className="w-full text-left text-[var(--font-size-sm)]">
             <thead className="border-b border-[var(--border)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
               <tr>
-                <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Scope</th>
+                <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Project path</th>
                 <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Kind</th>
                 <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Title</th>
                 <th className="px-[var(--space-3)] py-[var(--space-2)] text-right font-medium">Date</th>

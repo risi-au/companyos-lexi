@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useConfirm } from "@companyos/ui";
+import { labelForConnectionStatus, labelForMemoryAccess, labelForRole } from "@/lib/labels";
 import { Check, Clipboard, PlugZap, RefreshCw, RotateCcw, Shield, Trash2 } from "lucide-react";
 import {
   getConnectConfigAction,
@@ -120,7 +121,7 @@ export function ConnectPanel({ scopePath, initialAccess }: { scopePath: string; 
       setConnections(rows as ConnectionRow[]);
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load connections");
+      setError(e instanceof Error ? e.message : "Couldn't load connections. Refresh and try again.");
       setConnections([]);
     } finally {
       setLoading(false);
@@ -171,20 +172,20 @@ Header: ${authHeader}`,
       setMinted(result as MintResult);
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to mint connection token");
+      setError(e instanceof Error ? e.message : "Couldn't create the connection token. Check the fields and retry.");
     } finally {
       setSubmitting(false);
     }
   }
 
   async function onRevoke(tokenId: string) {
-    if (!(await requestConfirm({ title: "Revoke connection token?", body: "Revoke this connection token?", confirmLabel: "Revoke" }))) return;
+    if (!(await requestConfirm({ title: "Revoke token", body: "This agent connection stops working immediately. Existing records stay in the audit log.", confirmLabel: "Revoke token" }))) return;
     setError(null);
     try {
       await revokeConnectionTokenAction(scopePath, tokenId);
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to revoke connection token");
+      setError(e instanceof Error ? e.message : "Couldn't revoke the token. Refresh and try again.");
     }
   }
 
@@ -195,7 +196,7 @@ Header: ${authHeader}`,
           <div className="flex items-center gap-[var(--space-2)]">
             <PlugZap size={18} />
             <div>
-              <div className="text-[var(--font-size-sm)] font-medium">Connect to MCP</div>
+              <div className="text-[var(--font-size-sm)] font-medium">Connect an agent</div>
               <div className="font-mono text-[var(--font-size-xs)] text-[var(--muted-foreground)]">{mcpUrl}</div>
             </div>
           </div>
@@ -233,8 +234,8 @@ Header: ${authHeader}`,
                 onChange={(event) => setRole(event.target.value as "agent" | "viewer")}
                 className="h-10 w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--background)] px-[var(--space-2)] text-[var(--font-size-sm)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
               >
-                <option value="agent">agent</option>
-                <option value="viewer">viewer</option>
+                <option value="agent">{labelForRole("agent")}</option>
+                <option value="viewer">{labelForRole("viewer")}</option>
               </select>
             </div>
             <div>
@@ -262,7 +263,7 @@ Header: ${authHeader}`,
                 className="inline-flex h-10 items-center gap-[var(--space-2)] rounded-[var(--radius-sm)] bg-[var(--primary)] px-[var(--space-3)] text-[var(--font-size-sm)] text-[var(--primary-foreground)] disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
               >
                 <Shield size={15} />
-                Mint
+                Create token
               </button>
             </div>
           </div>
@@ -271,7 +272,7 @@ Header: ${authHeader}`,
         {readOnly && (
           <div className="flex items-center gap-[var(--space-2)] rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--background)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
             <Shield size={15} />
-            Viewer access is read-only for MCP connections.
+            Viewers can see connections but can't create tokens.
           </div>
         )}
       </div>
@@ -310,18 +311,18 @@ Header: ${authHeader}`,
       <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
         <div className="mb-[var(--space-3)] text-[var(--font-size-sm)] font-medium">This scope&apos;s connections</div>
         {loading ? (
-          <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">Loading connections...</div>
+          <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">Loading connections…</div>
         ) : connections.length === 0 ? (
-          <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No connections minted for this scope.</div>
+          <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No connections created for this project.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[900px] text-left text-[var(--font-size-sm)]">
               <thead className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
                 <tr>
                   <th className="pb-[var(--space-2)] font-medium">Name</th>
-                  <th className="pb-[var(--space-2)] font-medium">Minted by</th>
+                  <th className="pb-[var(--space-2)] font-medium">Created by</th>
                   <th className="pb-[var(--space-2)] font-medium">Role</th>
-                  <th className="pb-[var(--space-2)] font-medium">Memory</th>
+                  <th className="pb-[var(--space-2)] font-medium">Memory access</th>
                   <th className="pb-[var(--space-2)] font-medium">Created</th>
                   <th className="pb-[var(--space-2)] font-medium">Expiry</th>
                   <th className="pb-[var(--space-2)] font-medium">Last used</th>
@@ -337,12 +338,12 @@ Header: ${authHeader}`,
                       <div className="font-mono text-[var(--font-size-xs)] text-[var(--muted-foreground)]">{row.principalName}</div>
                     </td>
                     <td className="py-[var(--space-2)]">{row.mintedByName}</td>
-                    <td className="py-[var(--space-2)] font-mono text-[var(--font-size-xs)]">{row.role}</td>
-                    <td className="py-[var(--space-2)] font-mono text-[var(--font-size-xs)]">{row.memoryAccess}</td>
+                    <td className="py-[var(--space-2)]">{labelForRole(row.role)}</td>
+                    <td className="py-[var(--space-2)]">{labelForMemoryAccess(row.memoryAccess)}</td>
                     <td className="py-[var(--space-2)] tabular-nums">{formatDate(row.createdAt)}</td>
                     <td className="py-[var(--space-2)] tabular-nums">{formatDate(row.expiresAt)}</td>
                     <td className="py-[var(--space-2)] tabular-nums">{formatDate(row.lastUsedAt)}</td>
-                    <td className="py-[var(--space-2)]">{row.revoked ? "revoked" : "active"}</td>
+                    <td className="py-[var(--space-2)]">{labelForConnectionStatus(row.revoked)}</td>
                     <td className="py-[var(--space-2)]">
                       {canRevoke(initialAccess, row) && !row.revoked ? (
                         <button

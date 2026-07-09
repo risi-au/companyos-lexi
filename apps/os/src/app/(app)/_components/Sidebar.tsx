@@ -28,7 +28,7 @@ const MODULES: Array<{ tab: string; label: string }> = [
   { tab: "canvas", label: "Canvas" },
   { tab: "connect", label: "Connect" },
   { tab: "credentials", label: "Credentials" },
-  { tab: "intake", label: "Intake" },
+  { tab: "intake", label: "Setup" },
 ];
 
 const INDENT_STEP = 16; // px per depth level (design-system-v2 §5)
@@ -180,8 +180,8 @@ export function Sidebar({ tree, selected = null, taskManagerUrl = null, instance
             type="button"
             onClick={() => setShowNew(true)}
             className="inline-flex cursor-pointer items-center rounded-[var(--radius-2)] p-[var(--space-1)] text-[var(--mutedfg)] hover:bg-[var(--hover)] hover:text-[var(--fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]"
-            title="New scope"
-            aria-label="Create new scope"
+            title="New project"
+            aria-label="Create new project"
           >
             <Plus size={14} />
           </button>
@@ -408,7 +408,7 @@ function ModuleRows({ scope, level, ctx }: { scope: Scope; level: number; ctx: N
           rel="noopener noreferrer"
           className={`mt-[var(--space-1)] flex items-center gap-[var(--space-1)] rounded-[var(--radius-3)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-sm)] text-[var(--mutedfg)] hover:bg-[var(--hover)] hover:text-[var(--fg)] ${hoverUnderlineClass}`}
         >
-          Task Manager <ExternalLink size={14} />
+          Open task board <ExternalLink size={14} />
         </a>
       )}
     </div>
@@ -436,7 +436,7 @@ function NewScopeDialog({ tree, defaultParent, onClose }: { tree: Scope[]; defau
         window.location.href = `/s/${res.path}?wizard=${encodeURIComponent(res.intakeId || "new")}`;
       }
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Create scope failed");
+      toast.error(e instanceof Error ? e.message : "Couldn't create the project. Check the fields and try again.");
     } finally {
       setPending(false);
     }
@@ -448,7 +448,7 @@ function NewScopeDialog({ tree, defaultParent, onClose }: { tree: Scope[]; defau
         className="w-[320px] rounded-[var(--radius-4)] border border-[var(--border)] bg-[var(--raised)] p-[var(--space-4)] text-[var(--fg)] shadow-[var(--shadow)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-[var(--space-3)] text-[var(--font-size-md)] font-medium">New scope</div>
+        <div className="mb-[var(--space-3)] text-[var(--font-size-md)] font-medium">New project</div>
         <form action={handleSubmit} className="space-y-[var(--space-3)]">
           <input
             name="name"
@@ -459,16 +459,17 @@ function NewScopeDialog({ tree, defaultParent, onClose }: { tree: Scope[]; defau
           <input
             name="slug"
             className="w-full rounded-[var(--radius-3)] border border-[var(--border)] bg-[var(--surface)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)]"
-            placeholder="slug (optional)"
+            aria-label="URL name (optional)"
+            placeholder="lowercase-no-spaces"
           />
           <select
             name="parentPath"
             value={parent}
             onChange={(e) => setParent(e.target.value)}
             className="w-full rounded-[var(--radius-3)] border border-[var(--border)] bg-[var(--surface)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)]"
-            aria-label="Parent scope"
+            aria-label="Parent project"
           >
-            <option value="">(top level — new Project / Client)</option>
+            <option value="">Top level (new project)</option>
             {parentOptions.map((p) => (
               <option key={p.path} value={p.path}>{p.path}</option>
             ))}
@@ -476,7 +477,8 @@ function NewScopeDialog({ tree, defaultParent, onClose }: { tree: Scope[]; defau
           <textarea
             name="reason"
             className="min-h-24 w-full rounded-[var(--radius-3)] border border-[var(--border)] bg-[var(--surface)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)]"
-            placeholder="What is this scope for?"
+            aria-label="Why does this exist?"
+            placeholder="One or two sentences"
             required
           />
           <div className="flex gap-[var(--space-2)] pt-[var(--space-1)]">
@@ -492,12 +494,12 @@ function NewScopeDialog({ tree, defaultParent, onClose }: { tree: Scope[]; defau
               disabled={pending}
               className="flex-1 rounded-[var(--radius-3)] bg-[var(--primary)] py-[var(--space-2)] text-[var(--font-size-sm)] text-[var(--primaryfg)] hover:bg-[var(--primaryhover)] disabled:opacity-60"
             >
-              {pending ? "Creating..." : "Create"}
+              {pending ? "Creating…" : "Create project"}
             </button>
           </div>
         </form>
         <p className="mt-[var(--space-2)] text-[var(--font-size-xs)] text-[var(--mutedfg)]">
-          Top level creates a Project / Client; picking a parent creates a Sub-project under it.
+          Choose a parent to nest this inside it; leave empty to create a top-level project.
         </p>
       </div>
     </div>

@@ -46,7 +46,7 @@ export function AgentChatPanel({
           setCurrentConvId(list[0]!.id);
         }
       } catch (e: any) {
-        setError(e?.message || "Failed to load conversations");
+        setError(e?.message || "Couldn't load chats. Reopen Ask OS and try again.");
       }
     })();
   }, [open, scopePath, currentConvId]);
@@ -62,7 +62,7 @@ export function AgentChatPanel({
         const msgs = await getMessagesAction(currentConvId);
         setMessages((msgs || []) as any);
       } catch (e: any) {
-        setError(e?.message || "Failed to load messages");
+        setError(e?.message || "Couldn't load messages. Reopen the chat and try again.");
       }
     })();
   }, [currentConvId, open]);
@@ -98,7 +98,7 @@ export function AgentChatPanel({
           setMessages((fresh || []) as any);
         }
       } catch (e: any) {
-        setError(e?.message || "Agent request failed (gateway?)");
+        setError(e?.message || "The agent didn't respond. Check the model gateway in Admin Settings, then retry.");
       }
     });
   }
@@ -114,9 +114,10 @@ export function AgentChatPanel({
     }
     if (m.role === "tool") {
       const c = m.content as any;
+      const name = c?.name || "Tool";
       return (
         <div key={idx} className="text-[10px] text-[var(--muted-foreground)] font-mono bg-[var(--muted)]/60 px-2 py-1 rounded">
-          tool:{c?.name || ""} → {c?.error ? "err: " + c.error : "ok"}
+          {c?.error ? `${name} failed: ${c.error}` : `${name} completed`}
         </div>
       );
     }
@@ -124,7 +125,7 @@ export function AgentChatPanel({
     const text = (m.content as any)?.text || (typeof m.content === "string" ? m.content : "");
     return (
       <div key={idx} className="mr-auto max-w-[85%] rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[var(--font-size-sm)]">
-        <ReactMarkdown>{text || "(no content)"}</ReactMarkdown>
+        <ReactMarkdown>{text || "No reply, try again."}</ReactMarkdown>
       </div>
     );
   }
@@ -148,12 +149,12 @@ export function AgentChatPanel({
             ))}
           </select>
         </div>
-        <button onClick={onClose} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]">✕</button>
+        <button onClick={onClose} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]">Close</button>
       </div>
 
       {/* Conv list */}
       <div className="flex gap-1 border-b border-[var(--border)] px-2 py-1 overflow-x-auto text-[10px]">
-        {convs.length === 0 && <div className="text-[var(--muted-foreground)] px-1">No prior chats</div>}
+        {convs.length === 0 && <div className="text-[var(--muted-foreground)] px-1">No chats yet</div>}
         {convs.map((c) => (
           <button
             key={c.id}
@@ -169,13 +170,13 @@ export function AgentChatPanel({
       {/* Messages */}
       <div className="flex-1 overflow-auto space-y-3 p-3 text-[var(--font-size-sm)]">
         {messages.length === 0 && (
-          <div className="text-[var(--muted-foreground)] text-xs">Chat with the OS agent. Uses tools for live data.</div>
+          <div className="text-[var(--muted-foreground)] text-xs">Ask about this project: metrics, tasks, records. Answers use live data.</div>
         )}
         {messages.map((m, i) => renderMessage(m, i))}
-        {isPending && <div className="text-[var(--muted-foreground)] text-xs">Thinking + using tools…</div>}
+        {isPending && <div className="text-[var(--muted-foreground)] text-xs">Working…</div>}
         {toolTrace.length > 0 && (
           <details className="text-[10px] text-[var(--muted-foreground)]">
-            <summary className="cursor-pointer">Tool trace ({toolTrace.length})</summary>
+            <summary className="cursor-pointer">Request details ({toolTrace.length})</summary>
             <pre className="mt-1 overflow-x-auto whitespace-pre-wrap rounded bg-[var(--muted)] p-1 text-[9px]">
               {JSON.stringify(toolTrace, null, 2)}
             </pre>
@@ -210,7 +211,7 @@ export function AgentChatPanel({
             Send
           </button>
         </div>
-        <div className="mt-1 text-[9px] text-[var(--muted-foreground)]">model: {model} · durable writes → records/docs</div>
+        <div className="mt-1 text-[9px] text-[var(--muted-foreground)]">Answers use live data from this project.</div>
       </div>
     </div>
   );

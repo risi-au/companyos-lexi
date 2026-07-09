@@ -24,7 +24,7 @@ function daysAhead(days: number): Date {
 
 export async function listMcpConnectionsAction(input: ListMcpConnectionsInput) {
   const actor = await getCurrentActorPrincipalId();
-  if (!actor) throw new Error("Not authenticated");
+  if (!actor) throw new Error("Your session expired. Sign in again.");
 
   return api.listConnections(
     {
@@ -39,7 +39,7 @@ export async function listMcpConnectionsAction(input: ListMcpConnectionsInput) {
 
 export async function revokeScopeAccessAction(scopePath: string) {
   const actor = await getCurrentActorPrincipalId();
-  if (!actor) throw new Error("Not authenticated");
+  if (!actor) throw new Error("Your session expired. Sign in again.");
   const result = await api.revokeScopeAccess({ scopePath }, actor);
   revalidatePath("/admin/mcp");
   return result;
@@ -47,7 +47,7 @@ export async function revokeScopeAccessAction(scopePath: string) {
 
 export async function revokePrincipalAccessAction(principalId: string) {
   const actor = await getCurrentActorPrincipalId();
-  if (!actor) throw new Error("Not authenticated");
+  if (!actor) throw new Error("Your session expired. Sign in again.");
   const result = await api.revokePrincipalAccess({ principalId }, actor);
   revalidatePath("/admin/mcp");
   return result;
@@ -66,7 +66,7 @@ export interface QueryUsageActionInput {
 
 export async function queryUsageAction(input: QueryUsageActionInput) {
   const actor = await getCurrentActorPrincipalId();
-  if (!actor) throw new Error("Not authenticated");
+  if (!actor) throw new Error("Your session expired. Sign in again.");
   const scope = input.scope?.trim() || "root";
   const [usage, recommendations, profile] = await Promise.all([
     api.queryUsage(
@@ -95,7 +95,7 @@ export async function setContextProfileAction(input: {
   preset: "lean" | "standard" | "deep";
 }) {
   const actor = await getCurrentActorPrincipalId();
-  if (!actor) throw new Error("Not authenticated");
+  if (!actor) throw new Error("Your session expired. Sign in again.");
   const result = await api.setContextProfile(
     {
       scopePath: input.scope.trim() || "root",

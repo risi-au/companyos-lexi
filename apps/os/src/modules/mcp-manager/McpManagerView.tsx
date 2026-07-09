@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useConfirm } from "@companyos/ui";
+import { labelForConnectionStatus, labelForMemoryAccess, labelForRole } from "@/lib/labels";
 import { RefreshCw, ShieldAlert, UserX } from "lucide-react";
 import {
   listMcpConnectionsAction,
@@ -99,7 +100,7 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
       try {
         await refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load MCP connections");
+        setError(err instanceof Error ? err.message : "Couldn't load MCP connections. Refresh and try again.");
       }
     });
   }
@@ -109,7 +110,7 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
     const blastRows = connections.filter((row) => !row.revoked && branchMatches(row.scopePath, target));
     const blastScopes = Array.from(new Set(blastRows.map((row) => row.scopePath))).sort();
     const text = `Revoke ${blastRows.length} active tokens across ${target}${blastScopes.length ? ` (${scopeSummary(blastScopes)})` : ""}?`;
-    if (!(await requestConfirm({ title: "Revoke subtree access?", body: text, confirmLabel: "Revoke" }))) return;
+    if (!(await requestConfirm({ title: "Revoke project tokens", body: text, confirmLabel: "Revoke tokens" }))) return;
 
     startTransition(async () => {
       try {
@@ -118,7 +119,7 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
         setMessage(`Revoked ${result.revokedCount} tokens across ${scopeSummary(result.scopePaths)}.`);
         await refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to revoke subtree access");
+        setError(err instanceof Error ? err.message : "Couldn't revoke project tokens. Refresh and try again.");
       }
     });
   }
@@ -129,9 +130,9 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
     const personName = connections.find((row) => row.principalId === selectedPrincipalId)?.principalName || selectedPrincipalId;
     const scopes = Array.from(new Set(personRows.map((row) => row.scopePath))).sort();
     if (!(await requestConfirm({
-      title: `Offboard ${personName}?`,
-      body: `Offboard ${personName} by revoking ${personRows.length} active tokens across ${scopeSummary(scopes)}?`,
-      confirmLabel: "Offboard",
+      title: "Offboard person or agent",
+      body: `${personName} loses ${personRows.length} active connection tokens across ${scopeSummary(scopes)}.`,
+      confirmLabel: "Offboard access",
     }))) {
       return;
     }
@@ -143,7 +144,7 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
         setMessage(`Revoked ${result.revokedCount} tokens for ${personName}.`);
         await refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to offboard principal");
+        setError(err instanceof Error ? err.message : "Couldn't offboard access. Refresh and try again.");
       }
     });
   }
@@ -153,23 +154,23 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
       <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
         <div className="mb-[var(--space-3)] flex flex-wrap items-end gap-[var(--space-3)]">
           <div className="min-w-64 flex-1">
-            <label className="block text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Scope subtree</label>
+            <label className="block text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Project subtree</label>
             <input
               value={scopePath}
               onChange={(event) => setScopePath(event.target.value)}
               className="h-10 w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--background)] px-[var(--space-2)] text-[var(--font-size-sm)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
-              placeholder="root or project/sub-scope"
+              placeholder="root or project/sub-project"
             />
           </div>
 
           <div>
-            <label className="block text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Principal</label>
+            <label className="block text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Person or agent</label>
             <select
               value={principalId}
               onChange={(event) => setPrincipalId(event.target.value)}
               className="h-10 min-w-56 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--background)] px-[var(--space-2)] text-[var(--font-size-sm)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
             >
-              <option value="">All principals</option>
+              <option value="">All people and agents</option>
               {principalOptions.map((principal) => (
                 <option key={principal.id} value={principal.id}>
                   {principal.name}
@@ -229,7 +230,7 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
 
         <div className="flex flex-wrap items-center justify-between gap-[var(--space-3)]">
           <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
-            {isPending ? "Working..." : `${visibleConnections.length} connections visible`}
+            {isPending ? "Working…" : `${visibleConnections.length} connections visible`}
           </div>
           <button
             type="button"
@@ -238,7 +239,7 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
             className="inline-flex h-9 items-center gap-[var(--space-2)] rounded-[var(--radius-sm)] border border-[var(--destructive)] px-[var(--space-3)] text-[var(--font-size-sm)] text-[var(--destructive)] hover:bg-[var(--muted)] disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
           >
             <ShieldAlert size={15} />
-            Revoke subtree
+            Revoke project tokens
           </button>
         </div>
       </div>
@@ -259,11 +260,11 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
           <thead className="border-b border-[var(--border)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
             <tr>
               <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Connection</th>
-              <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Scope</th>
-              <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Principal</th>
-              <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Minted by</th>
+              <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Project path</th>
+              <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Person or agent</th>
+              <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Created by</th>
               <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Role</th>
-              <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Memory</th>
+              <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Memory access</th>
               <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Expiry</th>
               <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Last used</th>
               <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Status</th>
@@ -291,14 +292,14 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
                   <td className="px-[var(--space-3)] py-[var(--space-2)]">{row.principalName}</td>
                   <td className="px-[var(--space-3)] py-[var(--space-2)]">{row.mintedByName}</td>
                   <td className="px-[var(--space-3)] py-[var(--space-2)] font-mono text-[var(--font-size-xs)]">
-                    {row.role}
+                    {labelForRole(row.role)}
                   </td>
                   <td className="px-[var(--space-3)] py-[var(--space-2)] font-mono text-[var(--font-size-xs)]">
-                    {row.memoryAccess}
+                    {labelForMemoryAccess(row.memoryAccess)}
                   </td>
                   <td className="px-[var(--space-3)] py-[var(--space-2)] tabular-nums">{formatDate(row.expiresAt)}</td>
                   <td className="px-[var(--space-3)] py-[var(--space-2)] tabular-nums">{formatDate(row.lastUsedAt)}</td>
-                  <td className="px-[var(--space-3)] py-[var(--space-2)]">{row.revoked ? "revoked" : "active"}</td>
+                  <td className="px-[var(--space-3)] py-[var(--space-2)]">{labelForConnectionStatus(row.revoked)}</td>
                 </tr>
               ))
             )}
@@ -311,10 +312,9 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
           <div>
             <div className="text-[var(--font-size-sm)] font-medium">Per-person access</div>
             <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
-              Grants are read-only here. Edit team access belongs to Tenant Admin.
+              Access is read-only here, manage it in Admin Access.
             </div>
           </div>
-          <span className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Edit team access</span>
         </div>
 
         <div className="mb-[var(--space-3)] flex flex-wrap items-end gap-[var(--space-3)]">
@@ -325,7 +325,7 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
               onChange={(event) => setSelectedPrincipalId(event.target.value)}
               className="h-10 min-w-72 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--background)] px-[var(--space-2)] text-[var(--font-size-sm)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
             >
-              <option value="">Select principal</option>
+              <option value="">Select person or agent</option>
               {principalOptions.map((principal) => (
                 <option key={principal.id} value={principal.id}>
                   {principal.name}
@@ -346,13 +346,13 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
         </div>
 
         {selectedPrincipalRows.length === 0 ? (
-          <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No connection grants for this principal.</div>
+          <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No connection access for this person or agent.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[720px] text-left text-[var(--font-size-sm)]">
               <thead className="border-b border-[var(--border)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
                 <tr>
-                  <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Scope</th>
+                  <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Project path</th>
                   <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Role</th>
                   <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Token</th>
                   <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Status</th>
@@ -365,10 +365,10 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
                       {row.scopePath}
                     </td>
                     <td className="px-[var(--space-3)] py-[var(--space-2)] font-mono text-[var(--font-size-xs)]">
-                      {row.role}
+                      {labelForRole(row.role)}
                     </td>
                     <td className="px-[var(--space-3)] py-[var(--space-2)]">{row.name}</td>
-                    <td className="px-[var(--space-3)] py-[var(--space-2)]">{row.revoked ? "revoked" : "active"}</td>
+                    <td className="px-[var(--space-3)] py-[var(--space-2)]">{labelForConnectionStatus(row.revoked)}</td>
                   </tr>
                 ))}
               </tbody>
