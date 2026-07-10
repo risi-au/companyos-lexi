@@ -1,6 +1,6 @@
 # UX-01: Foundations — v2 design system tokens, GSAP motion plumbing, 4-theme switcher, shell restyle
 
-status: todo (rewritten 2026-07-09 — supersedes the prior draft entirely, see below)
+status: done (PR #17 merged 2026-07-09; brief rewritten 2026-07-09 against DESIGN-SYSTEM-V2.md)
 module: ui + apps/os (app shell level only)
 branch: task/UX-01
 

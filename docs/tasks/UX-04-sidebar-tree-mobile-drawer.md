@@ -1,6 +1,6 @@
 # UX-04: Sidebar tree navigation rewrite + mobile drawer
 
-status: todo (written 2026-07-09, against DESIGN-SYSTEM-V2.md §4.2/§5 sidebar/§6 mobile)
+status: done (PR #19 merged 2026-07-09; written against DESIGN-SYSTEM-V2.md §4.2/§5 sidebar/§6 mobile)
 module: apps/os (app shell + sidebar) + packages/ui (a small collapsible/tree helper if warranted)
 branch: task/UX-04 (off main after UX-02 merged @ 3ab937a)
 

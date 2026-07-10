@@ -1,6 +1,6 @@
 # UX-03: Strings — copy audit + code-level renames (the last UX package)
 
-status: implemented
+status: done (PR #25 merged 2026-07-10)
 module: apps/os (strings only) + packages/ui (component default strings only)
 branch: task/UX-03 (off main @ 82fd40c)
 

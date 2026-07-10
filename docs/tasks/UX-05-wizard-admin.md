@@ -1,6 +1,6 @@
 # UX-05: Wizard 6-step rail + completion animation + admin tabs/tables/empty-states
 
-status: todo (written 2026-07-09, against DESIGN-SYSTEM-V2.md §4.2/§4.3/§5)
+status: done (PR #20 merged 2026-07-09; written against DESIGN-SYSTEM-V2.md §4.2/§4.3/§5)
 module: packages/ui (new shared primitives) + apps/os (intake wizard, scope tab bar, admin)
 branch: task/UX-05 (off main after UX-02 merged @ 3ab937a)
 

@@ -1,6 +1,6 @@
 # UX-02: Feedback layer — toast + confirm dialog primitives, wired to replace native alert()/confirm()
 
-status: todo (written 2026-07-09, against DESIGN-SYSTEM-V2.md §4.2/§4.3/§5/§8)
+status: done (PR #18 merged 2026-07-09; written against DESIGN-SYSTEM-V2.md §4.2/§4.3/§5/§8)
 module: packages/ui + apps/os (call-site wiring only)
 branch: task/UX-02 (off main @ 1be8b77, after UX-01 merged)
 
