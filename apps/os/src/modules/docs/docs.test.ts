@@ -6,6 +6,7 @@ import {
   buildMetadataChips,
   markdownForSave,
   parseFrontmatter,
+  reattachFrontmatter,
   splitTrailingSources,
 } from "./DocEditor";
 
@@ -128,8 +129,51 @@ Body.
   it("keeps no-op edit saves byte-identical", () => {
     const initial = "---\nconfidence: high\n---\n# Doc\n\nBody.";
     const serialized = "# Doc\n\nBody.";
+    const { raw } = parseFrontmatter(initial);
 
-    expect(markdownForSave(initial, serialized, false)).toBe(initial);
-    expect(markdownForSave(initial, serialized, true)).toBe(serialized);
+    expect(markdownForSave(initial, serialized, false, raw)).toBe(initial);
+    expect(markdownForSave(initial, serialized, true, raw)).toBe(initial);
+  });
+});
+
+describe("docs frontmatter-safe editing", () => {
+  it("reattaches preserved raw frontmatter to an edited body", () => {
+    const initial = `---
+learned_at: 2026-07-01
+confidence: high
+---
+# Intake Process
+
+Body text.`;
+    const { raw, body } = parseFrontmatter(initial);
+    const editedBody = "# Intake Process\n\nUpdated body.";
+
+    expect(reattachFrontmatter(raw, editedBody)).toBe(`---
+learned_at: 2026-07-01
+confidence: high
+---
+# Intake Process
+
+Updated body.`);
+    expect(markdownForSave(initial, body, false, raw)).toBe(initial);
+    expect(markdownForSave(initial, editedBody, true, raw)).toBe(reattachFrontmatter(raw, editedBody));
+  });
+
+  it("leaves docs without frontmatter unchanged on save", () => {
+    const initial = "# Plain Doc\n\nNo frontmatter here.";
+    const { raw } = parseFrontmatter(initial);
+
+    expect(raw).toBeNull();
+    expect(markdownForSave(initial, initial, false, raw)).toBe(initial);
+    expect(markdownForSave(initial, "# Plain Doc\n\nEdited.", true, raw)).toBe("# Plain Doc\n\nEdited.");
+    expect(reattachFrontmatter(raw, "# Plain Doc\n\nEdited.")).toBe("# Plain Doc\n\nEdited.");
+  });
+
+  it("round-trips frontmatter through split and reattach without mutation", () => {
+    const initial = "---\nverified_at: 2026-07-07\n---\n# Doc\n\nBody.";
+    const { raw, body } = parseFrontmatter(initial);
+
+    expect(markdownForSave(initial, body, false, raw)).toBe(initial);
+    expect(reattachFrontmatter(raw, body)).toBe(initial);
   });
 });

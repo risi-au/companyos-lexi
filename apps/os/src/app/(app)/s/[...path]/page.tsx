@@ -1,4 +1,6 @@
 import { notFound, redirect } from "next/navigation";
+import Link from "next/link";
+import { ChevronRight } from "lucide-react";
 import { api, getCurrentActorPrincipalId } from "@/lib/api";
 import { labelForRole, labelForScopeStatus } from "@/lib/labels";
 import { DashboardRenderer, DashboardEmptyState, RangePicker } from "@/modules/dashboards";
@@ -10,9 +12,10 @@ import { WorkLogView } from "@/modules/worklog";
 import { SessionsView } from "@/modules/sessions";
 import { IntakePanel } from "@/modules/intake";
 import { getDashboard } from "@companyos/api";
-import { Tabs } from "@companyos/ui";
 import { AskOSButton } from "@/modules/agent";
 import { addMemberToScope, changeMemberRole, revokeMember } from "../../_components/actions";
+import { ScopeTabPanel } from "../../_components/ScopeTabPanel";
+import { ScopeTabs } from "../../_components/ScopeTabs";
 // Consume spec contract (never fork schema); derive type from service surface for compile
 type DashboardSpec = NonNullable<Awaited<ReturnType<typeof getDashboard>>>["spec"] & {
   version: 1;
@@ -46,6 +49,17 @@ function requiredCredentialsFromIntakes(intakes: Array<{ answers: unknown; artif
   return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
+function scopePathPrefixes(path: string): string[] {
+  if (path === "root") return [];
+  const prefixes: string[] = [];
+  let acc = "";
+  for (const segment of path.split("/").filter(Boolean)) {
+    acc = acc ? `${acc}/${segment}` : segment;
+    prefixes.push(acc);
+  }
+  return prefixes;
+}
+
 interface ScopePageProps {
   params: Promise<{ path: string[] }>;
   searchParams: Promise<{ tab?: string; range?: string; doc?: string; canvas?: string; wizard?: string }>;
@@ -66,9 +80,10 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
     return null;
   }
 
+  const rootAccess = await api.resolveAccess(actor, "root");
+
   // For root: if no root grant, redirect to first visible project (grant-filtered nav)
   if (scopePath === "root") {
-    const rootAccess = await api.resolveAccess(actor, "root");
     if (!rootAccess) {
       const visible = await api.getVisibleTree(actor);
       const first = visible.find((s: { type: string; path: string }) => s.type === "project");
@@ -89,6 +104,48 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
   if (!access) {
     notFound();
   }
+
+  const instanceName = process.env.INSTANCE_NAME || "CompanyOS";
+  const ancestorPrefixes = scopePathPrefixes(scopePath);
+  const ancestorCrumbs = await Promise.all(
+    ancestorPrefixes.map(async (prefix) => {
+      const [ancestor, ancestorAccess] = await Promise.all([
+        api.getScope(prefix),
+        api.resolveAccess(actor, prefix),
+      ]);
+      const fallbackLabel = prefix.split("/").pop() || prefix;
+      return {
+        path: prefix,
+        label: ancestorAccess && ancestor ? ancestor.name : fallbackLabel,
+        visible: !!ancestorAccess,
+      };
+    }),
+  );
+  const lastAncestorIndex = ancestorCrumbs.length - 1;
+  const lastAncestor = ancestorCrumbs[lastAncestorIndex];
+  if (lastAncestor) {
+    ancestorCrumbs[lastAncestorIndex] = {
+      ...lastAncestor,
+      label: scope.name,
+      visible: true,
+    };
+  }
+  const breadcrumbs = [
+    ...(rootAccess
+      ? [{
+        key: "root",
+        label: instanceName,
+        href: scopePath === "root" ? null : "/s/root",
+        current: scopePath === "root",
+      }]
+      : []),
+    ...ancestorCrumbs.map((crumb, index) => ({
+      key: crumb.path,
+      label: crumb.label,
+      href: index < ancestorCrumbs.length - 1 && crumb.visible ? `/s/${crumb.path}` : null,
+      current: index === ancestorCrumbs.length - 1,
+    })),
+  ];
 
   // Fetch dashboard early to decide default tab
   const dash = await api.getDashboard({ scopePath }, actor);
@@ -169,14 +226,29 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
             </span>
             <span className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">{labelForScopeStatus(scope.status)}</span>
           </div>
-          <div className="mt-[var(--space-1)] flex items-center gap-[var(--space-1)] text-[var(--font-size-sm)] text-[var(--muted-foreground)] font-mono">
-            {scope.path.split("/").map((seg: string, i: number, arr: string[]) => (
-              <span key={i}>
-                {seg}
-                {i < arr.length - 1 ? <span className="mx-[var(--space-1)] text-[var(--border)]">/</span> : null}
-              </span>
-            ))}
-          </div>
+          {breadcrumbs.length > 0 && (
+            <nav aria-label="Breadcrumb" className="mt-[var(--space-1)] text-[var(--font-size-sm)]">
+              <ol className="flex flex-wrap items-center gap-[var(--space-1)] text-[var(--mutedfg)]">
+                {breadcrumbs.map((crumb, index) => (
+                  <li key={crumb.key} className="inline-flex min-w-0 items-center gap-[var(--space-1)]">
+                    {index > 0 && <ChevronRight aria-hidden="true" size={12} className="shrink-0 text-[var(--faded)]" />}
+                    {crumb.href && !crumb.current ? (
+                      <Link
+                        href={crumb.href}
+                        className="truncate hover:text-[var(--fg)] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]"
+                      >
+                        {crumb.label}
+                      </Link>
+                    ) : (
+                      <span aria-current={crumb.current ? "page" : undefined} className="truncate text-[var(--fg)]">
+                        {crumb.label}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </nav>
+          )}
         </div>
         <div className="flex items-center gap-[var(--space-2)]">
           <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Role: {labelForRole(access)}</div>
@@ -185,7 +257,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
       </div>
 
       {/* Tabs: Dashboard first when present */}
-      <Tabs
+      <ScopeTabs
         ariaLabel="Scope sections"
         activeId={currentTab}
         items={[
@@ -203,6 +275,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
         ]}
       />
 
+      <ScopeTabPanel key={currentTab} tabId={currentTab}>
       {/* Dashboard tab */}
       {isDashboard && (
         <div className="space-y-[var(--space-4)]">
@@ -442,6 +515,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
           </div>
         </div>
       )}
+      </ScopeTabPanel>
     </div>
   );
 }

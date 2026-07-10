@@ -23,6 +23,7 @@ type SaveState = "saved" | "saving" | "error";
 export interface ParsedFrontmatter {
   body: string;
   metadata: Record<string, string>;
+  raw: string | null;
 }
 
 export interface SplitSourcesResult {
@@ -37,7 +38,7 @@ export function parseFrontmatter(markdown: string): ParsedFrontmatter {
   const normalized = markdown.replace(/^\uFEFF/, "");
   const match = normalized.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
   if (!match) {
-    return { body: markdown, metadata: {} };
+    return { body: markdown, metadata: {}, raw: null };
   }
 
   const metadata: Record<string, string> = {};
@@ -48,7 +49,12 @@ export function parseFrontmatter(markdown: string): ParsedFrontmatter {
     if (value) metadata[pair[1]!] = value;
   }
 
-  return { body: normalized.slice(match[0].length), metadata };
+  return { body: normalized.slice(match[0].length), metadata, raw: match[0] };
+}
+
+export function reattachFrontmatter(frontmatterRaw: string | null, body: string): string {
+  if (!frontmatterRaw) return body;
+  return frontmatterRaw + body;
 }
 
 export function splitTrailingSources(markdown: string): SplitSourcesResult {
@@ -82,8 +88,14 @@ export function buildMetadataChips(metadata: Record<string, string>): string[] {
   return chips;
 }
 
-export function markdownForSave(initialMarkdown: string, serializedMarkdown: string, isDirty: boolean): string {
-  return isDirty ? serializedMarkdown : initialMarkdown;
+export function markdownForSave(
+  initialMarkdown: string,
+  serializedBody: string,
+  isDirty: boolean,
+  frontmatterRaw: string | null = null,
+): string {
+  if (!isDirty) return initialMarkdown;
+  return reattachFrontmatter(frontmatterRaw, serializedBody);
 }
 
 function formatDateChip(value: string): string {
@@ -125,6 +137,7 @@ export function DocEditor({
   const dirtyRef = useRef(false);
   const hydratingRef = useRef(false);
   const initialMarkdownRef = useRef(initialMarkdown);
+  const frontmatterRawRef = useRef<string | null>(null);
 
   // Kept in a ref so a parent re-render (which recreates inline callbacks)
   // never changes updateSaveState's identity — the reset/hydration effects
@@ -142,6 +155,7 @@ export function DocEditor({
 
   useEffect(() => {
     initialMarkdownRef.current = initialMarkdown;
+    frontmatterRawRef.current = parseFrontmatter(initialMarkdown).raw;
   }, [initialMarkdown]);
 
   // Reset edit mode only when switching documents — autosave feeds the saved
@@ -160,7 +174,8 @@ export function DocEditor({
     async function load() {
       hydratingRef.current = true;
       try {
-        const blocks = await editor.tryParseMarkdownToBlocks(initialMarkdownRef.current || "");
+        const { body } = parseFrontmatter(initialMarkdownRef.current || "");
+        const blocks = await editor.tryParseMarkdownToBlocks(body);
         if (!cancelled) {
           editor.replaceBlocks(editor.document, blocks);
           dirtyRef.current = false;
@@ -191,7 +206,12 @@ export function DocEditor({
     try {
       updateSaveState("saving");
       const serialized = await editor.blocksToMarkdownLossy(editor.document);
-      const md = markdownForSave(initialMarkdownRef.current, serialized, dirtyRef.current);
+      const md = markdownForSave(
+        initialMarkdownRef.current,
+        serialized,
+        dirtyRef.current,
+        frontmatterRawRef.current,
+      );
       await onSave(md);
       initialMarkdownRef.current = md;
       dirtyRef.current = false;
@@ -310,7 +330,7 @@ export function DocEditor({
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="docs-read-body flex-1 overflow-auto px-[var(--space-4)] py-[var(--space-3)] text-[var(--font-size-base)] leading-6">
+          <div className="docs-read-body mx-auto w-full max-w-[75ch] flex-1 overflow-auto px-[var(--space-3)] py-[var(--space-3)] text-[var(--font-size-base)] leading-6">
             {readPresentation.body.trim() ? (
               <ReactMarkdown>{readPresentation.body}</ReactMarkdown>
             ) : (

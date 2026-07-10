@@ -452,7 +452,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
         )}
       </aside>
 
-      <main className="order-2 flex min-h-[420px] flex-col min-[820px]:order-1 min-[820px]:min-h-[520px]">
+      <main className="order-2 flex min-h-[420px] w-full min-w-0 flex-col min-[820px]:order-1 min-[820px]:min-h-[520px]">
         {noDocSelected ? (
           <div className="flex h-full items-center justify-center rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
             {hasDocs ? "Select a document from the list." : "Create the first doc to start editing."}

@@ -3,6 +3,14 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Activity, BrainCircuit, Menu, Shield } from "lucide-react";
+import {
+  SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+  SIDEBAR_WIDTH_STORAGE_KEY,
+  clampSidebarWidth,
+  parseStoredSidebarWidth,
+} from "./sidebar-state";
 
 const focusableSelector = [
   "a[href]",
@@ -48,10 +56,29 @@ interface AppShellChromeProps {
 export function AppShellChrome({ instanceName, sidebar, userMenu, alertCount = 0, children }: AppShellChromeProps) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
+  const [isResizing, setIsResizing] = useState(false);
+  const [isMobileViewport, setIsMobileViewport] = useState<boolean | null>(null);
   const asideRef = useRef<HTMLElement | null>(null);
+  const sidebarWidthRef = useRef(SIDEBAR_DEFAULT_WIDTH);
+  const resizeStartRef = useRef<{ x: number; width: number } | null>(null);
   const section = getHeaderSection(pathname, instanceName);
 
   const close = useCallback(() => setOpen(false), []);
+  const setClampedSidebarWidth = useCallback((value: number) => {
+    const clamped = clampSidebarWidth(value);
+    sidebarWidthRef.current = clamped;
+    setSidebarWidth(clamped);
+    return clamped;
+  }, []);
+
+  const persistSidebarWidth = useCallback((value: number) => {
+    try {
+      window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(clampSidebarWidth(value)));
+    } catch {
+      /* ignore storage errors */
+    }
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -74,6 +101,52 @@ export function AppShellChrome({ instanceName, sidebar, userMenu, alertCount = 0
     };
   }, [open, close]);
 
+  useEffect(() => {
+    const media = window.matchMedia(MOBILE_QUERY);
+    const syncViewport = () => setIsMobileViewport(media.matches);
+    syncViewport();
+    media.addEventListener("change", syncViewport);
+    return () => media.removeEventListener("change", syncViewport);
+  }, []);
+
+  useEffect(() => {
+    try {
+      setClampedSidebarWidth(parseStoredSidebarWidth(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY)));
+    } catch {
+      setClampedSidebarWidth(SIDEBAR_DEFAULT_WIDTH);
+    }
+  }, [setClampedSidebarWidth]);
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const onPointerMove = (event: PointerEvent) => {
+      const start = resizeStartRef.current;
+      if (!start) return;
+      setClampedSidebarWidth(start.width + event.clientX - start.x);
+    };
+
+    const onPointerUp = () => {
+      persistSidebarWidth(sidebarWidthRef.current);
+      setIsResizing(false);
+      resizeStartRef.current = null;
+    };
+
+    document.addEventListener("pointermove", onPointerMove);
+    document.addEventListener("pointerup", onPointerUp);
+    return () => {
+      document.removeEventListener("pointermove", onPointerMove);
+      document.removeEventListener("pointerup", onPointerUp);
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+    };
+  }, [isResizing, persistSidebarWidth, setClampedSidebarWidth]);
+
   function handleAsideClick(event: React.MouseEvent<HTMLElement>) {
     if (!open) return;
     const target = event.target as HTMLElement;
@@ -82,9 +155,36 @@ export function AppShellChrome({ instanceName, sidebar, userMenu, alertCount = 0
     }
   }
 
+  function startSidebarResize(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    event.preventDefault();
+    resizeStartRef.current = { x: event.clientX, width: sidebarWidthRef.current };
+    setIsResizing(true);
+  }
+
+  function resetSidebarWidth() {
+    setClampedSidebarWidth(SIDEBAR_DEFAULT_WIDTH);
+    persistSidebarWidth(SIDEBAR_DEFAULT_WIDTH);
+  }
+
+  function handleResizeKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      const delta = event.key === "ArrowLeft" ? -12 : 12;
+      persistSidebarWidth(setClampedSidebarWidth(sidebarWidthRef.current + delta));
+    }
+    if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      persistSidebarWidth(setClampedSidebarWidth(event.key === "Home" ? SIDEBAR_MIN_WIDTH : SIDEBAR_MAX_WIDTH));
+    }
+  }
+
   return (
     <SidebarDrawerContext.Provider value={{ closeDrawer: close }}>
-      <div className="grid h-[100vh] grid-cols-[264px_minmax(0,1fr)] overflow-hidden bg-[var(--bg)] text-[var(--fg)] max-[820px]:grid-cols-1">
+      <div
+        className="grid h-[100vh] grid-cols-[264px_minmax(0,1fr)] overflow-hidden bg-[var(--bg)] text-[var(--fg)] max-[820px]:grid-cols-1"
+        style={isMobileViewport === false ? { gridTemplateColumns: `${sidebarWidth}px minmax(0, 1fr)` } : undefined}
+      >
         {open && (
           <div
             aria-hidden="true"
@@ -97,13 +197,33 @@ export function AppShellChrome({ instanceName, sidebar, userMenu, alertCount = 0
           ref={asideRef}
           onClick={handleAsideClick}
           id="app-sidebar"
-          className={`flex min-h-0 w-[264px] flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--sidebar)] max-[820px]:fixed max-[820px]:inset-y-0 max-[820px]:left-0 max-[820px]:z-[80] max-[820px]:h-[100vh] max-[820px]:shadow-[var(--shadow)] max-[820px]:transition-transform max-[820px]:duration-[280ms] max-[820px]:ease-out motion-reduce:max-[820px]:transition-none ${
+          style={isMobileViewport === false ? { width: `${sidebarWidth}px` } : undefined}
+          className={`relative flex min-h-0 w-[264px] flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--sidebar)] max-[820px]:fixed max-[820px]:inset-y-0 max-[820px]:left-0 max-[820px]:z-[80] max-[820px]:h-[100vh] max-[820px]:w-[264px] max-[820px]:shadow-[var(--shadow)] max-[820px]:transition-transform max-[820px]:duration-[280ms] max-[820px]:ease-out motion-reduce:max-[820px]:transition-none ${
             open ? "max-[820px]:translate-x-0" : "max-[820px]:-translate-x-full"
           }`}
         >
           {sidebar}
 
           <div className="mt-auto p-[12px]">{userMenu}</div>
+          {/* UX-08 overrides the older fixed 264px desktop handoff geometry; the mobile drawer stays fixed. */}
+          <div
+            role="separator"
+            aria-label="Resize navigation"
+            aria-orientation="vertical"
+            aria-valuemin={SIDEBAR_MIN_WIDTH}
+            aria-valuemax={SIDEBAR_MAX_WIDTH}
+            aria-valuenow={sidebarWidth}
+            tabIndex={0}
+            onPointerDown={startSidebarResize}
+            onDoubleClick={resetSidebarWidth}
+            onKeyDown={handleResizeKeyDown}
+            className={`group absolute right-0 top-0 h-full w-[8px] cursor-col-resize outline-none max-[820px]:hidden ${
+              isResizing ? "bg-[var(--hover)]" : "bg-transparent hover:bg-[var(--hover)]"
+            } focus-visible:bg-[var(--hover)]`}
+            title="Drag to resize navigation; double-click to reset"
+          >
+            <span className="mx-auto block h-full w-[2px] bg-transparent group-hover:bg-[var(--borderstrong)] group-focus-visible:bg-[var(--borderstrong)]" />
+          </div>
         </aside>
 
         <div className="flex h-[100vh] min-w-0 flex-col overflow-hidden">
@@ -140,7 +260,7 @@ export function AppShellChrome({ instanceName, sidebar, userMenu, alertCount = 0
           </header>
 
           <main className="min-h-0 flex-1 overflow-auto">
-            <div className="flex max-w-[1240px] flex-col gap-[20px] p-[22px]">{children}</div>
+            <div className="flex min-w-0 flex-col gap-[20px] p-[22px]">{children}</div>
           </main>
         </div>
       </div>

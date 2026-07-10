@@ -1,6 +1,10 @@
 @import "./tokens.css";
 @import "tailwindcss";
 
+/* Always scan this package's own components — consuming apps build with cwd inside
+   the app, so Tailwind's automatic source detection never reaches packages/ui. */
+@source "./";
+
 @theme inline {
   --color-background: var(--bg);
   --color-surface: var(--surface);
@@ -43,6 +47,35 @@ body {
   font-family: var(--font-sans);
   font-size: 1rem;
   line-height: 1.5;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--borderstrong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--borderstrong);
+  background-clip: content-box;
+  border: 2px solid transparent;
+  border-radius: var(--radius-lg);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--mutedfg);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* BlockNote portals can render outside the editor root, so expose the menu

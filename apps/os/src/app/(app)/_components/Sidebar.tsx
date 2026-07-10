@@ -12,12 +12,15 @@ import {
   CircleDot,
   ExternalLink,
   FileText,
+  Folder,
+  FolderOpen,
   Gauge,
   Grid2X2,
   Home,
   KeyRound,
   LayoutDashboard,
   Link2,
+  Minus,
   MonitorPlay,
   NotebookTabs,
   Palette,
@@ -31,6 +34,14 @@ import {
 import type { Scope } from "@companyos/db";
 import { useSidebarDrawer } from "./AppShellChrome";
 import { setSelectedProject, createNewScope } from "./actions";
+import {
+  SIDEBAR_MODULES_STORAGE_KEY,
+  accordionBranchForPath,
+  parseStoredModuleShortcut,
+  serializeStoredModuleShortcut,
+  toggleAccordionPath,
+  toggleModuleShortcutPath,
+} from "./sidebar-state";
 
 interface SidebarProps {
   tree: Scope[];
@@ -53,8 +64,6 @@ const MODULES: Array<{ tab: string; label: string }> = [
   { tab: "credentials", label: "Credentials" },
   { tab: "intake", label: "Setup" },
 ];
-
-const INDENT_STEP = 16; // px per depth level (design-system-v2 Â§5)
 
 const MODULE_ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
   dashboard: LayoutDashboard,
@@ -116,24 +125,16 @@ function filterForest(nodes: TreeNodeData[], query: string): TreeNodeData[] {
   });
 }
 
-/** Every path segment prefix of `path`, e.g. "a/b/c" â†’ {a, a/b, a/b/c}. */
-function ancestorsOf(path: string): Set<string> {
-  const set = new Set<string>();
-  if (!path) return set;
-  let acc = "";
-  for (const part of path.split("/")) {
-    acc = acc ? `${acc}/${part}` : part;
-    set.add(acc);
-  }
-  return set;
-}
-
 interface NodeContext {
   activeScope: string;
   selected: string | null;
   currentTab: string;
   taskManagerUrl: string | null;
-  expandedInit: Set<string>;
+  expandedPaths: ReadonlySet<string>;
+  openBranch: (path: string) => void;
+  toggleBranch: (path: string) => void;
+  moduleShortcutPath: string | null;
+  toggleModuleShortcuts: (path: string) => void;
   instanceName: string;
   searchQuery: string;
 }
@@ -141,12 +142,13 @@ interface NodeContext {
 export function Sidebar({ tree, selected = null, taskManagerUrl = null, instanceName = "CompanyOS", rootRole = null }: SidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const currentPath = pathname?.startsWith("/s/") ? (pathname.replace("/s/", "").split("?")[0] ?? "") : "";
+  const currentTab = searchParams?.get("tab") || "";
   const [showNew, setShowNew] = useState(false);
   const [query, setQuery] = useState("");
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => accordionBranchForPath(currentPath));
+  const [moduleShortcutPath, setModuleShortcutPath] = useState<string | null>(null);
   const { closeDrawer } = useSidebarDrawer();
-
-  const currentPath = pathname?.startsWith("/s/") ? pathname.replace("/s/", "").split("?")[0] : "";
-  const currentTab = searchParams?.get("tab") || "";
 
   const showSystem = rootRole === "owner" || rootRole === "admin";
 
@@ -155,14 +157,43 @@ export function Sidebar({ tree, selected = null, taskManagerUrl = null, instance
 
   const forest = useMemo(() => buildForest(tree), [tree]);
   const visibleForest = useMemo(() => filterForest(forest, query), [forest, query]);
-  const expandedInit = useMemo(() => ancestorsOf(activeScope), [activeScope]);
+
+  useEffect(() => {
+    if (currentPath) setExpandedPaths(accordionBranchForPath(currentPath));
+  }, [currentPath]);
+
+  useEffect(() => {
+    try {
+      setModuleShortcutPath(parseStoredModuleShortcut(window.localStorage.getItem(SIDEBAR_MODULES_STORAGE_KEY), activeScope));
+    } catch {
+      setModuleShortcutPath(null);
+    }
+  }, [activeScope]);
+
+  const openBranch = (path: string) => setExpandedPaths(accordionBranchForPath(path));
+  const toggleBranch = (path: string) => setExpandedPaths((current) => toggleAccordionPath(current, path));
+  const toggleModuleShortcuts = (path: string) => {
+    setModuleShortcutPath((current) => {
+      const next = toggleModuleShortcutPath(current, path);
+      try {
+        window.localStorage.setItem(SIDEBAR_MODULES_STORAGE_KEY, serializeStoredModuleShortcut(next));
+      } catch {
+        /* ignore storage errors */
+      }
+      return next;
+    });
+  };
 
   const ctx: NodeContext = {
     activeScope,
     selected,
     currentTab,
     taskManagerUrl,
-    expandedInit,
+    expandedPaths,
+    openBranch,
+    toggleBranch,
+    moduleShortcutPath,
+    toggleModuleShortcuts,
     instanceName,
     searchQuery: query,
   };
@@ -302,7 +333,9 @@ function TreeNode({ node, level, ctx }: { node: TreeNodeData; level: number; ctx
   const isRoot = scope.type === "root" || scope.path === "root";
   const label = isRoot ? ctx.instanceName : scope.name;
 
-  const [open, setOpen] = useState(() => ctx.expandedInit.has(scope.path));
+  const open = ctx.expandedPaths.has(scope.path);
+  const showingChildren = hasChildren && (open || Boolean(ctx.searchQuery.trim()));
+  const moduleShortcutsOpen = ctx.moduleShortcutPath === scope.path;
   const chevronRef = useRef<HTMLSpanElement | null>(null);
   const childrenRef = useRef<HTMLDivElement | null>(null);
   const firstRun = useRef(true);
@@ -311,17 +344,17 @@ function TreeNode({ node, level, ctx }: { node: TreeNodeData; level: number; ctx
     const chevron = chevronRef.current;
     if (firstRun.current) {
       firstRun.current = false;
-      if (chevron) chevron.style.transform = `rotate(${open ? 90 : 0}deg)`;
+      if (chevron) chevron.style.transform = `rotate(${showingChildren ? 90 : 0}deg)`;
       return;
     }
     if (rm()) {
-      if (chevron) chevron.style.transform = `rotate(${open ? 90 : 0}deg)`;
+      if (chevron) chevron.style.transform = `rotate(${showingChildren ? 90 : 0}deg)`;
       return;
     }
     void anim((gsap) => {
-      if (chevron) gsap.to(chevron, { rotate: open ? 90 : 0, duration: df(0.18), ease: "power2.out" });
+      if (chevron) gsap.to(chevron, { rotate: showingChildren ? 90 : 0, duration: df(0.18), ease: "power2.out" });
       const kids = childrenRef.current;
-      if (open && kids && kids.children.length > 0) {
+      if (showingChildren && kids && kids.children.length > 0) {
         gsap.from(Array.from(kids.children), {
           opacity: 0,
           y: -4,
@@ -332,21 +365,13 @@ function TreeNode({ node, level, ctx }: { node: TreeNodeData; level: number; ctx
         });
       }
     });
-  }, [open]);
+  }, [showingChildren]);
 
   function toggle() {
-    if (hasChildren) setOpen((v) => !v);
+    if (hasChildren) ctx.toggleBranch(scope.path);
   }
 
-  function onChevronKeyDown(event: React.KeyboardEvent) {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      toggle();
-    }
-  }
-
-  const rowPadLeft = `${level * INDENT_STEP}px`;
-  const ScopeIcon = isRoot ? Home : hasChildren ? Grid2X2 : isActive ? CircleDot : Gauge;
+  const ScopeIcon = isRoot ? Home : isTopLevel ? (showingChildren ? FolderOpen : Folder) : level === 1 ? Gauge : CircleDot;
 
   const labelInner = (
     <>
@@ -361,17 +386,29 @@ function TreeNode({ node, level, ctx }: { node: TreeNodeData; level: number; ctx
   const activeTick = isActive ? (
     <span aria-hidden="true" className="absolute left-0 top-[5px] h-[calc(100%-10px)] w-[3px] rounded-r-[var(--radius-2)] bg-[var(--primary)]" />
   ) : null;
+  const moduleToggle = (
+    <button
+      type="button"
+      onClick={() => ctx.toggleModuleShortcuts(scope.path)}
+      aria-expanded={moduleShortcutsOpen}
+      aria-label={`${moduleShortcutsOpen ? "Hide" : "Show"} module shortcuts for ${label}`}
+      className={`inline-flex h-[28px] w-[24px] shrink-0 cursor-pointer items-center justify-center rounded-[var(--radius-2)] transition-opacity duration-150 hover:bg-[var(--hover)] focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--primary)] motion-reduce:transition-none group-hover:opacity-100 ${
+        moduleShortcutsOpen ? "text-[var(--primary)] hover:text-[var(--primary)]" : "opacity-0 text-[var(--mutedfg)] hover:text-[var(--fg)]"
+      }`}
+    >
+      {moduleShortcutsOpen ? <Minus size={13} /> : <Plus size={13} />}
+    </button>
+  );
 
   return (
     <div>
-      <div className="flex items-center gap-[var(--space-1)]" style={{ paddingLeft: rowPadLeft }}>
+      <div className="group flex items-center gap-[var(--space-1)]">
         {hasChildren ? (
           <button
             type="button"
             onClick={toggle}
-            onKeyDown={onChevronKeyDown}
-            aria-expanded={open}
-            aria-label={`${open ? "Collapse" : "Expand"} ${label}`}
+            aria-expanded={showingChildren}
+            aria-label={`${showingChildren ? "Collapse" : "Expand"} ${label}`}
             className="inline-flex h-[30px] w-[18px] shrink-0 cursor-pointer items-center justify-center rounded-[var(--radius-2)] text-[var(--mutedfg)] hover:text-[var(--fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--primary)]"
           >
             <span ref={chevronRef} className="inline-flex">
@@ -385,24 +422,34 @@ function TreeNode({ node, level, ctx }: { node: TreeNodeData; level: number; ctx
         {isTopLevel ? (
           <form action={setSelectedProject} className="flex min-w-0 flex-1">
             <input type="hidden" name="path" value={scope.path} />
-            <button type="submit" aria-current={isActive ? "page" : undefined} className={`${labelClass} cursor-pointer`}>
+            <button
+              type="submit"
+              onClick={() => ctx.openBranch(scope.path)}
+              aria-current={isActive ? "page" : undefined}
+              className={`${labelClass} cursor-pointer`}
+            >
               {activeTick}
               {labelInner}
             </button>
           </form>
         ) : (
-          <Link href={`/s/${scope.path}`} aria-current={isActive ? "page" : undefined} className={labelClass}>
+          <Link
+            href={`/s/${scope.path}`}
+            onClick={() => ctx.openBranch(scope.path)}
+            aria-current={isActive ? "page" : undefined}
+            className={labelClass}
+          >
             {activeTick}
             {labelInner}
           </Link>
         )}
+        {moduleToggle}
       </div>
 
-      {/* Module rows render inline under the active scope leaf */}
-      {isActive && <ModuleRows scope={scope} level={level + 1} ctx={ctx} />}
+      {moduleShortcutsOpen && <ModuleRows scope={scope} ctx={ctx} />}
 
-      {hasChildren && (open || ctx.searchQuery.trim()) && (
-        <div ref={childrenRef}>
+      {showingChildren && (
+        <div ref={childrenRef} className="ml-[26px] border-l-2 border-[var(--border)] pl-[var(--space-2)]">
           {node.children.map((child) => (
             <TreeNode key={child.scope.id} node={child} level={level + 1} ctx={ctx} />
           ))}
@@ -412,7 +459,7 @@ function TreeNode({ node, level, ctx }: { node: TreeNodeData; level: number; ctx
   );
 }
 
-function ModuleRows({ scope, ctx }: { scope: Scope; level: number; ctx: NodeContext }) {
+function ModuleRows({ scope, ctx }: { scope: Scope; ctx: NodeContext }) {
   const effectiveTab = ctx.currentTab || "dashboard";
   const showMembers = scope.type === "project";
   const showTask = scope.type === "project" && scope.path === ctx.selected && !!ctx.taskManagerUrl;
@@ -421,9 +468,9 @@ function ModuleRows({ scope, ctx }: { scope: Scope; level: number; ctx: NodeCont
   if (showMembers) rows.push({ tab: "members", label: "Members" });
 
   return (
-    <div className="my-[var(--space-1)] ml-[47px] border-l-2 border-[var(--primary)] pl-[var(--space-2)]">
+    <div className="my-[var(--space-1)] ml-[26px] border-l-2 border-[var(--primary)] pl-[var(--space-2)]">
       {rows.map(({ tab, label }) => {
-        const active = effectiveTab === tab;
+        const active = scope.path === ctx.activeScope && effectiveTab === tab;
         const Icon = MODULE_ICONS[tab] ?? Grid2X2;
         return (
           <Link
@@ -544,7 +591,3 @@ function NewScopeDialog({ tree, defaultParent, onClose }: { tree: Scope[]; defau
     </div>
   );
 }
-
-
-
-

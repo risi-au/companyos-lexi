@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  type ElementType,
   useEffect,
   useId,
   useLayoutEffect,
@@ -26,6 +27,7 @@ export interface TabsProps {
   className?: string;
   tabClassName?: string;
   panelClassName?: string;
+  linkComponent?: ElementType;
 }
 
 export function Tabs({
@@ -36,6 +38,7 @@ export function Tabs({
   className = "",
   tabClassName = "",
   panelClassName = "",
+  linkComponent: LinkComponent = "a",
 }: TabsProps) {
   const baseId = useId();
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -130,9 +133,9 @@ export function Tabs({
 
           if (item.href) {
             return (
-              <a
+              <LinkComponent
                 key={item.id}
-                ref={(node) => {
+                ref={(node: HTMLElement | null) => {
                   if (node) tabRefs.current.set(item.id, node);
                   else tabRefs.current.delete(item.id);
                 }}
@@ -145,7 +148,7 @@ export function Tabs({
                 className={common}
               >
                 {item.label}
-              </a>
+              </LinkComponent>
             );
           }
 

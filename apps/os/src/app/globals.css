@@ -68,6 +68,6 @@
 
 /* Editor container tweaks for density and scroll */
 .bn-container .bn-editor {
-  min-height: 380px;
+  min-height: 60vh;
   font-size: var(--font-size-base);
 }

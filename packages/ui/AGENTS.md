@@ -15,6 +15,7 @@ Shared UI primitives, global CSS, tokens, and motion helpers for CompanyOS.
 - Persisted user choice is `localStorage.theme` with `auto | light | green | charcoal`.
 - `auto` resolves by the circadian schedule in `DESIGN-SYSTEM-V2.md`: charcoal from 21:00-04:59, otherwise light, with dawn/dusk `--bg` tints.
 - The app also toggles `.dark` on `<html>` for resolved `green` or `charcoal` so V1 consumers keep dark-mode behavior during migration.
+- `src/globals.css` owns app-wide thin scrollbar theming: Firefox `scrollbar-color` and WebKit scrollbar thumbs use V2 tokens (`--borderstrong`, hover `--mutedfg`) with transparent tracks.
 
 ## Motion
 
@@ -27,7 +28,7 @@ Shared UI primitives, global CSS, tokens, and motion helpers for CompanyOS.
 
 ## UX-05 Shared Primitives
 
-- `Tabs`, `Table`, `Card`/`StatCard`, `EmptyState`, and `Stepper` are exported from `src/index.ts` for V2-native module surfaces.
+- `Tabs`, `Table`, `Card`/`StatCard`, `EmptyState`, and `Stepper` are exported from `src/index.ts` for V2-native module surfaces. `Tabs` accepts an optional `linkComponent` for framework routers; it defaults to plain anchors so `packages/ui` keeps no Next.js dependency.
 - `Tabs`, `Stepper`, `StatCard`, and any other animated primitive must use `src/motion.ts` helpers only; feature code must not import GSAP directly.
 - `CompletionReward` is the reusable OS-wide "mark done" reward pattern: pop-in circle, ring burst, and rising count text. It currently ships for the intake wizard checklist and should be reused for future completion moments instead of one-off animations.
 ## UX-06C Shared Primitive Notes
