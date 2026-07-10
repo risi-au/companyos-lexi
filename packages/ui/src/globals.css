@@ -44,3 +44,91 @@ body {
   font-size: 1rem;
   line-height: 1.5;
 }
+
+/* BlockNote portals can render outside the editor root, so expose the menu
+   theme variables globally and force opaque raised surfaces for overlays. */
+:root,
+html[data-theme],
+body[data-theme] {
+  --bn-colors-menu-text: var(--fg);
+  --bn-colors-menu-background: var(--raised);
+  --bn-colors-tooltip-text: var(--fg);
+  --bn-colors-tooltip-background: var(--raised);
+  --bn-colors-hovered-text: var(--fg);
+  --bn-colors-hovered-background: var(--muted);
+  --bn-colors-selected-text: var(--primaryfg);
+  --bn-colors-selected-background: var(--primary);
+  --bn-colors-disabled-text: var(--mutedfg);
+  --bn-colors-disabled-background: var(--muted);
+  --bn-colors-shadow: var(--shadow);
+  --bn-colors-border: var(--border);
+}
+
+.bn-suggestion-menu,
+.bn-formatting-toolbar,
+.bn-side-menu,
+.bn-tooltip,
+[data-radix-popper-content-wrapper] .bn-suggestion-menu,
+[data-radix-popper-content-wrapper] .bn-formatting-toolbar {
+  background: var(--raised) !important;
+  color: var(--fg) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: var(--shadow) !important;
+}
+
+.docs-read-body > * + *,
+.docs-read-body li + li {
+  margin-top: var(--space-2);
+}
+
+.docs-read-body h1,
+.docs-read-body h2,
+.docs-read-body h3 {
+  margin-top: var(--space-4);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.docs-read-body h1 {
+  font-size: var(--font-size-xl);
+}
+
+.docs-read-body h2 {
+  font-size: var(--font-size-lg);
+}
+
+.docs-read-body h3 {
+  font-size: var(--font-size-md);
+}
+
+.docs-read-body ul,
+.docs-read-body ol {
+  padding-left: var(--space-5);
+}
+
+.docs-read-body ul {
+  list-style: disc;
+}
+
+.docs-read-body ol {
+  list-style: decimal;
+}
+
+.docs-read-body code,
+.docs-read-body pre {
+  font-family: var(--font-mono);
+}
+
+.docs-read-body pre {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--muted);
+  padding: var(--space-3);
+}
+
+.docs-read-body blockquote {
+  border-left: 2px solid var(--borderstrong);
+  color: var(--mutedfg);
+  padding-left: var(--space-3);
+}

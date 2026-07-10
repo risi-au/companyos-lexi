@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useConfirm, useToast } from "@companyos/ui";
+import { Archive, BookOpen, History, Plus, X } from "lucide-react";
 import { DocEditor } from "./DocEditor";
 import {
   listDocsAction,
@@ -15,13 +16,23 @@ import {
   getAccessAction,
   getInheritedWikiAction,
 } from "./actions";
-import { Plus, History, Archive, X, BookOpen } from "lucide-react";
+
+type AuthorKind = "human" | "agent" | "system";
 
 interface DocListItem {
   id: string;
   slug: string;
   title: string;
   updatedAt: string | Date;
+  createdByKind: AuthorKind | null;
+}
+
+interface RawDocListItem {
+  id: string;
+  slug: string;
+  title: string;
+  updatedAt: string | Date;
+  createdByKind?: AuthorKind | null;
 }
 
 interface RevisionItem {
@@ -49,7 +60,6 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
   const { toast } = useToast();
 
   const [docs, setDocs] = useState<DocListItem[]>([]);
-  const [selectedSlug, setSelectedSlug] = useState<string | null>(initialDocSlug || null);
   const [currentDoc, setCurrentDoc] = useState<{ slug: string; title: string; bodyMd: string } | null>(null);
   const [access, setAccess] = useState<string | null>(initialAccess || null);
   const [isLoadingList, setIsLoadingList] = useState(true);
@@ -70,6 +80,17 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
   const readOnly = access === "viewer";
+  const selectedSlug = currentDoc?.slug ?? null;
+  const urlDocSlug = searchParams?.get("doc") || initialDocSlug || null;
+
+  const mapDocs = (rows: RawDocListItem[]): DocListItem[] =>
+    rows.map((r) => ({
+      id: r.id,
+      slug: r.slug,
+      title: r.title,
+      updatedAt: r.updatedAt,
+      createdByKind: r.createdByKind ?? null,
+    }));
 
   const updateUrlDoc = useCallback(
     (slug: string | null) => {
@@ -88,32 +109,25 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
   const refreshList = useCallback(async () => {
     try {
       const rows = await listDocsAction(scopePath);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const mapped: DocListItem[] = (rows as any[]).map((r: any) => ({
-        id: r.id,
-        slug: r.slug,
-        title: r.title,
-        updatedAt: r.updatedAt,
-      }));
+      const mapped = mapDocs(rows as RawDocListItem[]);
       setDocs(mapped);
+      return mapped;
     } catch {
-      // silent; empty list ok for empty state
       setDocs([]);
+      return [];
     }
   }, [scopePath]);
 
   const loadDoc = useCallback(
-    async (slug: string) => {
+    async (slug: string, syncUrl = true) => {
       setIsLoadingDoc(true);
       try {
         const d = await getDocAction(scopePath, slug);
         if (d) {
           setCurrentDoc({ slug: d.slug, title: d.title, bodyMd: d.bodyMd ?? "" });
-          setSelectedSlug(d.slug);
-          updateUrlDoc(d.slug);
+          if (syncUrl) updateUrlDoc(d.slug);
         }
       } catch {
-        // doc may have been archived, refresh list
         await refreshList();
       } finally {
         setIsLoadingDoc(false);
@@ -122,12 +136,15 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
     [scopePath, refreshList, updateUrlDoc]
   );
 
-  // Initial load
   useEffect(() => {
     let mounted = true;
+    setCurrentDoc(null);
+    setDocs([]);
+    setInheritedWiki(null);
+    setIsLoadingList(true);
+
     (async () => {
-      setIsLoadingList(true);
-      await refreshList();
+      const rows = await refreshList();
       const acc = initialAccess ?? (await getAccessAction(scopePath));
       if (mounted) setAccess(acc);
 
@@ -138,37 +155,46 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
         if (mounted) setInheritedWiki(null);
       }
 
-      // Load initial or first doc from ?doc
-      const spDoc = searchParams?.get("doc");
-      const startSlug = spDoc || initialDocSlug || null;
-      if (startSlug) {
-        await loadDoc(startSlug);
-      } else {
-        // auto select first if any
-        const list = await listDocsAction(scopePath);
-        if (list.length > 0) {
-          await loadDoc(list[0]!.slug);
-        }
-      }
       if (mounted) setIsLoadingList(false);
+
+      const startSlug = urlDocSlug || rows[0]?.slug || null;
+      if (startSlug) {
+        await loadDoc(startSlug, Boolean(urlDocSlug));
+      }
     })();
+
     return () => {
       mounted = false;
     };
-  }, [scopePath, initialAccess, initialDocSlug, searchParams, refreshList, loadDoc]);
+  }, [scopePath, initialAccess, refreshList]);
 
-  const sortedDocs = [...docs].sort((a, b) => {
-    if (a.slug === "wiki") return -1;
-    if (b.slug === "wiki") return 1;
-    return 0;
-  });
+  useEffect(() => {
+    if (!urlDocSlug || urlDocSlug === currentDoc?.slug) return;
+    loadDoc(urlDocSlug, false).catch(() => {});
+  }, [urlDocSlug, currentDoc?.slug, loadDoc]);
+
+  const sortedDocs = useMemo(() => {
+    return [...docs].sort((a, b) => {
+      if (a.slug === "wiki") return -1;
+      if (b.slug === "wiki") return 1;
+      return 0;
+    });
+  }, [docs]);
+
+  const groupedDocs = useMemo(() => {
+    const yours = sortedDocs.filter((doc) => doc.createdByKind === "human");
+    const ai = sortedDocs.filter((doc) => doc.createdByKind !== "human");
+    return [
+      { title: "Your docs", docs: yours },
+      { title: "AI-maintained", docs: ai },
+    ].filter((group) => group.docs.length > 0);
+  }, [sortedDocs]);
 
   const onSelectDoc = async (slug: string) => {
-    if (slug === selectedSlug) return;
+    if (slug === currentDoc?.slug) return;
     await loadDoc(slug);
   };
 
-  // New doc dialog
   const openNewDialog = () => {
     setNewTitle("");
     setShowNewDialog(true);
@@ -183,7 +209,6 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
       await refreshList();
       setShowNewDialog(false);
       setNewTitle("");
-      // select it
       await loadDoc(created.slug);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Couldn't create the doc. Check the title and retry.";
@@ -193,10 +218,14 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
     }
   };
 
-  // Inline rename
   const startRename = (item: DocListItem) => {
     setEditingSlug(item.slug);
     setEditTitle(item.title);
+  };
+
+  const cancelRename = () => {
+    setEditingSlug(null);
+    setEditTitle("");
   };
 
   const commitRename = async () => {
@@ -220,23 +249,14 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
     }
   };
 
-  const cancelRename = () => {
-    setEditingSlug(null);
-    setEditTitle("");
-  };
-
-  // Archive with confirm
   const archiveDoc = async (slug: string, title: string) => {
     if (!(await requestConfirm({ title: "Archive document", body: `"${title}" will be hidden from the list (not deleted).`, confirmLabel: "Archive document" }))) return;
     try {
       await archiveDocAction(scopePath, slug);
-      await refreshList();
-      if (selectedSlug === slug) {
-        setSelectedSlug(null);
+      const fresh = await refreshList();
+      if (currentDoc?.slug === slug) {
         setCurrentDoc(null);
         updateUrlDoc(null);
-        // select next if any
-        const fresh = await listDocsAction(scopePath);
         if (fresh.length > 0) await loadDoc(fresh[0]!.slug);
       }
     } catch (e: unknown) {
@@ -245,15 +265,13 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
     }
   };
 
-  // History
   const openHistory = async (slug: string) => {
     setHistoryForSlug(slug);
     setShowHistory(true);
     setIsLoadingHistory(true);
     try {
       const revs = await listRevisionsAction(scopePath, slug, 10);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const mapped: RevisionItem[] = (revs as any[]).map((r: any) => ({
+      const mapped: RevisionItem[] = (revs as RevisionItem[]).map((r) => ({
         id: r.id,
         title: r.title,
         createdAt: r.createdAt,
@@ -279,7 +297,6 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
     try {
       await revertDocAction(scopePath, historyForSlug, revId);
       closeHistory();
-      // reload current
       await loadDoc(historyForSlug);
       await refreshList();
     } catch (e: unknown) {
@@ -288,7 +305,6 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
     }
   };
 
-  // Save handler for editor: uses title from current
   const handleEditorSave = async (markdown: string) => {
     if (!currentDoc || readOnly) return;
     await saveDocAction({
@@ -297,26 +313,98 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
       title: currentDoc.title,
       bodyMd: markdown,
     });
-    // list timestamp updates via refresh (non blocking)
+    setCurrentDoc({ ...currentDoc, bodyMd: markdown });
     refreshList().catch(() => {});
   };
 
   const handleSaveState = (s: "saved" | "saving" | "error") => setSaveState(s);
 
-  // Empty states
   const hasDocs = docs.length > 0;
   const noDocSelected = !currentDoc;
 
+  const renderDocRow = (d: DocListItem) => {
+    const isSel = d.slug === selectedSlug;
+    const isEditing = editingSlug === d.slug;
+    const isWiki = d.slug === "wiki";
+
+    return (
+      <li
+        key={d.slug}
+        className={`group rounded-[var(--radius-sm)] text-[var(--font-size-sm)] ${
+          isSel ? "bg-[var(--selected)]" : "hover:bg-[var(--muted)]"
+        } ${isWiki ? "font-medium" : ""}`}
+        onDoubleClick={() => !readOnly && startRename(d)}
+      >
+        <div className="flex min-h-[44px] items-center justify-between gap-[var(--space-2)] px-[var(--space-2)] py-[var(--space-1)]">
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 cursor-pointer items-center gap-[var(--space-1)] text-left"
+            onClick={() => onSelectDoc(d.slug)}
+          >
+            {isWiki && <BookOpen size={14} className="shrink-0 text-[var(--primary)]" />}
+            {isEditing ? (
+              <input
+                autoFocus
+                value={editTitle}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => setEditTitle(e.target.value)}
+                onBlur={commitRename}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitRename();
+                  if (e.key === "Escape") cancelRename();
+                }}
+                className="w-full border-b border-[var(--primary)] bg-transparent text-[var(--font-size-sm)] outline-none"
+              />
+            ) : (
+              <span className={`truncate ${isWiki ? "text-[var(--primary)]" : ""}`}>{d.title}</span>
+            )}
+          </button>
+
+          <div className="flex shrink-0 items-center gap-[var(--space-1)] opacity-70 group-hover:opacity-100">
+            <span className="hidden text-[var(--font-size-xs)] text-[var(--muted-foreground)] tabular-nums min-[820px]:inline">
+              {new Date(d.updatedAt).toLocaleDateString()}
+            </span>
+            {!readOnly && (
+              <>
+                <button
+                  aria-label={`History for ${d.title}`}
+                  title="History"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openHistory(d.slug);
+                  }}
+                  className="rounded-[var(--radius-sm)] p-[var(--space-1)] hover:bg-[var(--background)]"
+                >
+                  <History size={14} />
+                </button>
+                <button
+                  aria-label={`Archive ${d.title}`}
+                  title="Archive"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    archiveDoc(d.slug, d.title);
+                  }}
+                  className="rounded-[var(--radius-sm)] p-[var(--space-1)] hover:bg-[var(--background)]"
+                >
+                  <Archive size={14} />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </li>
+    );
+  };
+
   return (
-    <div className="grid grid-cols-1 gap-[var(--space-3)] lg:grid-cols-[280px,1fr] min-h-[520px]">
-      {/* Left: list */}
-      <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-2)] flex flex-col">
+    <div className="grid min-h-[520px] grid-cols-1 gap-[var(--space-3)] min-[820px]:grid-cols-[minmax(0,1fr)_300px]">
+      <aside className="order-1 flex flex-col rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-2)] min-[820px]:order-2">
         <div className="mb-[var(--space-2)] flex items-center justify-between px-[var(--space-1)]">
           <div className="text-[var(--font-size-sm)] font-medium">Documents</div>
           {!readOnly && (
             <button
               onClick={openNewDialog}
-              className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-xs)] hover:bg-[var(--muted)]"
+              className="inline-flex min-h-[36px] items-center gap-[var(--space-1)] rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-2)] text-[var(--font-size-xs)] hover:bg-[var(--muted)]"
               aria-label="New doc"
             >
               <Plus size={14} /> New doc
@@ -326,10 +414,10 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
 
         {inheritedWiki && (
           <div className="mb-[var(--space-2)] rounded-[var(--radius-sm)] border border-[var(--primary)] px-[var(--space-2)] py-[var(--space-2)] text-[var(--font-size-xs)]">
-            <div className="mb-1 flex items-center gap-1 font-medium text-[var(--primary)]">
-              <BookOpen size={13} /> Inherited wiki (from {inheritedWiki.scopePath})
+            <div className="mb-[var(--space-1)] flex items-center gap-[var(--space-1)] font-medium text-[var(--primary)]">
+              <BookOpen size={13} /> Inherited wiki from {inheritedWiki.scopePath}
             </div>
-            <ul className="space-y-0.5">
+            <ul className="space-y-[var(--space-1)]">
               {inheritedWiki.docs.map((d) => (
                 <li key={d.id}>
                   <a
@@ -345,110 +433,54 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
         )}
 
         {isLoadingList ? (
-          <div className="p-3 text-[var(--font-size-sm)] text-[var(--muted-foreground)]">Loading…</div>
+          <div className="p-[var(--space-3)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">Loading...</div>
         ) : !hasDocs ? (
           <div className="px-[var(--space-2)] py-[var(--space-3)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
             No docs yet. Create the first one; agents can add docs here too.
           </div>
         ) : (
-          <ul className="space-y-[var(--space-1)] overflow-auto">
-            {sortedDocs.map((d) => {
-              const isSel = d.slug === selectedSlug;
-              const isEditing = editingSlug === d.slug;
-              const isWiki = d.slug === "wiki";
-              return (
-                <li
-                  key={d.slug}
-                  className={`group flex items-center justify-between rounded px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-sm)] ${
-                    isSel ? "bg-[var(--muted)]" : "hover:bg-[var(--muted)]"
-                  } ${isWiki ? "font-medium" : ""}`}
-                  onDoubleClick={() => !readOnly && startRename(d)}
-                >
-                  <div className="flex min-w-0 flex-1 cursor-pointer items-center gap-1" onClick={() => onSelectDoc(d.slug)}>
-                    {isWiki && <BookOpen size={13} className="shrink-0 text-[var(--primary)]" />}
-                    {isEditing ? (
-                      <input
-                        autoFocus
-                        value={editTitle}
-                        onChange={(e) => setEditTitle(e.target.value)}
-                        onBlur={commitRename}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") commitRename();
-                          if (e.key === "Escape") cancelRename();
-                        }}
-                        className="w-full bg-transparent outline-none border-b border-[var(--primary)] text-[var(--font-size-sm)]"
-                      />
-                    ) : (
-                      <span className={`truncate ${isWiki ? "text-[var(--primary)]" : ""}`}>{d.title}</span>
-                    )}
-                  </div>
-
-                  <div className="ml-2 flex items-center gap-1 opacity-60 group-hover:opacity-100">
-                    <span className="hidden text-[10px] text-[var(--muted-foreground)] tabular-nums sm:inline">
-                      {new Date(d.updatedAt).toLocaleDateString()}
-                    </span>
-                    {!readOnly && (
-                      <>
-                        <button
-                          title="History"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openHistory(d.slug);
-                          }}
-                          className="rounded p-1 hover:bg-[var(--background)]"
-                        >
-                          <History size={14} />
-                        </button>
-                        <button
-                          title="Archive"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            archiveDoc(d.slug, d.title);
-                          }}
-                          className="rounded p-1 hover:bg-[var(--background)]"
-                        >
-                          <Archive size={14} />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+          <div className="min-h-0 overflow-auto">
+            {groupedDocs.map((group) => (
+              <section key={group.title} className="mb-[var(--space-3)] last:mb-0">
+                <h3 className="px-[var(--space-2)] pb-[var(--space-1)] text-[var(--font-size-xs)] font-medium uppercase text-[var(--muted-foreground)]">
+                  {group.title}
+                </h3>
+                <ul className="space-y-[var(--space-1)]">{group.docs.map(renderDocRow)}</ul>
+              </section>
+            ))}
+          </div>
         )}
-      </div>
+      </aside>
 
-      {/* Right: editor or empty */}
-      <div className="min-h-[420px] lg:min-h-[520px] flex flex-col">
+      <main className="order-2 flex min-h-[420px] flex-col min-[820px]:order-1 min-[820px]:min-h-[520px]">
         {noDocSelected ? (
           <div className="flex h-full items-center justify-center rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
-            {hasDocs ? "Select a document on the left." : "Create the first doc to start editing."}
+            {hasDocs ? "Select a document from the list." : "Create the first doc to start editing."}
           </div>
         ) : isLoadingDoc || !currentDoc ? (
           <div className="flex h-full items-center justify-center rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
-            Loading document…
+            Loading document...
           </div>
         ) : (
           <DocEditor
-            key={`${scopePath}:${currentDoc.slug}`} // remount for clean state
+            key={`${scopePath}:${currentDoc.slug}`}
             docKey={`${scopePath}:${currentDoc.slug}`}
+            title={currentDoc.title}
             initialMarkdown={currentDoc.bodyMd}
             onSave={handleEditorSave}
             readOnly={readOnly}
             onSaveStateChange={handleSaveState}
           />
         )}
-      </div>
+      </main>
 
-      {/* New doc dialog (simple, token styled) */}
       {showNewDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowNewDialog(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)]" onClick={() => setShowNewDialog(false)}>
           <div
             className="w-full max-w-[360px] rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-3 text-[var(--font-size-md)] font-medium">New document</div>
+            <div className="mb-[var(--space-3)] text-[var(--font-size-md)] font-medium">New document</div>
             <input
               autoFocus
               placeholder="Doc title"
@@ -458,48 +490,47 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
                 if (e.key === "Enter") createNewDoc();
                 if (e.key === "Escape") setShowNewDialog(false);
               }}
-              className="w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-transparent px-3 py-2 text-[var(--font-size-sm)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
+              className="w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-transparent px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
             />
-            <div className="mt-3 flex justify-end gap-2">
+            <div className="mt-[var(--space-3)] flex justify-end gap-[var(--space-2)]">
               <button
                 onClick={() => setShowNewDialog(false)}
-                className="rounded-[var(--radius-sm)] border border-[var(--border)] px-3 py-1.5 text-[var(--font-size-sm)]"
+                className="rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)]"
               >
                 Cancel
               </button>
               <button
                 onClick={createNewDoc}
                 disabled={isCreating || !newTitle.trim()}
-                className="rounded-[var(--radius-sm)] bg-[var(--primary)] px-3 py-1.5 text-[var(--font-size-sm)] text-[var(--primary-foreground)] disabled:opacity-60"
+                className="rounded-[var(--radius-sm)] bg-[var(--primary)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] text-[var(--primary-foreground)] disabled:opacity-60"
               >
-                {isCreating ? "Creating…" : "Create"}
+                {isCreating ? "Creating..." : "Create"}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* History popover (modal-like for simplicity) */}
       {showHistory && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={closeHistory}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)]" onClick={closeHistory}>
           <div
             className="w-full max-w-[420px] rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-3)]"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-2 flex items-center justify-between">
+            <div className="mb-[var(--space-2)] flex items-center justify-between">
               <div className="text-[var(--font-size-sm)] font-medium">History (last 10)</div>
               <button onClick={closeHistory} aria-label="Close">
                 <X size={16} />
               </button>
             </div>
             {isLoadingHistory ? (
-              <div className="py-2 text-[var(--font-size-sm)] text-[var(--muted-foreground)]">Loading…</div>
+              <div className="py-[var(--space-2)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">Loading...</div>
             ) : historyRevs.length === 0 ? (
-              <div className="py-2 text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No revisions.</div>
+              <div className="py-[var(--space-2)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No revisions.</div>
             ) : (
-              <ul className="max-h-[260px] space-y-1 overflow-auto text-[var(--font-size-sm)]">
+              <ul className="max-h-[260px] space-y-[var(--space-1)] overflow-auto text-[var(--font-size-sm)]">
                 {historyRevs.map((r) => (
-                  <li key={r.id} className="flex items-center justify-between rounded border border-[var(--border)] px-2 py-1.5">
+                  <li key={r.id} className="flex items-center justify-between rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-2)] py-[var(--space-2)]">
                     <div className="min-w-0">
                       <div className="truncate">{r.title}</div>
                       <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)] tabular-nums">
@@ -509,7 +540,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
                     {!readOnly && (
                       <button
                         onClick={() => restoreRevision(r.id)}
-                        className="ml-2 rounded border border-[var(--border)] px-2 py-0.5 text-[var(--font-size-xs)] hover:bg-[var(--muted)]"
+                        className="ml-[var(--space-2)] rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-xs)] hover:bg-[var(--muted)]"
                       >
                         Restore
                       </button>
@@ -518,7 +549,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
                 ))}
               </ul>
             )}
-            <div className="mt-3 text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Reverting creates a new revision.</div>
+            <div className="mt-[var(--space-3)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Reverting creates a new revision.</div>
           </div>
         </div>
       )}

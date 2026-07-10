@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { eq, and, desc, inArray, not, isNull, like, or } from "drizzle-orm";
-import { docLinks, documents, documentRevisions, scopes } from "@companyos/db";
+import { docLinks, documents, documentRevisions, principals, scopes } from "@companyos/db";
 import type { Document, DocumentRevision } from "@companyos/db";
 import {
   emitEvent,
@@ -473,7 +473,7 @@ export async function listDocs(
   db: DB,
   input: ListDocsInput,
   actorPrincipalId: string
-): Promise<Array<{ id: string; slug: string; title: string; updatedAt: Date }>> {
+): Promise<Array<{ id: string; slug: string; title: string; updatedAt: Date; createdByKind: "human" | "agent" | null }>> {
   const { scopePath, includeArchived = false } = input;
 
   const scope = await getScope(db, scopePath);
@@ -494,10 +494,12 @@ export async function listDocs(
       slug: documents.slug,
       title: documents.title,
       updatedAt: documents.updatedAt,
+      createdByKind: principals.kind,
     })
     .from(documents)
+    .leftJoin(principals, eq(documents.createdBy, principals.id))
     .where(and(...conditions))
-    .orderBy(documents.position, documents.title)) as Array<{ id: string; slug: string; title: string; updatedAt: Date }>;
+    .orderBy(documents.position, documents.title)) as Array<{ id: string; slug: string; title: string; updatedAt: Date; createdByKind: "human" | "agent" | null }>;
 
   return rows;
 }
