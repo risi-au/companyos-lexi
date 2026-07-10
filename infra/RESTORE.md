@@ -100,3 +100,29 @@ Once per quarter, restore the latest staging backup into a disposable clean stac
 - any runbook edits needed
 
 Do not automate restore as part of the backup sidecar; restore remains a deliberate manual DR action.
+
+### Shared-host drill variant
+
+When drilling on the SAME host that runs the live stack (the usual staging case), do
+NOT run step 2's `down -v` — it destroys the live volumes. Instead:
+
+1. Run step 1's download/decrypt/extract inside the running backup container (it already
+   holds `BACKUP_S3_*` and `BACKUP_ENCRYPTION_KEY`), writing to `/tmp` there.
+2. Start a disposable scratch postgres: `docker run -d --name restore-drill-pg -e
+   POSTGRES_USER=companyos -e POSTGRES_PASSWORD=<any> pgvector/pgvector:pg17`.
+   Gotcha: the image auto-creates a DB named after `POSTGRES_USER`, so skip `createdb`
+   for that one and `pg_restore` straight into it.
+3. `docker cp` the dumps in, restore per step 3, then verify by diffing per-table row
+   counts against the live DB (identical except rows written after the dump moment) and
+   `select extversion from pg_extension where extname='vector'`.
+4. Clean up: remove the scratch container and every temp copy of the dumps.
+
+This exercises fetch → decrypt → extract → restore → data verification. It does NOT
+boot the app against the restored DB — do a full disposable-stack restore (the main
+runbook) when validating a release-critical migration or an actual DR event.
+
+## Drill log
+
+| date | object key | databases | duration | result |
+|---|---|---|---|---|
+| 2026-07-10 | companyos/daily/db-backup-2026-07-10T005231Z.tar.gz.enc | companyos, litellm | ~5 min (00:59–01:04 UTC) | PASS — shared-host variant; companyos: 34/34 tables, counts identical to live except post-dump capability_run+event; litellm: pg_restore exit 0; vector ext 0.8.5. Runbook edits: added this variant + POSTGRES_USER auto-DB gotcha. |

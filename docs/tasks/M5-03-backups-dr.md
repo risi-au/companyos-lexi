@@ -1,6 +1,6 @@
 # M5-03: Backups + DR drill (nightly pg_dump → encrypted → offsite; documented restore)
 
-status: in-progress (PR #8 merged 2026-07-07; sidecar running on staging, dump+encrypt verified; BLOCKED at R2 upload AccessDenied — owner to fix token perms in Cloudflare, then rerun run-once + restore drill per infra/RESTORE.md)
+status: done (2026-07-10 — full chain verified on staging: R2 upload fixed 2026-07-09 [bucket-name mismatch, not token perms]; BACKUP_REPORT_TOKEN minted + db-backup capability registered on root, success run persisted in capability_runs; restore drill executed 2026-07-10 per infra/RESTORE.md shared-host variant — artifact db-backup-2026-07-10T005231Z downloaded/decrypted/restored into a scratch pgvector/pg17, all 34 companyos tables matched live counts except the expected post-dump report run/event, litellm pg_restore exit 0; drill log in infra/RESTORE.md)
 module: infra
 branch: task/M5-03
 

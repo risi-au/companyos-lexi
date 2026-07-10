@@ -96,8 +96,8 @@ Copy `.env.example` → `~/app/.env`, then set (generate ON the host):
 
 ## Staging-vs-live status snapshot (2026-07-10)
 
-Everything above is DONE and verified on staging except: the restore drill (never run
-anywhere) and the vault e2e verification (key set + container verified; UI walkthrough
-pending). `BACKUP_REPORT_TOKEN` + `db-backup` registration closed 2026-07-10: run-once
-uploaded and the success run persisted in capability_runs. Update this line when the
-rest close.
+Everything above is DONE and verified on staging except the vault e2e verification
+(key set + container verified; UI walkthrough pending). Backup reporting closed
+2026-07-10 (success run persisted in capability_runs); restore drill PASSED 2026-07-10
+(shared-host variant — see the drill log in infra/RESTORE.md). Update this line when
+the vault walkthrough closes.
