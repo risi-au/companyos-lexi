@@ -70,6 +70,8 @@ import {
   acceptReusePattern,
   assembleIntakeExternalPack,
   approveIntakePacket,
+  listAttentionItems,
+  resolveAttentionItem,
   rejectIntakePacket,
   dismissIntakePacket,
   reopenIntakePacket,
@@ -325,6 +327,10 @@ export const api = {
     assembleIntakeExternalPack(db, input, actorPrincipalId),
   approveIntakePacket: (input: Parameters<typeof approveIntakePacket>[1], actorPrincipalId: string) =>
     approveIntakePacket(db, input, actorPrincipalId),
+  listAttentionItems: (input: Parameters<typeof listAttentionItems>[1], actorPrincipalId: string) =>
+    listAttentionItems(db, input, actorPrincipalId),
+  resolveAttentionItem: (input: Parameters<typeof resolveAttentionItem>[1], actorPrincipalId: string) =>
+    resolveAttentionItem(db, input, actorPrincipalId),
   rejectIntakePacket: (input: Parameters<typeof rejectIntakePacket>[1], actorPrincipalId: string) =>
     rejectIntakePacket(db, input, actorPrincipalId),
   dismissIntakePacket: (input: Parameters<typeof dismissIntakePacket>[1], actorPrincipalId: string) =>

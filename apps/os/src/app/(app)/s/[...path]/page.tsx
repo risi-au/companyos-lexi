@@ -11,6 +11,7 @@ import { CredentialsPanel, type RequiredCredential } from "@/modules/credentials
 import { WorkLogView } from "@/modules/worklog";
 import { SessionsView } from "@/modules/sessions";
 import { IntakePanel } from "@/modules/intake";
+import { AttentionCard } from "@/modules/attention";
 import { getDashboard } from "@companyos/api";
 import { AskOSButton } from "@/modules/agent";
 import { addMemberToScope, changeMemberRole, revokeMember } from "../../_components/actions";
@@ -158,6 +159,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
   const records = await api.listRecords({ scopePath, limit: 8 }, actor);
   const tasks = await api.listTasks({ scopePath, state: "open", limit: 8 }, actor);
   const events = await api.listEvents({ scopePath, limit: 12 });
+  const attentionItems = await api.listAttentionItems({ scopePath, status: "open", includeDescendants: true, limit: 10 }, actor);
 
   // Build tab links preserving range when on dashboard; doc param for docs tab; canvas param
   const makeTabHref = (t: string) => {
@@ -303,6 +305,8 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
       {/* Overview (existing cards) */}
       {isOverview && (
         <div className="grid grid-cols-1 gap-[var(--space-4)] lg:grid-cols-2">
+          <AttentionCard items={attentionItems} scopePath={scopePath} />
+
           <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
             <div className="mb-[var(--space-3)] flex items-center justify-between">
               <div className="text-[var(--font-size-sm)] font-medium">Recent records</div>

@@ -30,6 +30,7 @@ import {
   listDocs,
   getDoc,
   saveDoc,
+  createAttentionItem,
   search,
   recallMemory,
   getRootCriticalFacts,
@@ -372,6 +373,30 @@ async function executeToolCall(
       return { result: res };
     }
     if (name === "save_doc") {
+      const existing = args.slug
+        ? await getDoc(db, { scopePath, slug: args.slug }, actorPrincipalId)
+        : null;
+      if (existing) {
+        const item = await createAttentionItem(db, {
+          scopePath,
+          kind: "wiki_proposal",
+          title: `Update ${existing.title}`,
+          summary: `Proposed edit to [[${existing.slug}]] filed for human approval.`,
+          payload: {
+            slug: existing.slug,
+            title: args.title || existing.title,
+            currentMd: existing.bodyMd,
+            proposedMd: args.bodyMd || "",
+          },
+        }, actorPrincipalId);
+        return {
+          result: {
+            attentionItemId: item.id,
+            status: "filed_for_approval",
+            message: `Proposed edit to ${existing.slug} was filed for human approval as attention item ${item.id}.`,
+          },
+        };
+      }
       const res = await saveDoc(db, { scopePath, slug: args.slug, title: args.title, bodyMd: args.bodyMd || "" }, actorPrincipalId);
       return { result: { id: res.id, slug: res.slug, title: res.title } };
     }

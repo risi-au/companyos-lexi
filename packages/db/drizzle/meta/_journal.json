@@ -162,6 +162,13 @@
       "when": 1783519200000,
       "tag": "0023_ops_health",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1783672355341,
+      "tag": "20260710083235_attention_items",
+      "breakpoints": true
     }
   ]
 }

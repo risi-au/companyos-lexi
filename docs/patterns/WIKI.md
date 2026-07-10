@@ -97,6 +97,32 @@ still apply elsewhere; root wiki pages are root-admin territory.
 3. **Humans**: read and correct the same pages in the Docs tab. No separate human
    section — authorship lives in revision history, not in the tree.
 
+## Proposals & attention items
+
+Wiki edits use a two-tier gate. The brain engine may keep writing maintained pages in
+place, but agent-authored changes are unreviewed until a human verifies them. Task
+agents and Ask OS do not directly edit existing pages: they file a `wiki_proposal`
+attention item containing the current markdown and proposed markdown. New pages can
+still be created directly as additive, unreviewed knowledge.
+
+Attention items are the generic "Things to resolve" primitive. Wiki proposals, brain
+lint findings, stale-page reviews, graduation suggestions, and external publish gates
+all converge there instead of creating Talk pages, chat threads, or notification
+pollers.
+
+Resolving an attention item writes the durable trail. Approval of a wiki proposal applies
+the proposed markdown through the docs service; approval, rejection, or dismissal emits
+an attention event and creates a `decision` record titled from the item. When a wiki page
+is involved, the decision body links it with `[[slug]]`.
+
+When two humans disagree, both versions stay on the page side by side, each attributed
+with the author's username, until resolved. Use attributed variant blocks:
+
+```md
+> **rishi:** ...
+> **jane:** ...
+```
+
 ## Surfacing and retrieval
 
 - `get_context` includes the doc index for the scope, resolved via ancestor walk to the

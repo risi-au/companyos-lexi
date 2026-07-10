@@ -3,6 +3,7 @@ import {
   getChildren,
   listModules,
   listRecords,
+  countOpenAttentionItems,
   emitEvent,
   requireAccess,
   type DB,
@@ -255,6 +256,7 @@ export async function getContextBundle(
   const recentLimit = profileConfig.recentRecordCount;
   const recentCh = await listRecords(db, { scopePath, kind: "changelog", limit: recentLimit }, actorPrincipalId);
   const recentDec = await listRecords(db, { scopePath, kind: "decision", limit: recentLimit }, actorPrincipalId);
+  const openAttentionCount = await countOpenAttentionItems(db, { scopePath, includeDescendants: true }, actorPrincipalId);
   const combined = [...recentCh, ...recentDec]
     .sort((a: any, b: any) => (b.createdAt?.getTime?.() || 0) - (a.createdAt?.getTime?.() || 0))
     .slice(0, recentLimit);
@@ -296,6 +298,11 @@ Use search(scope, query) for older records and docs beyond the recent records sh
 - status: ${sc.status}`);
   sections.push(measureSection("identity", identitySection));
 
+  const attentionSection = openAttentionCount > 0
+    ? sectionMarkdown("Things to resolve", `${openAttentionCount} items need you — resolve in the OS or via resolve_attention_item`)
+    : "";
+  if (attentionSection) sections.push(measureSection("attention", attentionSection, openAttentionCount));
+
   const criticalFactsSection = criticalFacts ? sectionMarkdown("Critical Facts", criticalFacts) : "";
   if (criticalFactsSection) sections.push(measureSection("critical_facts", criticalFactsSection));
 
@@ -321,6 +328,7 @@ Use list_records / get_record for full history and other kinds.
   const md = `# Context for ${scopePath}
 
 ${identitySection}
+${attentionSection}
 ${criticalFactsSection}
 ${modulesSection}
 ${childrenSection}

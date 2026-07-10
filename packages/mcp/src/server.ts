@@ -58,6 +58,8 @@ import {
   getIntakePacket,
   updateIntakePacket,
   approveIntakePacket,
+  listAttentionItems,
+  resolveAttentionItem,
   provisionFromIntakePacket,
   listCredentials,
   getCredentialValue,
@@ -263,6 +265,65 @@ export function createServer(options: CreateServerOptions) {
         const md = await getContextBundle(db, scope, actor, { mcpPublicUrl: options.mcpPublicUrl });
 
         return { content: [{ type: "text", text: md }] };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "list_attention_items",
+    {
+      title: "List Attention Items",
+      description: "List Things to resolve items visible to the authenticated principal. Returns a compact text table; item bodies are not inlined into get_context.",
+      inputSchema: z.object({
+        scopePath: z.string().min(1).optional().describe("Optional scope path. Omit for visible aggregate; use root with descendants for full visible tree."),
+        status: z.enum(["open", "approved", "rejected", "dismissed"]).optional(),
+        limit: z.number().min(1).max(100).optional(),
+      }),
+    },
+    async ({ scopePath, status, limit }) => {
+      try {
+        const actor = ensurePrincipal();
+        const items = await listAttentionItems(db, { scopePath, status, includeDescendants: true, limit }, actor);
+        if (!items.length) {
+          return { content: [{ type: "text", text: "No attention items." }] };
+        }
+        const lines = [
+          "id\tstatus\tkind\tscope\ttitle",
+          ...items.map((item) => `${item.id}\t${item.status}\t${item.kind}\t${item.scopePath}\t${item.title}`),
+        ];
+        return { content: [{ type: "text", text: lines.join("\n") }] };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "resolve_attention_item",
+    {
+      title: "Resolve Attention Item",
+      description: "Approve, reject, or dismiss an open Things to resolve item. Approval of a wiki proposal applies the proposed wiki edit and records a decision.",
+      inputSchema: z.object({
+        id: z.string().min(1).describe("Attention item id"),
+        resolution: z.enum(["approved", "rejected", "dismissed"]),
+        note: z.string().optional(),
+      }),
+    },
+    async ({ id, resolution, note }) => {
+      try {
+        const actor = ensurePrincipal();
+        const item = await resolveAttentionItem(db, { id, resolution, note }, actor);
+        return {
+          content: [{ type: "text", text: `Resolved ${item.id} as ${item.status} (${item.kind}) in ${item.scopePath}.` }],
+        };
       } catch (e) {
         return {
           content: [{ type: "text", text: `Error: ${formatError(e)}` }],

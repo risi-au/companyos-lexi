@@ -23,6 +23,8 @@ import {
   createScope,
   grantRole,
   createRecord,
+  createAttentionItem,
+  getDoc,
   listRecords,
   listEvents,
   saveDoc,
@@ -163,6 +165,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "get_record",
       "get_skill",
       "get_tree",
+      "list_attention_items",
       "list_canvases",
       "list_capabilities",
       "list_alerts",
@@ -189,6 +192,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "register_capability",
       "register_session",
       "report_run",
+      "resolve_attention_item",
       "revert_dashboard",
       "revert_doc",
       "save_canvas",
@@ -317,6 +321,29 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     });
     expect(res.isError).toBeFalsy();
     expect((res as any).content?.[0]?.text).toMatch(/Created changelog/);
+  });
+
+  it("attention MCP tools list and resolve wiki proposals end to end", async () => {
+    await grantRole(db, { principalId: rootPrincipalId, scopePath: testScope, role: "admin" }, rootPrincipalId);
+    await saveDoc(db, { scopePath: testScope, slug: "wiki", title: "Wiki", bodyMd: "Old wiki" }, rootPrincipalId);
+    const item = await createAttentionItem(db, {
+      scopePath: testScope,
+      kind: "wiki_proposal",
+      title: "Update wiki",
+      payload: { slug: "wiki", title: "Wiki", currentMd: "Old wiki", proposedMd: "New wiki" },
+    }, agentPrincipalId);
+
+    const { mcpClient } = await makeRoundtrip(rootPrincipalId);
+    const listed = await mcpClient.callTool({ name: "list_attention_items", arguments: { scopePath: testScope, status: "open", limit: 10 } });
+    expect((listed as any).isError).toBeFalsy();
+    expect((listed as any).content?.[0]?.text || "").toContain(item.id);
+
+    const resolved = await mcpClient.callTool({ name: "resolve_attention_item", arguments: { id: item.id, resolution: "approved", note: "ok" } });
+    expect((resolved as any).isError).toBeFalsy();
+    expect((resolved as any).content?.[0]?.text || "").toContain("approved");
+
+    const doc = await getDoc(db, { scopePath: testScope, slug: "wiki" }, rootPrincipalId);
+    expect(doc?.bodyMd).toBe("New wiki");
   });
 
   it("credential tools list metadata and return values only to agent-and-above principals", async () => {

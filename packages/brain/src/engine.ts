@@ -1,11 +1,13 @@
 import {
   archiveDoc,
+  createAttentionItem,
   estimateTokens,
   findNearestWorkbench,
   getDoc,
   getSkill,
   getSubtree,
   listCapabilityRuns,
+  listAttentionItems,
   listDocs,
   listEvents,
   listRecords,
@@ -169,6 +171,7 @@ export interface LintFinding {
   message: string;
   slugs: string[];
   action: "auto-fixed" | "flagged";
+  scopePath?: string;
 }
 
 interface LintOutput {
@@ -408,7 +411,7 @@ export async function runBrainEngine(
       for (const scope of scopes) {
         try {
           const lintResult = await lintScope(db, scope.path, actorPrincipalId, deps, counters, runTokenCeiling, monthlyTokenBudget);
-          lintFindings.push(...lintResult.findings);
+          lintFindings.push(...lintResult.findings.map((finding) => ({ ...finding, scopePath: scope.path })));
           scopeRuns.push({
             scopePath: scope.path,
             inputCount: lintResult.findings.length,
@@ -552,6 +555,7 @@ async function reportBrainRun(
 ): Promise<void> {
   const durationMs = Math.max(0, Date.now() - started.getTime());
   const hasWarning = result.lintFindings.some((finding) => finding.severity === "warning");
+  await createAttentionItemsForLintFindings(db, result.lintFindings, actorPrincipalId);
   await reportRun(
     db,
     {
@@ -587,6 +591,53 @@ async function reportBrainRun(
     },
     actorPrincipalId
   );
+}
+
+function lintFindingKey(finding: Pick<LintFinding, "type" | "slugs">): string {
+  return `${finding.type}:${[...finding.slugs].sort().join(",")}`;
+}
+
+function payloadRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+async function createAttentionItemsForLintFindings(
+  db: DB,
+  findings: LintFinding[],
+  actorPrincipalId: string
+): Promise<void> {
+  const flagged = findings.filter((finding) => finding.action === "flagged" && finding.scopePath);
+  const byScope = new Map<string, LintFinding[]>();
+  for (const finding of flagged) {
+    const scopePath = finding.scopePath!;
+    const bucket = byScope.get(scopePath) ?? [];
+    bucket.push(finding);
+    byScope.set(scopePath, bucket);
+  }
+
+  for (const [scopePath, scopeFindings] of byScope) {
+    const open = await listAttentionItems(db, { scopePath, kind: "lint_finding", status: "open", limit: 200 }, actorPrincipalId);
+    const existingKeys = new Set(open.map((item) => {
+      const payload = payloadRecord(item.payload);
+      return lintFindingKey({
+        type: String(payload.type ?? "") as LintFinding["type"],
+        slugs: Array.isArray(payload.slugs) ? payload.slugs.map(String) : [],
+      });
+    }));
+
+    for (const finding of scopeFindings) {
+      const key = lintFindingKey(finding);
+      if (existingKeys.has(key)) continue;
+      await createAttentionItem(db, {
+        scopePath,
+        kind: "lint_finding",
+        title: `Wiki lint: ${finding.type}`,
+        summary: finding.message,
+        payload: { ...finding, scopePath },
+      }, actorPrincipalId);
+      existingKeys.add(key);
+    }
+  }
 }
 
 async function targetTopLevelScopes(db: DB, scopePath?: string): Promise<ScopeInfo[]> {
