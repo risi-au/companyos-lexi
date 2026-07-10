@@ -20,12 +20,13 @@ export function Card({ children, className = "" }: CardProps) {
 export interface StatCardProps {
   label: ReactNode;
   value: number;
+  subline?: ReactNode;
   href?: string;
   suffix?: string;
   className?: string;
 }
 
-export function StatCard({ label, value, href, suffix = "", className = "" }: StatCardProps) {
+export function StatCard({ label, value, subline, href, suffix = "", className = "" }: StatCardProps) {
   const [display, setDisplay] = useState(rm() ? value : 0);
   const valueRef = useRef({ value: rm() ? value : 0 });
 
@@ -48,10 +49,11 @@ export function StatCard({ label, value, href, suffix = "", className = "" }: St
   const body = (
     <Card className={className}>
       <div className="text-[var(--font-size-xs)] text-[var(--mutedfg)]">{label}</div>
-      <div className="mt-[var(--space-1)] font-mono text-[var(--font-size-2xl)] leading-none text-[var(--fg)] tabular-nums">
+      <div className="mt-[var(--space-1)] text-[28px] font-semibold leading-none text-[var(--fg)] tabular-nums">
         {display}
         {suffix}
       </div>
+      {subline ? <div className="mt-[9px] text-[12px] text-[var(--mutedfg)]">{subline}</div> : null}
     </Card>
   );
 
@@ -62,3 +64,4 @@ export function StatCard({ label, value, href, suffix = "", className = "" }: St
     </a>
   );
 }
+

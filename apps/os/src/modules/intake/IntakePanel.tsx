@@ -99,7 +99,7 @@ const WIZARD_STEPS = [
   { id: "history", label: "History" },
   { id: "interview", label: "Interview" },
   { id: "review", label: "Review" },
-  { id: "provision", label: "Create" },
+  { id: "provision", label: "Provision" },
 ];
 
 const PROVISION_ITEMS = [
@@ -204,17 +204,16 @@ export function IntakePanel({
   framingTemplates: FramingTemplate[];
 }) {
   const [intakes, setIntakes] = useState(initialIntakes);
-  const [activeId, setActiveId] = useState(initialOpenId || initialIntakes.find((i) => !["provisioned", "rejected", "dismissed"].includes(i.status))?.id || initialIntakes[0]?.id || null);
+  const [activeId, setActiveId] = useState<string | null>(initialOpenId || null);
   const [isPending, startTransition] = useTransition();
   const confirm = useConfirm();
   const { toast } = useToast();
-  const active = intakes.find((i) => i.id === activeId) || null;
+  const active = activeId ? intakes.find((i) => i.id === activeId) || null : null;
   const canAdmin = access === "owner" || access === "admin";
   const canEdit = canAdmin || access === "editor" || access === "agent";
 
   function mergeIntake(next: Intake) {
     setIntakes((rows) => rows.map((row) => row.id === next.id ? next : row));
-    setActiveId(next.id);
   }
 
   const resume = useMemo(() => intakes.find((i) => ["draft", "awaiting_external", "needs_review", "approved"].includes(i.status)), [intakes]);
@@ -284,23 +283,24 @@ export function IntakePanel({
         </div>
 
         <div className="rounded-[var(--radius-4)] bg-[var(--surface)] p-[var(--space-4)] shadow-[var(--shadow)]">
-          {active ? (
-            <WizardWorkspace
-              key={active.id}
-              intake={active}
-              scopePath={scopePath}
-              canEdit={canEdit}
-              canAdmin={canAdmin}
-              busy={isPending}
-              run={(fn) => startTransition(fn)}
-              mergeIntake={mergeIntake}
-              framingTemplates={framingTemplates}
-            />
-          ) : (
-            <EmptyState icon={<FileText size={16} />} title="Select a setup on the left" body="Setup details appear here." />
-          )}
+          <EmptyState icon={<FileText size={16} />} title="Setup details" body="Open a setup to continue the wizard." />
         </div>
       </div>
+
+      {active ? (
+        <WizardWorkspace
+          key={active.id}
+          intake={active}
+          scopePath={scopePath}
+          canEdit={canEdit}
+          canAdmin={canAdmin}
+          busy={isPending}
+          run={(fn) => startTransition(fn)}
+          mergeIntake={mergeIntake}
+          framingTemplates={framingTemplates}
+          onClose={() => setActiveId(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -314,6 +314,7 @@ function WizardWorkspace({
   run,
   mergeIntake,
   framingTemplates,
+  onClose,
 }: {
   intake: Intake;
   scopePath: string;
@@ -323,6 +324,7 @@ function WizardWorkspace({
   run: (fn: () => Promise<void>) => void;
   mergeIntake: (next: Intake) => void;
   framingTemplates: FramingTemplate[];
+  onClose: () => void;
 }) {
   const confirm = useConfirm();
   const { toast } = useToast();
@@ -363,6 +365,17 @@ function WizardWorkspace({
   const maxReached = Math.max(localMaxStep, statusMaxStep);
   const openQuestions = useMemo(() => parseOpenQuestions(questions), [questions]);
   const remainingQuestions = openQuestions.filter((_, index) => !checkedQuestions[index]).length;
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   useEffect(() => {
     const nextMax = statusStep(intake.status);
@@ -492,16 +505,16 @@ function WizardWorkspace({
   }
 
   return (
-    <div className="space-y-[var(--space-5)]">
-      <div className="flex flex-wrap items-start justify-between gap-[var(--space-3)]">
-        <div>
-          <div className="text-[var(--font-size-md)] font-medium">Set up {scopePath}</div>
-          <div className="mt-1 text-[var(--font-size-xs)] text-[var(--mutedfg)]">Step {currentStep} of 6, {labelForIntakeStatus(intake.status)}</div>
-        </div>
-        <div className="relative flex items-center gap-[var(--space-2)]">
-          <span className="rounded-[var(--radius-3)] bg-[var(--infobg)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-xs)] text-[var(--info)]">
-            {scopeLive ? "Live" : currentStep === 6 ? "Creating" : labelForIntakeStatus(intake.status)}
-          </span>
+    <div data-viewroot="wizard" className="fixed bottom-0 right-0 top-0 z-[70] flex flex-col bg-[var(--bg)] text-[var(--fg)] left-[264px] max-[820px]:left-0">
+      <div className="flex h-[48px] shrink-0 items-center gap-[12px] border-b border-[var(--border)] bg-[var(--surface)] px-[18px]">
+        <b className="text-[14px]">Set up</b>
+        <span className="font-mono text-[13px] text-[var(--mutedfg)]">{scopePath}</span>
+        <span className="inline-flex items-center gap-[6px] rounded-full bg-[var(--infobg)] px-[9px] py-[4px] text-[12px] font-medium text-[var(--info)]">
+          <span aria-hidden="true" className="h-[6px] w-[6px] rounded-full bg-current" />
+          {scopeLive ? "Live" : currentStep === 6 ? "Creating" : labelForIntakeStatus(intake.status)}
+        </span>
+        <div className="relative ml-auto flex items-center gap-[12px]">
+          <span className="whitespace-nowrap text-[11.5px] text-[var(--mutedfg)]">Esc saves & closes</span>
           {intake.status === "dismissed" && canAdmin ? (
             <button onClick={() => runAction(async () => mergeIntake(await reopenIntakeAction({ intakeId: intake.id, scopePath }) as Intake), "Setup reopened.")} className="inline-flex min-h-[44px] cursor-pointer items-center gap-1 rounded-[var(--radius-3)] border border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] hover:bg-[var(--hover)]">
               <RefreshCw size={14} /> Reopen
@@ -527,16 +540,16 @@ function WizardWorkspace({
         </div>
       </div>
 
-      <div className="wiz-grid grid grid-cols-1 gap-[var(--space-5)] min-[821px]:grid-cols-[210px_1fr]">
+      <div className="wiz-grid grid min-h-0 flex-1 grid-cols-1 overflow-hidden min-[821px]:grid-cols-[210px_1fr]">
         <Stepper
           steps={WIZARD_STEPS}
           current={currentStep}
           maxReached={maxReached}
           onStepClick={goStep}
-          className="border-b border-[var(--border)] pb-[var(--space-3)] min-[821px]:border-b-0 min-[821px]:border-r min-[821px]:pr-[var(--space-4)]"
+          className="border-b border-[var(--border)] min-[821px]:border-b-0 min-[821px]:border-r"
         />
 
-        <div ref={stageRef} data-viewroot="wizard" className="min-w-0 space-y-[var(--space-4)]">
+        <div ref={stageRef} className="min-w-0 overflow-auto p-[22px]">
           {currentStep === 1 ? (
             <BasicsStep intake={intake} reasonText={reasonText} onContinue={() => continueTo(2)} />
           ) : null}
@@ -700,7 +713,7 @@ function Meta({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-[var(--radius-3)] bg-[var(--raised)] px-[var(--space-3)] py-[var(--space-2)]">
       <div className="text-[var(--font-size-xs)] text-[var(--mutedfg)]">{label}</div>
-      <div className="mt-1 font-mono text-[var(--font-size-xs)]">{value}</div>
+      <div className="mt-1 text-[var(--font-size-xs)] text-[var(--fg)]">{value}</div>
     </div>
   );
 }
@@ -1085,3 +1098,7 @@ function LabeledArea({ label, value, onChange }: { label: string; value: string;
     </label>
   );
 }
+
+
+
+

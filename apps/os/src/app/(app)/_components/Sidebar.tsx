@@ -4,7 +4,30 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { anim, df, rm, useToast } from "@companyos/ui";
-import { Activity, BrainCircuit, ChevronDown, ChevronRight, ExternalLink, Home, Plus, Search, Shield, X } from "lucide-react";
+import {
+  Activity,
+  BrainCircuit,
+  ChevronDown,
+  ChevronRight,
+  CircleDot,
+  ExternalLink,
+  FileText,
+  Gauge,
+  Grid2X2,
+  Home,
+  KeyRound,
+  LayoutDashboard,
+  Link2,
+  MonitorPlay,
+  NotebookTabs,
+  Palette,
+  Plus,
+  Search,
+  Settings,
+  Shield,
+  Users,
+  X,
+} from "lucide-react";
 import type { Scope } from "@companyos/db";
 import { useSidebarDrawer } from "./AppShellChrome";
 import { setSelectedProject, createNewScope } from "./actions";
@@ -31,7 +54,21 @@ const MODULES: Array<{ tab: string; label: string }> = [
   { tab: "intake", label: "Setup" },
 ];
 
-const INDENT_STEP = 16; // px per depth level (design-system-v2 §5)
+const INDENT_STEP = 16; // px per depth level (design-system-v2 Â§5)
+
+const MODULE_ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
+  dashboard: LayoutDashboard,
+  overview: Grid2X2,
+  activity: Activity,
+  "work-log": NotebookTabs,
+  sessions: MonitorPlay,
+  docs: FileText,
+  canvas: Palette,
+  connect: Link2,
+  credentials: KeyRound,
+  intake: Settings,
+  members: Users,
+};
 
 const hoverUnderlineClass =
   "[background-image:linear-gradient(var(--accent),var(--accent))] [background-position:0_100%] [background-repeat:no-repeat] [background-size:0%_1.5px] transition-[background-size,background-color,color] duration-[250ms] ease-out hover:[background-size:100%_1.5px] motion-reduce:transition-none";
@@ -79,7 +116,7 @@ function filterForest(nodes: TreeNodeData[], query: string): TreeNodeData[] {
   });
 }
 
-/** Every path segment prefix of `path`, e.g. "a/b/c" → {a, a/b, a/b/c}. */
+/** Every path segment prefix of `path`, e.g. "a/b/c" â†’ {a, a/b, a/b/c}. */
 function ancestorsOf(path: string): Set<string> {
   const set = new Set<string>();
   if (!path) return set;
@@ -163,6 +200,9 @@ export function Sidebar({ tree, selected = null, taskManagerUrl = null, instance
           placeholder="Search"
           aria-label="Filter navigation"
         />
+        <span className="rounded-[var(--radius-2)] border border-[var(--border)] bg-[var(--surface)] px-[6px] py-[2px] font-mono text-[11px] leading-none text-[var(--mutedfg)]">
+          ⌘K
+        </span>
       </label>
     </div>
 
@@ -171,7 +211,7 @@ export function Sidebar({ tree, selected = null, taskManagerUrl = null, instance
       <div className="mb-[var(--space-4)]">
         <div className="mb-[var(--space-1)] flex items-center justify-between px-[var(--space-2)]">
           <span
-            className="text-[var(--font-size-xs)] lowercase tracking-[0.08em] text-[var(--faded)]"
+            className="text-[11px] lowercase text-[var(--faded)]"
             style={{ fontFamily: "var(--font-mono)" }}
           >
             work
@@ -205,7 +245,7 @@ export function Sidebar({ tree, selected = null, taskManagerUrl = null, instance
         <div className="mb-[var(--space-2)]">
           <div className="mb-[var(--space-1)] px-[var(--space-2)]">
             <span
-              className="text-[var(--font-size-xs)] lowercase tracking-[0.08em] text-[var(--faded)]"
+              className="text-[11px] lowercase text-[var(--faded)]"
               style={{ fontFamily: "var(--font-mono)" }}
             >
               system
@@ -244,7 +284,7 @@ function SystemLink({ href, active, icon, label }: { href: string; active: boole
     <Link
       href={href}
       aria-current={active ? "page" : undefined}
-      className={`flex items-center gap-[var(--space-2)] rounded-[var(--radius-3)] px-[var(--space-2)] py-[var(--space-2)] text-[var(--font-size-sm)] ${hoverUnderlineClass} ${
+      className={`flex min-h-[30px] items-center gap-[7px] rounded-[var(--radius-3)] px-[var(--space-2)] text-[13.5px] ${hoverUnderlineClass} ${
         active ? `bg-[var(--active)] font-medium text-[var(--primary)] ${activeUnderlineClass}` : "text-[var(--mutedfg)] hover:bg-[var(--hover)]"
       }`}
     >
@@ -305,16 +345,17 @@ function TreeNode({ node, level, ctx }: { node: TreeNodeData; level: number; ctx
     }
   }
 
-  const rowPadLeft = `${level * INDENT_STEP + 4}px`;
+  const rowPadLeft = `${level * INDENT_STEP}px`;
+  const ScopeIcon = isRoot ? Home : hasChildren ? Grid2X2 : isActive ? CircleDot : Gauge;
 
   const labelInner = (
     <>
-      {isRoot && !isActive && <Home size={14} className="shrink-0 text-[var(--mutedfg)]" />}
+      <ScopeIcon size={14} className="shrink-0 text-current" />
       <span className="truncate">{label}</span>
     </>
   );
 
-  const labelClass = `relative flex min-w-0 flex-1 items-center gap-[var(--space-2)] rounded-[var(--radius-3)] px-[var(--space-2)] py-[var(--space-1)] text-left ${hoverUnderlineClass} ${
+  const labelClass = `relative flex min-h-[30px] min-w-0 flex-1 items-center gap-[7px] rounded-[var(--radius-3)] px-[var(--space-2)] text-left text-[13.5px] ${hoverUnderlineClass} ${
     isActive ? "bg-[var(--active)] font-medium text-[var(--primary)]" : "text-[var(--fg)] hover:bg-[var(--hover)]"
   } focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]`;
   const activeTick = isActive ? (
@@ -331,14 +372,14 @@ function TreeNode({ node, level, ctx }: { node: TreeNodeData; level: number; ctx
             onKeyDown={onChevronKeyDown}
             aria-expanded={open}
             aria-label={`${open ? "Collapse" : "Expand"} ${label}`}
-            className="inline-flex h-[20px] w-[16px] shrink-0 cursor-pointer items-center justify-center rounded-[var(--radius-2)] text-[var(--mutedfg)] hover:text-[var(--fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--primary)]"
+            className="inline-flex h-[30px] w-[18px] shrink-0 cursor-pointer items-center justify-center rounded-[var(--radius-2)] text-[var(--mutedfg)] hover:text-[var(--fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--primary)]"
           >
             <span ref={chevronRef} className="inline-flex">
               <ChevronRight size={14} />
             </span>
           </button>
         ) : (
-          <span aria-hidden className="inline-block h-[20px] w-[16px] shrink-0" />
+          <span aria-hidden className="inline-block h-[30px] w-[18px] shrink-0" />
         )}
 
         {isTopLevel ? (
@@ -371,8 +412,7 @@ function TreeNode({ node, level, ctx }: { node: TreeNodeData; level: number; ctx
   );
 }
 
-function ModuleRows({ scope, level, ctx }: { scope: Scope; level: number; ctx: NodeContext }) {
-  const padLeft = `${level * INDENT_STEP + 20}px`;
+function ModuleRows({ scope, ctx }: { scope: Scope; level: number; ctx: NodeContext }) {
   const effectiveTab = ctx.currentTab || "dashboard";
   const showMembers = scope.type === "project";
   const showTask = scope.type === "project" && scope.path === ctx.selected && !!ctx.taskManagerUrl;
@@ -381,21 +421,20 @@ function ModuleRows({ scope, level, ctx }: { scope: Scope; level: number; ctx: N
   if (showMembers) rows.push({ tab: "members", label: "Members" });
 
   return (
-    <div className="mt-[var(--space-1)] mb-[var(--space-1)]" style={{ paddingLeft: padLeft }}>
+    <div className="my-[var(--space-1)] ml-[47px] border-l-2 border-[var(--primary)] pl-[var(--space-2)]">
       {rows.map(({ tab, label }) => {
         const active = effectiveTab === tab;
-        // Attention-badge seam: if a per-module count source lands, render a
-        // badge (a var(--accent)/var(--warn) circle) on the row here. No count
-        // data source exists today — do not fabricate counts.
+        const Icon = MODULE_ICONS[tab] ?? Grid2X2;
         return (
           <Link
             key={tab}
             href={`/s/${scope.path}?tab=${tab}`}
             aria-current={active ? "page" : undefined}
-            className={`block rounded-[var(--radius-3)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-sm)] ${hoverUnderlineClass} ${
+            className={`flex min-h-[30px] items-center gap-[7px] rounded-[var(--radius-3)] px-[var(--space-2)] text-[13.5px] ${hoverUnderlineClass} ${
               active ? `bg-[var(--active)] font-medium text-[var(--primary)] ${activeUnderlineClass}` : "text-[var(--mutedfg)] hover:bg-[var(--hover)]"
             }`}
           >
+            <Icon size={14} className="shrink-0" />
             {label}
           </Link>
         );
@@ -406,15 +445,15 @@ function ModuleRows({ scope, level, ctx }: { scope: Scope; level: number; ctx: N
           href={ctx.taskManagerUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className={`mt-[var(--space-1)] flex items-center gap-[var(--space-1)] rounded-[var(--radius-3)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-sm)] text-[var(--mutedfg)] hover:bg-[var(--hover)] hover:text-[var(--fg)] ${hoverUnderlineClass}`}
+          className={`mt-[var(--space-1)] flex min-h-[30px] items-center gap-[7px] rounded-[var(--radius-3)] px-[var(--space-2)] text-[13.5px] text-[var(--mutedfg)] hover:bg-[var(--hover)] hover:text-[var(--fg)] ${hoverUnderlineClass}`}
         >
-          Open task board <ExternalLink size={14} />
+          <ExternalLink size={14} />
+          Open task board
         </a>
       )}
     </div>
   );
 }
-
 /** Minimal inline dialog using the createNewScope server action (behavior preserved from M4-02). */
 function NewScopeDialog({ tree, defaultParent, onClose }: { tree: Scope[]; defaultParent: string; onClose: () => void }) {
   const { toast } = useToast();
@@ -505,3 +544,7 @@ function NewScopeDialog({ tree, defaultParent, onClose }: { tree: Scope[]; defau
     </div>
   );
 }
+
+
+
+

@@ -30,3 +30,6 @@ Shared UI primitives, global CSS, tokens, and motion helpers for CompanyOS.
 - `Tabs`, `Table`, `Card`/`StatCard`, `EmptyState`, and `Stepper` are exported from `src/index.ts` for V2-native module surfaces.
 - `Tabs`, `Stepper`, `StatCard`, and any other animated primitive must use `src/motion.ts` helpers only; feature code must not import GSAP directly.
 - `CompletionReward` is the reusable OS-wide "mark done" reward pattern: pop-in circle, ring burst, and rising count text. It currently ships for the intake wizard checklist and should be reused for future completion moments instead of one-off animations.
+## UX-06C Shared Primitive Notes
+- `StatCard` values are sans semibold tabular numerals and may include a muted sub-line; do not use mono for human-readable stat values.
+- `Stepper` matches the wizard rail contract: 24px round mono number chips, 13px sans labels, 2px rail gap, and a visible step count.

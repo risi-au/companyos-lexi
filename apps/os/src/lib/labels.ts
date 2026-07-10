@@ -85,6 +85,26 @@ export function labelForConnectionStatus(revoked: boolean): string {
   return revoked ? "Revoked" : "Active";
 }
 
+
+export const eventTypeLabels: Record<string, string> = {
+  "admin.user_created": "User created",
+  "admin.user_disabled": "User disabled",
+  "admin.user_temp_password_reset": "Temporary password reset",
+  "admin.user_password_changed": "Password changed",
+  "admin.litellm_key_minted": "LiteLLM key created",
+  "admin.litellm_key_revoked": "LiteLLM key revoked",
+  "admin.litellm_key_budget_set": "LiteLLM budget updated",
+  "alert.fired": "Alert fired",
+  "capability.run_reported": "Capability run reported",
+  "scope.created": "Scope created",
+  "token.issued": "Token issued",
+};
+
+export function labelForEventType(type: string | null | undefined): string {
+  if (!type) return "Activity";
+  return eventTypeLabels[type] ?? fallbackTitle(type.replace(/[.]/g, " "));
+}
 export function labelForMemoryAccess(value: string | null | undefined): string {
   return value === "on" ? "On" : "Off";
 }
+

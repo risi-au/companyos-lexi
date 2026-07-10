@@ -60,11 +60,13 @@ export default async function AppLayout({
   }
 
   const instanceName = process.env.INSTANCE_NAME || "CompanyOS";
+  const alertCount = rootRole === "owner" || rootRole === "admin" ? (await api.listAdminAlerts(actorId)).length : 0;
 
   return (
     <FeedbackProviders>
       <AppShellChrome
         instanceName={instanceName}
+        alertCount={alertCount}
         sidebar={
           <Sidebar
             tree={tree}

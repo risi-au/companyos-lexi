@@ -1,7 +1,8 @@
 "use client";
 
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { Menu } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { Activity, BrainCircuit, Menu, Shield } from "lucide-react";
 
 const focusableSelector = [
   "a[href]",
@@ -40,12 +41,15 @@ interface AppShellChromeProps {
   instanceName: string;
   sidebar: React.ReactNode;
   userMenu: React.ReactNode;
+  alertCount?: number;
   children: React.ReactNode;
 }
 
-export function AppShellChrome({ sidebar, userMenu, children }: AppShellChromeProps) {
+export function AppShellChrome({ instanceName, sidebar, userMenu, alertCount = 0, children }: AppShellChromeProps) {
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const asideRef = useRef<HTMLElement | null>(null);
+  const section = getHeaderSection(pathname, instanceName);
 
   const close = useCallback(() => setOpen(false), []);
 
@@ -99,7 +103,7 @@ export function AppShellChrome({ sidebar, userMenu, children }: AppShellChromePr
         >
           {sidebar}
 
-          <div className="mt-auto border-t border-[var(--border)] p-[var(--space-3)]">{userMenu}</div>
+          <div className="mt-auto p-[12px]">{userMenu}</div>
         </aside>
 
         <div className="flex h-[100vh] min-w-0 flex-col overflow-hidden">
@@ -114,7 +118,21 @@ export function AppShellChrome({ sidebar, userMenu, children }: AppShellChromePr
             >
               <Menu size={18} />
             </button>
-            <div className="text-[var(--font-size-xs)]">Scope</div>
+            <div className="flex min-w-0 items-center gap-[10px]">
+              <section.Icon size={14} className="shrink-0 text-[var(--fg)]" />
+              <div className="truncate text-[13px] font-semibold text-[var(--fg)]">{section.title}</div>
+              {section.chip ? (
+                <span className="inline-flex max-w-[220px] items-center truncate rounded-full bg-[var(--muted)] px-[9px] py-[4px] text-[12px] font-medium text-[var(--mutedfg)]">
+                  {section.chip}
+                </span>
+              ) : null}
+              {section.admin && alertCount > 0 ? (
+                <span className="inline-flex items-center gap-[6px] rounded-full bg-[var(--warnbg)] px-[9px] py-[4px] text-[12px] font-medium text-[var(--warn)]">
+                  <span aria-hidden="true" className="h-[6px] w-[6px] rounded-full bg-current" />
+                  {alertCount === 1 ? "1 component degraded" : `${alertCount} components degraded`}
+                </span>
+              ) : null}
+            </div>
             <div className="ml-auto flex items-center gap-[var(--space-3)]">
               <FontScaleControl />
               <ThemeControl />
@@ -128,6 +146,16 @@ export function AppShellChrome({ sidebar, userMenu, children }: AppShellChromePr
       </div>
     </SidebarDrawerContext.Provider>
   );
+}
+
+function getHeaderSection(pathname: string | null, instanceName: string) {
+  if (pathname?.startsWith("/admin")) {
+    return { title: "Admin", chip: instanceName, admin: true, Icon: Shield };
+  }
+  if (pathname?.startsWith("/brain")) {
+    return { title: "Brain", chip: null, admin: false, Icon: BrainCircuit };
+  }
+  return { title: "Scope", chip: null, admin: false, Icon: Activity };
 }
 
 function clampScale(value: number) {

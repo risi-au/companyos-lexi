@@ -21,3 +21,6 @@ Render the `/admin` section for day-to-day instance operations: users, grants, a
 
 ## Tests
 - Service contract tests live in `packages/api/src/modules/admin/admin.test.ts`.
+## UX-06C Notes
+- Admin overview uses existing admin settings and alert loaders for integration rows, stat sub-lines, recent activity labels, and the shell degraded-count pill.
+- Recent activity must render human event labels from `apps/os/src/lib/labels.ts`; raw event type strings are not UI copy.

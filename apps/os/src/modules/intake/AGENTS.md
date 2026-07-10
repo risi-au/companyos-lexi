@@ -25,3 +25,6 @@ Creation wizard UI module. Thin client/server-action wrappers around
 ## How to test
 - UI actions are typechecked through `@companyos/os`.
 - Service behavior is covered in `packages/api/src/modules/intake/intake.test.ts`.
+## UX-06C Notes
+- The Intake tab is the entry point; opening a setup renders `WizardWorkspace` as a right-pane full-screen takeover with its own 48px header.
+- Escape closes the takeover through the existing local close path. Persistence remains in the existing per-step server actions.
