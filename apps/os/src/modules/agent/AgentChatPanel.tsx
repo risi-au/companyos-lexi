@@ -2,8 +2,17 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useState, useEffect, useTransition } from "react";
+import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import { runAgentTurnAction, listConversationsAction, getMessagesAction } from "./actions";
+
+type Citation = {
+  slug: string;
+  scopePath: string;
+  revisionId?: string;
+  source: "scope" | "ancestor" | "root-pattern" | "critical-facts" | "personal";
+  title?: string;
+};
 
 type Msg = {
   id?: string;
@@ -16,6 +25,33 @@ type Msg = {
 type Conv = { id: string; title: string; createdAt: string | Date };
 
 const MODELS = ["cheap", "analysis", "reasoning", "code"] as const;
+
+function citationList(value: unknown): Citation[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is Citation => (
+    item &&
+    typeof item === "object" &&
+    typeof (item as Citation).slug === "string" &&
+    typeof (item as Citation).scopePath === "string"
+  ));
+}
+
+function CitationChips({ citations }: { citations: Citation[] }) {
+  if (citations.length === 0) return null;
+  return (
+    <div className="mt-[var(--space-2)] flex flex-wrap gap-[var(--space-1)]">
+      {citations.map((citation) => (
+        <Link
+          key={`${citation.scopePath}:${citation.slug}`}
+          href={`/s/${citation.scopePath}?tab=docs&doc=${encodeURIComponent(citation.slug)}`}
+          className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--muted)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-xs)] text-[var(--muted-foreground)] hover:text-[var(--primary)]"
+        >
+          {citation.title ?? citation.slug}
+        </Link>
+      ))}
+    </div>
+  );
+}
 
 export function AgentChatPanel({
   scopePath,
@@ -123,9 +159,11 @@ export function AgentChatPanel({
     }
     // assistant
     const text = (m.content as any)?.text || (typeof m.content === "string" ? m.content : "");
+    const citations = citationList((m.content as any)?.citations);
     return (
       <div key={idx} className="mr-auto max-w-[85%] rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[var(--font-size-sm)]">
         <ReactMarkdown>{text || "No reply, try again."}</ReactMarkdown>
+        <CitationChips citations={citations} />
       </div>
     );
   }

@@ -5,6 +5,7 @@ import { emitEvent, type DB } from "../../kernel/events";
 import { requireAccess } from "../../kernel/grants";
 import { getScope } from "../../kernel/scopes";
 import { ScopeNotFoundError, KernelError } from "../../errors";
+import type { Citation } from "../memory/service";
 
 export type SessionStatus = AgentSession["status"];
 
@@ -36,6 +37,7 @@ export interface UpdateSessionInput {
 export interface CompleteSessionInput {
   sessionId: string;
   summary?: string;
+  citations?: Citation[];
 }
 
 export interface ListSessionsInput {
@@ -138,6 +140,8 @@ async function loadSessionWithScope(
       tokenId: agentSessions.tokenId,
       principalId: agentSessions.principalId,
       worktreeRef: agentSessions.worktreeRef,
+      summary: agentSessions.summary,
+      citations: agentSessions.citations,
       lastHeartbeat: agentSessions.lastHeartbeat,
       createdBy: agentSessions.createdBy,
       createdAt: agentSessions.createdAt,
@@ -223,9 +227,11 @@ export async function completeSession(
   await requireAccess(db, actorPrincipalId, existing.scopePath, "editor");
 
   const now = new Date();
+  const summary = input.summary ?? null;
+  const citations = input.citations ?? null;
   const [updated] = (await db
     .update(agentSessions)
-    .set({ status: "completed", updatedAt: now, lastHeartbeat: now })
+    .set({ status: "completed", summary, citations, updatedAt: now, lastHeartbeat: now })
     .where(eq(agentSessions.id, input.sessionId))
     .returning()) as AgentSession[];
 
@@ -240,7 +246,8 @@ export async function completeSession(
     payload: {
       sessionId: input.sessionId,
       scopePath: existing.scopePath,
-      summary: input.summary ?? null,
+      summary,
+      citations,
     },
   });
 
@@ -280,6 +287,8 @@ export async function listSessions(
       tokenId: agentSessions.tokenId,
       principalId: agentSessions.principalId,
       worktreeRef: agentSessions.worktreeRef,
+      summary: agentSessions.summary,
+      citations: agentSessions.citations,
       lastHeartbeat: agentSessions.lastHeartbeat,
       createdBy: agentSessions.createdBy,
       createdAt: agentSessions.createdAt,

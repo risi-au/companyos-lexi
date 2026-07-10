@@ -19,7 +19,7 @@ Stdio auth uses `COS_TOKEN` env. HTTP auth uses `Authorization: Bearer cos_...` 
 - `verify_workbench({cwd, scope?})` - read-only warning helper; checks whether client cwd matches the expected workbench folder. Viewer when scope is explicit; otherwise uses the principal's single direct grant.
 - `register_session({scope, title, engine, model?, token_id?, worktree_ref?})` - register a cooperative scoped work session. Editor/agent.
 - `update_session({session_id, status?, title?, worktree_ref?})` - heartbeat or update a session. Bare calls bump heartbeat only. Editor/agent on the session scope.
-- `complete_session({session_id, summary?})` - mark a session completed and emit wrap-up event. Editor/agent on the session scope.
+- `complete_session({session_id, summary?, citations?})` - mark a session completed, store wrap-up summary/citations, and emit wrap-up event. External tools should cite wiki pages that informed the session. Editor/agent on the session scope.
 - `list_sessions({scope, status?, include_descendants?, idle_window_ms?, limit?})` - list scoped sessions with read-time stale flags. Viewer.
 - `query_usage({scope?, since?, group_by?, operation?, session_id?, principal_id?, token_id?, connection_id?, limit?})` - admin-gated usage summaries for estimated CompanyOS MCP/context overhead. Returns grouped rows and recent redacted events.
 - `get_context_profile({scope})` - admin-gated effective context profile for a scope.
@@ -53,6 +53,7 @@ Stdio auth uses `COS_TOKEN` env. HTTP auth uses `Authorization: Bearer cos_...` 
 - `approve_intake_packet`, `provision_from_intake_packet` - admin-gated and explicitly described as requiring human instruction; approval does not provision, provisioning calls the API `provisionFromIntakePacket` path.
 - `save_dashboard({scope, name?, spec})`, `get_dashboard`, `list_dashboards`, `list_widget_types`, `revert_dashboard` - dashboard spec authoring. `list_widget_types` is public discovery; writes require editor/agent.
 - `save_doc`, `get_doc`, `list_docs`, `list_doc_revisions`, `revert_doc` - KB markdown documents. Writes require editor/agent.
+- `rename_doc`, `archive_doc`, `get_backlinks`, `get_link_graph` - wiki gardening tools for agents. Rename/archive require editor/agent; backlinks/link graph require viewer. They delegate to docs services and rely on existing doc link/event upkeep.
 - `save_canvas`, `get_canvas`, `list_canvases` - Excalidraw scene JSON. Writes require editor/agent.
 
 All protected tools: unauthenticated calls return a clear error. AccessDenied is surfaced as `Access denied: requires <role> on <path>`.

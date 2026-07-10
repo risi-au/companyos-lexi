@@ -2,6 +2,7 @@ import {
   pgTable,
   uuid,
   text,
+  jsonb,
   timestamp,
   pgEnum,
   index,
@@ -32,6 +33,8 @@ export const agentSessions = pgTable(
     tokenId: uuid("token_id").references(() => tokens.id, { onDelete: "set null" }),
     principalId: uuid("principal_id").references(() => principals.id, { onDelete: "set null" }),
     worktreeRef: text("worktree_ref"),
+    summary: text("summary"),
+    citations: jsonb("citations"),
     lastHeartbeat: timestamp("last_heartbeat", { withTimezone: true }).notNull().defaultNow(),
     createdBy: uuid("created_by")
       .notNull()
@@ -44,6 +47,14 @@ export const agentSessions = pgTable(
   })
 );
 
+export interface AgentSessionCitation {
+  slug: string;
+  scopePath: string;
+  revisionId?: string;
+  source: "scope" | "ancestor" | "root-pattern" | "critical-facts" | "personal";
+  title?: string;
+}
+
 export interface AgentSession {
   id: string;
   scopeId: string;
@@ -54,6 +65,8 @@ export interface AgentSession {
   tokenId: string | null;
   principalId: string | null;
   worktreeRef: string | null;
+  summary: string | null;
+  citations: AgentSessionCitation[] | null;
   lastHeartbeat: Date;
   createdBy: string;
   createdAt: Date;
@@ -61,4 +74,4 @@ export interface AgentSession {
 }
 
 export type NewAgentSession = Pick<AgentSession, "scopeId" | "title" | "engine" | "createdBy"> &
-  Partial<Pick<AgentSession, "model" | "status" | "tokenId" | "principalId" | "worktreeRef" | "lastHeartbeat">>;
+  Partial<Pick<AgentSession, "model" | "status" | "tokenId" | "principalId" | "worktreeRef" | "summary" | "citations" | "lastHeartbeat">>;

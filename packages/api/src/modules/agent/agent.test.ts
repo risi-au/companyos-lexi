@@ -158,6 +158,52 @@ describe("resident agent (M3-04) with mocked LiteLLM fixture", () => {
     expect(list.length).toBeGreaterThan(0);
     const msgs = await getConversationMessages(db, { conversationId: r1.conversationId }, actorId);
     expect(msgs.length).toBeGreaterThan(0);
+    const assistant = msgs.find((message: any) => message.role === "assistant");
+    expect(Object.prototype.hasOwnProperty.call((assistant as any)?.content ?? {}, "citations")).toBe(false);
+  });
+
+  it("persists deduped recall citations on the final assistant message and turn result", async () => {
+    const doc = await saveDoc(db, {
+      scopePath: demoScopePath,
+      slug: "citation-source",
+      title: "Citation Source",
+      bodyMd: "Citation alpha source material for the resident agent.",
+    }, actorId);
+    const [revision] = await db
+      .select()
+      .from(schema.documentRevisions)
+      .where(eq(schema.documentRevisions.documentId, doc.id))
+      .limit(1);
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => makeToolCallsResponse([
+          { id: "call_recall_1", name: "recall_memory", args: { query: "citation alpha", limit: 5 } },
+          { id: "call_recall_2", name: "recall_memory", args: { query: "citation alpha", limit: 5 } },
+        ]),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => makeFinalResponse("Cited answer.") });
+    (globalThis as any).fetch = fetchMock;
+
+    const res = await runTurn(db, { scopePath: demoScopePath, userMessage: "answer with memory" }, actorId, llm);
+
+    expect(res.citations).toEqual([{
+      slug: "citation-source",
+      scopePath: demoScopePath,
+      revisionId: revision?.id,
+      source: "scope",
+      title: "Citation Source",
+    }]);
+
+    const msgs = await getConversationMessages(db, { conversationId: res.conversationId }, actorId);
+    const finalAssistant = msgs
+      .filter((message: any) => message.role === "assistant")
+      .find((message: any) => (message.content as any)?.text === "Cited answer.");
+    expect((finalAssistant?.content as any)?.citations).toEqual(res.citations);
+
+    const evs = await listEvents(db, { scopePath: demoScopePath, type: "agent.turn_completed", limit: 3 });
+    expect(evs[0]!.payload.citationCount).toBe(1);
   });
 
   it("write tool surfaces access error gracefully for viewer", async () => {

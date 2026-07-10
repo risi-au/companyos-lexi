@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
-import { documents, embeddings, grants, scopes } from "@companyos/db";
+import { documents, documentRevisions, embeddings, grants, scopes } from "@companyos/db";
 import { AccessDeniedError, ScopeNotFoundError } from "../../errors";
 import { type DB } from "../../kernel/events";
 import { resolveAccess } from "../../kernel/grants";
@@ -13,12 +13,21 @@ export interface RecallMemoryInput {
   limit?: number;
 }
 
+export type Citation = {
+  slug: string;
+  scopePath: string;
+  revisionId?: string;
+  source: "scope" | "ancestor" | "root-pattern" | "critical-facts" | "personal";
+  title?: string;
+};
+
 export interface RecallMemoryHit {
   type: "page";
   id: string;
   slug: string;
   title: string;
   scopePath: string;
+  revisionId: string | null;
   source: "scope" | "ancestor" | "root-pattern" | "critical-facts";
   updatedAt: Date;
   snippet: string;
@@ -180,6 +189,7 @@ function rowToCandidate(
     slug: row.slug,
     title: row.title,
     scopePath: row.scopePath,
+    revisionId: null,
     source: sourceFor(row.scopePath, row.slug, effectiveScopePath, includeAncestorPath),
     updatedAt: row.updatedAt,
     snippet: row.snippet,
@@ -226,6 +236,35 @@ function rrfFuse(keywordHits: CandidateMemoryHit[], semanticHits: CandidateMemor
     })
     .slice(0, limit)
     .map(stripCandidate);
+}
+
+async function attachRevisionIds(db: DB, hits: RecallMemoryHit[]): Promise<RecallMemoryHit[]> {
+  const documentIds = Array.from(new Set(hits.map((hit) => hit.id)));
+  if (documentIds.length === 0) return hits;
+
+  const rows = (await db
+    .select({
+      id: documentRevisions.id,
+      documentId: documentRevisions.documentId,
+    })
+    .from(documentRevisions)
+    .where(inArray(documentRevisions.documentId, documentIds))
+    .orderBy(documentRevisions.documentId, desc(documentRevisions.createdAt))) as Array<{
+      id: string;
+      documentId: string;
+    }>;
+
+  const latestRevisionByDocument = new Map<string, string>();
+  for (const row of rows) {
+    if (!latestRevisionByDocument.has(row.documentId)) {
+      latestRevisionByDocument.set(row.documentId, row.id);
+    }
+  }
+
+  return hits.map((hit) => ({
+    ...hit,
+    revisionId: latestRevisionByDocument.get(hit.id) ?? null,
+  }));
 }
 
 export async function recallMemory(
@@ -381,7 +420,7 @@ export async function recallMemory(
     },
   });
 
-  return hits;
+  return attachRevisionIds(db, hits);
 }
 
 export async function getRootCriticalFacts(db: DB): Promise<string | null> {

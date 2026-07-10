@@ -1,6 +1,6 @@
 # packages/api/src/modules/agent — AGENTS.md
 
-Resident agent module (M3-04): server-side tool-use loop over LiteLLM (plain OpenAI wire via fetch) with OS services as tools. Persisted conversations + messages per scope. Emits agent.turn_completed. UI + HTTP surface for every scope. All tests use injected LLM fixture (no live, no .env reads in tests).
+Resident agent module (M3-04): server-side tool-use loop over LiteLLM (plain OpenAI wire via fetch) with OS services as tools. Persisted conversations + messages per scope. Emits agent.turn_completed. UI + HTTP surface for every scope. All tests use injected LLM fixture (no live, no .env reads in tests). M10-03 adds citation capture from recall/search tool results.
 
 ## Purpose
 Always-on chat agent reachable from any scope ("Ask OS"). Tool loop executes against our services (context, records, tasks, metrics, dashboards, docs) using the caller's grants. Durable writes go through records/docs. Chat is session UI surface, not the source of truth.
@@ -17,7 +17,7 @@ Always-on chat agent reachable from any scope ("Ask OS"). Tool loop executes aga
 ## Contract / Functions (re-exported from @companyos/api)
 All take db first + actor for authz.
 
-- `runTurn(db, {conversationId?, scopePath?, userMessage, model?}, actor, llmConfig: {baseUrl, apiKey}, planeClient?)`: executes up to 8-iter tool loop. Persists user+assistant+tool messages. Auto-creates conv if needed (title from msg). Prefetches get_context for system. Returns {finalText, toolTrace, conversationId}. Emits `agent.turn_completed` {model, toolCallCount, usage}.
+- `runTurn(db, {conversationId?, scopePath?, userMessage, model?}, actor, llmConfig: {baseUrl, apiKey}, planeClient?)`: executes up to 8-iter tool loop. Persists user+assistant+tool messages. Auto-creates conv if needed (title from msg). Prefetches get_context for system. Returns {finalText, toolTrace, conversationId, citations}. Emits `agent.turn_completed` {model, toolCallCount, citationCount, usage}.
 - `listConversations(db, {scopePath}, actor)`: viewer. Returns recent [{id,title,createdAt}]
 - `getConversationMessages(db, {conversationId}, actor)`: viewer. Returns full AgentMessage[] ordered.
 
@@ -54,7 +54,8 @@ Streaming: not in v1.
 - Conversation scoped + owned by creator; re-read history for continuity.
 - Events always on turn end with usage.
 - No god mode: agent == principal grants.
-- Content jsonb: {text} for user/assistant; {tool_call_id, name, result} for tool.
+- Content jsonb: {text} for user/assistant, with final assistant messages optionally carrying `citations`; {tool_call_id, name, result} for tool.
+- Citations are gathered from structured `recall_memory` page hits and `search` doc hits during the tool loop, deduped by scopePath+slug with first occurrence preserved.
 - Max 8 iters safety.
 
 ## Do not

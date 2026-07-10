@@ -1,11 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { Fragment, useEffect, useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import { labelForSessionStatus } from "@/lib/labels";
 import { listSessionsAction } from "./actions";
 
 type SessionStatus = "running" | "waiting" | "idle" | "completed" | "error";
 type StatusFilter = SessionStatus | "all";
+type Citation = {
+  slug: string;
+  scopePath: string;
+  revisionId?: string;
+  source: "scope" | "ancestor" | "root-pattern" | "critical-facts" | "personal";
+  title?: string;
+};
 
 interface SessionRow {
   id: string;
@@ -16,6 +24,8 @@ interface SessionRow {
   status: SessionStatus;
   stale: boolean;
   worktreeRef: string | null;
+  summary: string | null;
+  citations: Citation[] | null;
   lastHeartbeat: Date | string;
 }
 
@@ -45,6 +55,33 @@ function statusClass(status: SessionStatus): string {
   if (status === "error") return "border-red-300 bg-red-50 text-red-700";
   if (status === "completed") return "border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]";
   return "border-sky-300 bg-sky-50 text-sky-700";
+}
+
+function citationList(value: unknown): Citation[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is Citation => (
+    item &&
+    typeof item === "object" &&
+    typeof (item as Citation).slug === "string" &&
+    typeof (item as Citation).scopePath === "string"
+  ));
+}
+
+function CitationChips({ citations }: { citations: Citation[] }) {
+  if (citations.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-[var(--space-1)]">
+      {citations.map((citation) => (
+        <Link
+          key={`${citation.scopePath}:${citation.slug}`}
+          href={`/s/${citation.scopePath}?tab=docs&doc=${encodeURIComponent(citation.slug)}`}
+          className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--muted)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-xs)] text-[var(--muted-foreground)] hover:text-[var(--primary)]"
+        >
+          {citation.title ?? citation.slug}
+        </Link>
+      ))}
+    </div>
+  );
 }
 
 export function SessionsView({
@@ -139,38 +176,56 @@ export function SessionsView({
               </tr>
             </thead>
             <tbody>
-              {visibleSessions.map((session) => (
-                <tr key={session.id} className="border-b border-[var(--border)] last:border-b-0">
-                  <td className="max-w-xs px-[var(--space-3)] py-[var(--space-2)] font-mono text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
-                    {session.scopePath}
-                  </td>
-                  <td className="px-[var(--space-3)] py-[var(--space-2)] font-medium">{session.title}</td>
-                  <td className="px-[var(--space-3)] py-[var(--space-2)]">
-                    <div>{session.engine}</div>
-                    {session.model ? (
-                      <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">{session.model}</div>
+              {visibleSessions.map((session) => {
+                const citations = citationList(session.citations);
+                const hasWrapUp = session.status === "completed" && (Boolean(session.summary) || citations.length > 0);
+                return (
+                  <Fragment key={session.id}>
+                    <tr className={hasWrapUp ? "" : "border-b border-[var(--border)] last:border-b-0"}>
+                      <td className="max-w-xs px-[var(--space-3)] py-[var(--space-2)] font-mono text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
+                        {session.scopePath}
+                      </td>
+                      <td className="px-[var(--space-3)] py-[var(--space-2)] font-medium">{session.title}</td>
+                      <td className="px-[var(--space-3)] py-[var(--space-2)]">
+                        <div>{session.engine}</div>
+                        {session.model ? (
+                          <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">{session.model}</div>
+                        ) : null}
+                      </td>
+                      <td className="px-[var(--space-3)] py-[var(--space-2)]">
+                        <div className="flex flex-wrap gap-[var(--space-1)]">
+                          <span className={`inline-flex rounded-[var(--radius-sm)] border px-[var(--space-2)] py-px text-[var(--font-size-xs)] ${statusClass(session.status)}`}>
+                            {labelForSessionStatus(session.status)}
+                          </span>
+                          {session.stale ? (
+                            <span className="inline-flex rounded-[var(--radius-sm)] border border-red-300 bg-red-50 px-[var(--space-2)] py-px text-[var(--font-size-xs)] text-red-700">
+                              {labelForSessionStatus("stale")}
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-xs)] text-[var(--muted-foreground)] tabular-nums">
+                        {ageLabel(session.lastHeartbeat)}
+                      </td>
+                      <td className="max-w-sm px-[var(--space-3)] py-[var(--space-2)] font-mono text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
+                        {session.worktreeRef || "-"}
+                      </td>
+                    </tr>
+                    {hasWrapUp ? (
+                      <tr className="border-b border-[var(--border)] last:border-b-0">
+                        <td colSpan={6} className="px-[var(--space-3)] pb-[var(--space-3)]">
+                          <div className="space-y-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-xs)]">
+                            {session.summary ? (
+                              <div className="whitespace-pre-wrap text-[var(--foreground)]">{session.summary}</div>
+                            ) : null}
+                            <CitationChips citations={citations} />
+                          </div>
+                        </td>
+                      </tr>
                     ) : null}
-                  </td>
-                  <td className="px-[var(--space-3)] py-[var(--space-2)]">
-                    <div className="flex flex-wrap gap-[var(--space-1)]">
-                      <span className={`inline-flex rounded-[var(--radius-sm)] border px-[var(--space-2)] py-px text-[var(--font-size-xs)] ${statusClass(session.status)}`}>
-                        {labelForSessionStatus(session.status)}
-                      </span>
-                      {session.stale ? (
-                        <span className="inline-flex rounded-[var(--radius-sm)] border border-red-300 bg-red-50 px-[var(--space-2)] py-px text-[var(--font-size-xs)] text-red-700">
-                          {labelForSessionStatus("stale")}
-                        </span>
-                      ) : null}
-                    </div>
-                  </td>
-                  <td className="px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-xs)] text-[var(--muted-foreground)] tabular-nums">
-                    {ageLabel(session.lastHeartbeat)}
-                  </td>
-                  <td className="max-w-sm px-[var(--space-3)] py-[var(--space-2)] font-mono text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
-                    {session.worktreeRef || "-"}
-                  </td>
-                </tr>
-              ))}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>

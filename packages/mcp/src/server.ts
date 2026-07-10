@@ -24,6 +24,10 @@ import {
   saveDoc,
   getDoc,
   listDocs,
+  renameDoc,
+  archiveDoc,
+  getBacklinks,
+  getLinkGraph,
   listDocRevisions,
   revertDoc,
   saveCanvas,
@@ -362,6 +366,13 @@ export function createServer(options: CreateServerOptions) {
   );
 
   const sessionStatusSchema = z.enum(["running", "waiting", "idle", "completed", "error"]);
+  const citationSourceSchema = z.enum(["scope", "ancestor", "root-pattern", "critical-facts", "personal"]);
+  const citationSchema = z.object({
+    slug: z.string().min(1).describe("Wiki page slug that informed the session"),
+    scopePath: z.string().min(1).describe("Scope path that owns the wiki page"),
+    revisionId: z.string().optional().describe("Optional document revision id read during the session"),
+    source: citationSourceSchema.optional().default("scope").describe("How this page entered context; defaults to scope"),
+  });
 
   server.registerTool(
     "register_session",
@@ -447,16 +458,21 @@ export function createServer(options: CreateServerOptions) {
     "complete_session",
     {
       title: "Complete Session",
-      description: "Mark a session completed and emit session.completed. Requires editor/agent on the session scope.",
+      description: "Mark a session completed and emit session.completed. External tools should include citations for wiki pages that informed the session. Requires editor/agent on the session scope.",
       inputSchema: z.object({
         session_id: z.string().min(1).describe("Session uuid"),
         summary: z.string().optional().describe("Optional wrap-up summary"),
+        citations: z.array(citationSchema).optional().describe("Optional wiki page citations that informed the session wrap-up"),
       }),
     },
-    async ({ session_id, summary }) => {
+    async ({ session_id, summary, citations }) => {
       try {
         const actor = ensurePrincipal();
-        const result = await completeSession(db, { sessionId: session_id, summary }, actor);
+        const normalizedCitations = citations?.map((citation) => ({
+          ...citation,
+          source: citation.source ?? "scope" as const,
+        }));
+        const result = await completeSession(db, { sessionId: session_id, summary, citations: normalizedCitations }, actor);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
@@ -1841,6 +1857,111 @@ ${JSON.stringify(rec.data || {}, null, 2)}
         const restored = await revertDoc(db, { scopePath: scope, slug, revisionId: revision_id }, actor);
         return {
           content: [{ type: "text", text: `Reverted doc ${restored.id} (slug: ${restored.slug}) to revision ${revision_id}` }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "rename_doc",
+    {
+      title: "Rename Doc",
+      description: "Wiki gardening tool for agents: rename a document title and/or slug. Existing doc link upkeep and doc.renamed events are handled by the API service. Requires editor/agent.",
+      inputSchema: z.object({
+        scopePath: z.string().min(1).describe("Scope path"),
+        slug: z.string().min(1).describe("Current document slug"),
+        newTitle: z.string().optional().describe("Optional replacement title"),
+        newSlug: z.string().optional().describe("Optional replacement slug"),
+      }),
+    },
+    async ({ scopePath, slug, newTitle, newSlug }) => {
+      try {
+        const actor = ensurePrincipal();
+        const renamed = await renameDoc(db, { scopePath, slug, newTitle, newSlug }, actor);
+        return {
+          content: [{ type: "text", text: JSON.stringify(renamed, null, 2) }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "archive_doc",
+    {
+      title: "Archive Doc",
+      description: "Wiki gardening tool for agents: archive a document. Existing archive semantics and doc.archived events are handled by the API service. Requires editor/agent.",
+      inputSchema: z.object({
+        scopePath: z.string().min(1).describe("Scope path"),
+        slug: z.string().min(1).describe("Document slug"),
+      }),
+    },
+    async ({ scopePath, slug }) => {
+      try {
+        const actor = ensurePrincipal();
+        const archived = await archiveDoc(db, { scopePath, slug }, actor);
+        return {
+          content: [{ type: "text", text: JSON.stringify(archived, null, 2) }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "get_backlinks",
+    {
+      title: "Get Backlinks",
+      description: "Wiki gardening tool for agents: return documents linking to a target wiki page. Requires viewer.",
+      inputSchema: z.object({
+        scopePath: z.string().min(1).describe("Target document scope path"),
+        slug: z.string().min(1).describe("Target document slug"),
+      }),
+    },
+    async ({ scopePath, slug }) => {
+      try {
+        const actor = ensurePrincipal();
+        const backlinks = await getBacklinks(db, { scopePath, slug }, actor);
+        return {
+          content: [{ type: "text", text: JSON.stringify(backlinks, null, 2) }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "get_link_graph",
+    {
+      title: "Get Link Graph",
+      description: "Wiki gardening tool for agents: return the wiki document link graph for a scope subtree. Requires viewer.",
+      inputSchema: z.object({
+        scopePath: z.string().min(1).describe("Scope path whose subtree should be included"),
+      }),
+    },
+    async ({ scopePath }) => {
+      try {
+        const actor = ensurePrincipal();
+        const graph = await getLinkGraph(db, { scopePath }, actor);
+        return {
+          content: [{ type: "text", text: JSON.stringify(graph, null, 2) }],
         };
       } catch (e) {
         return {

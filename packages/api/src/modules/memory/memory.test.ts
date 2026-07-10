@@ -152,6 +152,63 @@ describe("memory module", () => {
     expect(hits.some((hit) => hit.scopePath === clientA && hit.slug === "ancestor-playbook" && hit.source === "ancestor")).toBe(true);
   });
 
+  it("returns the latest revisionId for recalled pages and null when no revision rows exist", async () => {
+    const saved = await saveDoc(db, {
+      scopePath: clientA,
+      slug: "revision-memory",
+      title: "Revision Memory",
+      bodyMd: "Revision needle first version.",
+    }, rootPrincipalId);
+    const [firstRevision] = await db
+      .select()
+      .from(schema.documentRevisions)
+      .where(eq(schema.documentRevisions.documentId, saved.id))
+      .limit(1);
+
+    await saveDoc(db, {
+      scopePath: clientA,
+      slug: "revision-memory",
+      title: "Revision Memory",
+      bodyMd: "Revision needle latest version.",
+    }, rootPrincipalId);
+    const revisionRows = await db
+      .select()
+      .from(schema.documentRevisions)
+      .where(eq(schema.documentRevisions.documentId, saved.id));
+    const secondRevision = revisionRows.find((revision: any) => revision.id !== firstRevision?.id);
+
+    if (firstRevision) {
+      await db
+        .update(schema.documentRevisions)
+        .set({ createdAt: new Date(Date.now() - 60_000) })
+        .where(eq(schema.documentRevisions.id, firstRevision.id));
+    }
+    if (secondRevision) {
+      await db
+        .update(schema.documentRevisions)
+        .set({ createdAt: new Date(Date.now() + 60_000) })
+        .where(eq(schema.documentRevisions.id, secondRevision.id));
+    }
+
+    const scope = await getScope(db, clientA);
+    if (!scope) throw new Error("missing test scope");
+    await db.insert(schema.documents).values({
+      scopeId: scope.id,
+      slug: "revisionless-memory",
+      title: "Revisionless Memory",
+      bodyMd: "Revision needle page with no revision rows.",
+      createdBy: rootPrincipalId,
+      updatedBy: rootPrincipalId,
+    });
+
+    const hits = await recallMemory(db, { scopePath: clientA, query: "revision needle", limit: 10 }, agentPrincipalId);
+    const withRevisions = hits.find((hit) => hit.slug === "revision-memory");
+    const revisionless = hits.find((hit) => hit.slug === "revisionless-memory");
+
+    expect(withRevisions?.revisionId).toBe(secondRevision?.id);
+    expect(revisionless?.revisionId).toBeNull();
+  });
+
   it("logs redacted usage without query text or snippets", async () => {
     await saveDoc(db, {
       scopePath: clientA,

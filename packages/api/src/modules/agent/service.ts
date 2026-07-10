@@ -34,6 +34,9 @@ import {
   search,
   recallMemory,
   getRootCriticalFacts,
+  type Citation,
+  type RecallMemoryHit,
+  type SearchHit,
 } from "../..";
 import { PlaneClient } from "../tasks/plane-client";
 import { AccessDeniedError, ScopeNotFoundError } from "../../errors";
@@ -158,6 +161,7 @@ export interface RunTurnResult {
   finalText: string;
   toolTrace: Array<{ name: string; args: any; result?: any; error?: string }>;
   conversationId: string;
+  citations: Citation[];
 }
 
 function formatError(e: unknown): string {
@@ -169,6 +173,52 @@ function formatError(e: unknown): string {
   }
   if (e instanceof Error) return e.message;
   return String(e);
+}
+
+function addCitation(citations: Citation[], seen: Set<string>, citation: Citation): void {
+  const key = `${citation.scopePath}\t${citation.slug}`;
+  if (seen.has(key)) return;
+  seen.add(key);
+  citations.push(citation);
+}
+
+function citationFromRecallHit(hit: RecallMemoryHit): Citation {
+  return {
+    slug: hit.slug,
+    scopePath: hit.scopePath,
+    ...(hit.revisionId ? { revisionId: hit.revisionId } : {}),
+    source: hit.source,
+    title: hit.title,
+  };
+}
+
+function collectCitationsFromToolResult(
+  name: string,
+  structuredResult: unknown,
+  citations: Citation[],
+  seenCitations: Set<string>
+): void {
+  if (!Array.isArray(structuredResult)) return;
+
+  if (name === "recall_memory") {
+    for (const hit of structuredResult as RecallMemoryHit[]) {
+      if (!hit?.slug || !hit?.scopePath) continue;
+      addCitation(citations, seenCitations, citationFromRecallHit(hit));
+    }
+    return;
+  }
+
+  if (name === "search") {
+    for (const hit of structuredResult as SearchHit[]) {
+      if (hit?.type !== "doc" || !hit.slug || !hit.scopePath) continue;
+      addCitation(citations, seenCitations, {
+        slug: hit.slug,
+        scopePath: hit.scopePath,
+        source: "scope",
+        title: hit.title,
+      });
+    }
+  }
 }
 
 async function callLiteLLM(
@@ -481,9 +531,12 @@ Available tools: get_context, list_records, log_change, log_decision, save_repor
   await persistMessage(db, conversationId, "user", { text: userMessage });
 
   const toolTrace: Array<{ name: string; args: any; result?: any; error?: string }> = [];
+  const citations: Citation[] = [];
+  const seenCitations = new Set<string>();
   let iterations = 0;
   let finalText = "";
   let lastUsage: any = {};
+  let finalPersisted = false;
 
   const MAX_ITERS = 8;
 
@@ -519,7 +572,10 @@ Available tools: get_context, list_records, log_change, log_decision, save_repor
         const toolRes = await executeToolCall(name, args, db, scopePath, actorPrincipalId, planeClient);
         const traceEntry = toolTrace[toolTrace.length - 1]!;
         if (toolRes.error) traceEntry.error = toolRes.error;
-        else traceEntry.result = toolRes.result ?? toolRes;
+        else {
+          traceEntry.result = toolRes.result ?? toolRes;
+          collectCitationsFromToolResult(name, toolRes.result ?? toolRes, citations, seenCitations);
+        }
         // persist tool result
         await persistMessage(db, conversationId, "tool", {
           tool_call_id: tc.id,
@@ -538,12 +594,28 @@ Available tools: get_context, list_records, log_change, log_decision, save_repor
 
     // final text
     finalText = msg.content || "";
-    await persistMessage(db, conversationId, "assistant", { text: finalText }, model);
+    await persistMessage(
+      db,
+      conversationId,
+      "assistant",
+      citations.length > 0 ? { text: finalText, citations } : { text: finalText },
+      model
+    );
+    finalPersisted = true;
     break;
   }
 
   if (!finalText && iterations >= MAX_ITERS) {
     finalText = "(max iterations reached)";
+  }
+  if (finalText && !finalPersisted) {
+    await persistMessage(
+      db,
+      conversationId,
+      "assistant",
+      citations.length > 0 ? { text: finalText, citations } : { text: finalText },
+      model
+    );
   }
 
   // Emit event
@@ -554,6 +626,7 @@ Available tools: get_context, list_records, log_change, log_decision, save_repor
     payload: {
       model,
       toolCallCount: toolTrace.length,
+      citationCount: citations.length,
       usage: {
         promptTokens: (lastUsage as any).prompt_tokens ?? null,
         completionTokens: (lastUsage as any).completion_tokens ?? null,
@@ -562,7 +635,7 @@ Available tools: get_context, list_records, log_change, log_decision, save_repor
     },
   });
 
-  return { finalText, toolTrace, conversationId };
+  return { finalText, toolTrace, conversationId, citations };
 }
 
 export interface ListConversationsInput {

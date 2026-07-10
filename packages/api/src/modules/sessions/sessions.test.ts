@@ -162,9 +162,19 @@ describe("sessions module", () => {
       worktreeRef: "client/review",
     });
 
-    await completeSession(db, { sessionId: session.id, summary: "Merged into branch" }, agentId);
+    const citations = [{
+      slug: "wiki",
+      scopePath,
+      revisionId: "rev-session-test",
+      source: "scope" as const,
+      title: "Wiki",
+    }];
+    await completeSession(db, { sessionId: session.id, summary: "Merged into branch", citations }, agentId);
     const rows = await listSessions(db, { scopePath }, viewerId);
-    expect(rows.find((row) => row.id === session.id)?.status).toBe("completed");
+    const completedRow = rows.find((row) => row.id === session.id);
+    expect(completedRow?.status).toBe("completed");
+    expect(completedRow?.summary).toBe("Merged into branch");
+    expect(completedRow?.citations).toEqual(citations);
 
     const updatedEvents = await listEvents(db, { scopePath, type: "session.updated", limit: 10 });
     expect(updatedEvents[0]?.payload).toMatchObject({
@@ -182,6 +192,7 @@ describe("sessions module", () => {
       sessionId: session.id,
       scopePath,
       summary: "Merged into branch",
+      citations,
     });
   });
 

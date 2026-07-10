@@ -152,9 +152,11 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     const names = (tools.tools || []).map((t: any) => t.name).sort();
     expect(names).toEqual([
       "approve_intake_packet",
+      "archive_doc",
       "complete_session",
       "complete_task",
       "create_task",
+      "get_backlinks",
       "get_canvas",
       "get_context",
       "get_context_profile",
@@ -162,6 +164,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "get_dashboard",
       "get_doc",
       "get_intake_packet",
+      "get_link_graph",
       "get_record",
       "get_skill",
       "get_tree",
@@ -191,6 +194,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "recall_memory",
       "register_capability",
       "register_session",
+      "rename_doc",
       "report_run",
       "resolve_attention_item",
       "revert_dashboard",
@@ -311,6 +315,35 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
 
     const gd2 = await mcpClient.callTool({ name: "get_doc", arguments: { scope: testScope, slug: "kb-overview" } });
     expect((gd2 as any).content?.[0]?.text || "").toContain("v2");
+
+    const sourceDoc = await mcpClient.callTool({
+      name: "save_doc",
+      arguments: { scope: testScope, slug: "link-source", title: "Link Source", body_md: "References [[kb-overview]]." },
+    });
+    expect((sourceDoc as any).isError).toBeFalsy();
+
+    const backlinks = await mcpClient.callTool({ name: "get_backlinks", arguments: { scopePath: testScope, slug: "kb-overview" } });
+    expect((backlinks as any).isError).toBeFalsy();
+    expect((backlinks as any).content?.[0]?.text || "").toContain("link-source");
+
+    const graph = await mcpClient.callTool({ name: "get_link_graph", arguments: { scopePath: testScope } });
+    expect((graph as any).isError).toBeFalsy();
+    expect((graph as any).content?.[0]?.text || "").toContain("kb-overview");
+    expect((graph as any).content?.[0]?.text || "").toContain("link-source");
+
+    const renamed = await mcpClient.callTool({
+      name: "rename_doc",
+      arguments: { scopePath: testScope, slug: "kb-overview", newTitle: "Renamed KB", newSlug: "kb-renamed" },
+    });
+    expect((renamed as any).isError).toBeFalsy();
+    expect((renamed as any).content?.[0]?.text || "").toContain("kb-renamed");
+
+    const archived = await mcpClient.callTool({
+      name: "archive_doc",
+      arguments: { scopePath: testScope, slug: "kb-renamed" },
+    });
+    expect((archived as any).isError).toBeFalsy();
+    expect((archived as any).content?.[0]?.text || "").toContain("kb-renamed");
   });
 
   it("agent can write (log_change) in granted subtree", async () => {
@@ -534,11 +567,22 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
 
     const completed = await mcpClient.callTool({
       name: "complete_session",
-      arguments: { session_id: session.id, summary: "Wrapped through MCP" },
+      arguments: {
+        session_id: session.id,
+        summary: "Wrapped through MCP",
+        citations: [{ slug: "kb-overview", scopePath: testScope, revisionId: "rev-mcp-session" }],
+      },
     });
     expect((completed as any).isError).toBeFalsy();
     const completedJson = JSON.parse((completed as any).content?.[0]?.text || "{}");
     expect(completedJson.status).toBe("completed");
+    expect(completedJson.summary).toBe("Wrapped through MCP");
+    expect(completedJson.citations).toEqual([{
+      slug: "kb-overview",
+      scopePath: testScope,
+      revisionId: "rev-mcp-session",
+      source: "scope",
+    }]);
   });
 
   it("search MCP tool roundtrips over records with a snippet and tab-delimited output", async () => {

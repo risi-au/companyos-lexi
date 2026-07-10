@@ -6,7 +6,7 @@ Sessions UI for rolled-up agent/client sessions on scope pages. It shows session
 Provide a scope-tree session board so parallel agent work is visible from the OS. Reads go through server actions into `packages/api`; no direct database access.
 
 ## Files
-- `SessionsView.tsx`: client component with status and scope-path filters. Renders scope, title, engine/model, status, stale flag, heartbeat age, and worktree reference.
+- `SessionsView.tsx`: client component with status and scope-path filters. Renders scope, title, engine/model, status, stale flag, heartbeat age, worktree reference, and completed-session wrap-up summary/citation chips when present.
 - `actions.ts`: server action wrapper around `api.listSessions({ includeDescendants: true })`.
 - `index.ts`: public export for scope pages.
 - `AGENTS.md`: this file.
@@ -18,6 +18,7 @@ Consumes `listSessions` through `@/lib/api` with:
 - optional `status`
 
 The service layer enforces viewer access on the requested scope, projects each row's originating `scopePath`, and computes stale state at read time.
+Completed rows may include stored `summary` and `citations`; citation chips link to the owning doc page.
 
 ## Testing
 From repo root:

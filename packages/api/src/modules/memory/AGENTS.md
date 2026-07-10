@@ -8,7 +8,8 @@ Provides `recallMemory(db, { query, scopePath?, limit? }, actor)` for MCP/UI cli
 ## Contract
 - Read-only. No writes except redacted usage logging via `logUsageEventSafely`.
 - Does not call an LLM.
-- Returns typed wiki/document hits only: page id/slug/title, scope path, snippet, date, source bucket, and parsed frontmatter/confidence when present.
+- Returns typed wiki/document hits only: page id/slug/title, scope path, latest read-time revision id or null, snippet, date, source bucket, and parsed frontmatter/confidence when present.
+- Exports the shared `Citation` type used by agent messages and session wrap-ups: slug, scopePath, optional revisionId/title, and source (`scope`, `ancestor`, `root-pattern`, `critical-facts`, `personal`).
 - Effective scope is the requested scope when the actor can view it; otherwise a single narrower direct grant inside the requested subtree narrows the read.
 - Retrieval is structurally limited to:
   - active docs in the effective scope subtree,
@@ -19,7 +20,7 @@ Provides `recallMemory(db, { query, scopePath?, limit? }, actor)` for MCP/UI cli
 
 ## Files
 - `service.ts` - read-only memory retrieval and usage logging.
-- `memory.test.ts` - PGlite coverage for subtree isolation, root allowlist, ancestor wiki walk, scope narrowing, and usage redaction.
+- `memory.test.ts` - PGlite coverage for subtree isolation, root allowlist, ancestor wiki walk, scope narrowing, read-time revision ids, and usage redaction.
 
 ## Do / Don't
 - Do keep this as a thin mediation layer over documents/search primitives.
