@@ -66,11 +66,21 @@ nothing else, and stop.
 ## 4. Delegation quickstart (the 90% you need; full manual = docs/SUBAGENTS.md)
 
 Write a brief first — `docs/tasks/<name>-brief.md` with Do / Don't / Acceptance criteria
-and **pinned file paths + line refs** so the implementer doesn't re-explore. Then:
+and **pinned file paths + line refs** so the implementer doesn't re-explore. Then the
+one-command path (worktree + ACLs + env + install + dispatch + LIMIT-ALERT monitor +
+post-run encoding check; run it in the background and read its final output):
+
+```powershell
+.\scripts\dispatch-codex.ps1 -Task <name>            # -ServeApp to copy apps/os/.env
+.\scripts\dispatch-codex.ps1 -Task <name> -Resume    # re-dispatch after a broken run
+```
+
+Model policy (owner, 2026-07-11): gpt-5.5 at medium reasoning — the script's defaults.
+Don't dispatch at gpt-5.6-sol/xhigh (too token-hungry). Manual equivalents:
 
 ```bash
 # codex (default lane) — headless, background, stdin MUST be closed
-codex exec --sandbox workspace-write -c model=gpt-5.5 -C "<worktree>" "<prompt>" < /dev/null
+codex exec --sandbox workspace-write -c model=gpt-5.5 -c model_reasoning_effort=medium -C "<worktree>" "<prompt>" < /dev/null
 # grok (second lane) — --always-approve is what makes it actually write
 grok -p "<prompt>" -m grok-composer-2.5-fast --always-approve --no-auto-update --cwd "<worktree>"
 ```

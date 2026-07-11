@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "turbo dev",
     "build": "turbo build",
-    "lint": "eslint . --ignore-pattern \"**/*.fixture.ts\" --ignore-pattern \"USER DATA/**\" && node scripts/validate-tokens.mjs && turbo lint",
+    "lint": "eslint . --ignore-pattern \"**/*.fixture.ts\" --ignore-pattern \"USER DATA/**\" && node scripts/check-encoding.mjs && node scripts/validate-tokens.mjs && turbo lint",
+    "check:encoding": "node scripts/check-encoding.mjs",
     "validate-tokens": "node scripts/validate-tokens.mjs",
     "test": "vitest run --pool=forks --maxWorkers=1",
     "typecheck": "turbo typecheck",
