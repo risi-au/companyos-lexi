@@ -75,6 +75,19 @@ class FixtureLlm implements BrainLlmClient {
         totalTokens: 120,
       };
     }
+    if (request.purpose === "project-overview") {
+      const payload = JSON.parse(request.prompt) as any;
+      return {
+        text: JSON.stringify({
+          pages: [{
+            slug: "overview",
+            title: "Overview",
+            bodyMd: `# Overview\n\n${payload.scope?.name ?? payload.scopePath ?? "Project"} is active. Recent activity is reflected in changelog and decision records.\n\n## Sources\n\n- inferred: recent project activity`,
+          }],
+        }),
+        totalTokens: 100,
+      };
+    }
     if (request.purpose === "root-distill") {
       return {
         text: JSON.stringify({
@@ -131,7 +144,9 @@ class ScriptedLlm implements BrainLlmClient {
       ? queued.shift()!
       : request.purpose === "lint-scope"
         ? JSON.stringify({ findings: [] })
-        : JSON.stringify({ pages: [] });
+        : request.purpose === "project-overview"
+          ? JSON.stringify({ pages: [{ slug: "overview", title: "Overview", bodyMd: "# Overview\\n\\nProject is active.\\n\\n## Sources\\n\\n- inferred: recent project activity" }] })
+          : JSON.stringify({ pages: [] });
     return { text, totalTokens: 50 };
   }
 }
@@ -226,6 +241,45 @@ describe("brain engine", () => {
     expect(pattern?.bodyMd).not.toContain("BetaCo");
   });
 
+
+  it("maintains a project overview page and skips unchanged rewrites", async () => {
+    await createProject("overviewed", "Overviewed Project");
+    await createRecord(db, { scopePath: "overviewed", kind: "changelog", title: "Launch update", bodyMd: "Launch work moved forward." }, adminPrincipalId);
+    const overviewBody = "# Overview\n\nOverviewed Project is active and recently advanced launch work.\n\n## Sources\n\n- extracted: record:launch-update";
+    const llm = new ScriptedLlm({
+      "scope-ingest": JSON.stringify({ recordsDistilled: 1, pages: [] }),
+      "project-overview": JSON.stringify({
+        pages: [{ slug: "overview", title: "Overview", bodyMd: overviewBody }],
+      }),
+      "root-distill": JSON.stringify({ pages: [] }),
+    });
+
+    const first = await runBrainEngine(db, { mode: "ingest", runRef: "overview-1" }, adminPrincipalId, {
+      llm,
+      now: new Date("2026-07-07T00:00:00.000Z"),
+    });
+    expect(first.pagesTouched).toBe(1);
+    const overview = await getDoc(db, { scopePath: "overviewed", slug: "overview" }, adminPrincipalId);
+    expect(overview?.bodyMd).toContain("Overviewed Project is active");
+
+    const revisionsBefore = await db
+      .select()
+      .from(schema.documentRevisions)
+      .where(eq(schema.documentRevisions.documentId, overview!.id));
+
+    const second = await runBrainEngine(db, { mode: "ingest", runRef: "overview-2" }, adminPrincipalId, {
+      llm,
+      now: new Date("2026-07-07T01:00:00.000Z"),
+    });
+    expect(second.pagesTouched).toBe(0);
+
+    const revisionsAfter = await db
+      .select()
+      .from(schema.documentRevisions)
+      .where(eq(schema.documentRevisions.documentId, overview!.id));
+    expect(revisionsAfter).toHaveLength(revisionsBefore.length);
+    expect(llm.calls.filter((call) => call.purpose === "project-overview")).toHaveLength(1);
+  });
   it("lint flags contradictions and stale claims, reports orphans, and auto-fixes only index links and exact duplicates", async () => {
     await createProject("linty");
     await saveDoc(db, { scopePath: "linty", slug: "wiki", title: "Wiki", bodyMd: "# Wiki\n\n- [[pricing-a]]" }, adminPrincipalId);
@@ -495,7 +549,7 @@ describe("brain engine", () => {
     await runBrainEngine(db, { mode: "ingest", runRef: "envelope-ingest" }, adminPrincipalId, { llm: fixture });
     await runBrainEngine(db, { mode: "lint", scopePath: "enveloped", runRef: "envelope-lint" }, adminPrincipalId, { llm: fixture });
 
-    for (const purpose of ["scope-ingest", "root-distill", "lint-scope"] as const) {
+    for (const purpose of ["scope-ingest", "project-overview", "root-distill", "lint-scope"] as const) {
       const call = fixture.calls.find((entry) => entry.purpose === purpose);
       expect(call, purpose).toBeTruthy();
       expect(JSON.parse(call!.prompt).outputFormatMandatory).toContain("Return only one JSON object");

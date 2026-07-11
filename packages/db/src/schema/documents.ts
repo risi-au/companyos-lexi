@@ -115,6 +115,22 @@ export const docLinks = pgTable(
   })
 );
 
+export const docFollows = pgTable(
+  "doc_follows",
+  {
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    principalId: uuid("principal_id")
+      .notNull()
+      .references(() => principals.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    uniqueDocumentPrincipal: uniqueIndex("doc_follows_document_principal_unique").on(t.documentId, t.principalId),
+    principalIdx: index("doc_follows_principal_idx").on(t.principalId),
+  })
+);
 // Typed models (inferred shape preserved manually for TS strict)
 export interface Document {
   id: string;
@@ -162,3 +178,10 @@ export interface DocLink {
   createdAt: Date;
 }
 export type NewDocLink = Pick<DocLink, "fromDocumentId" | "toScopeId" | "toSlug"> & Partial<Pick<DocLink, "toDocumentId">>;
+
+export interface DocFollow {
+  documentId: string;
+  principalId: string;
+  createdAt: Date;
+}
+export type NewDocFollow = Pick<DocFollow, "documentId" | "principalId">;

@@ -87,3 +87,24 @@ export async function getInheritedWikiAction(scopePath: string) {
   if (!wiki || wiki.scopePath === scopePath) return null;
   return wiki;
 }
+
+export async function followDocAction(scopePath: string, slug: string) {
+  const actor = await getCurrentActorPrincipalId();
+  if (!actor) throw new Error("Your session expired. Sign in again.");
+  const followed = await api.followDoc({ scopePath, slug }, actor);
+  revalidatePath(`/s/${scopePath}?tab=docs`);
+  return followed;
+}
+
+export async function unfollowDocAction(scopePath: string, slug: string) {
+  const actor = await getCurrentActorPrincipalId();
+  if (!actor) throw new Error("Your session expired. Sign in again.");
+  await api.unfollowDoc({ scopePath, slug }, actor);
+  revalidatePath(`/s/${scopePath}?tab=docs`);
+}
+
+export async function isFollowingDocAction(scopePath: string, slug: string) {
+  const actor = await getCurrentActorPrincipalId();
+  if (!actor) throw new Error("Your session expired. Sign in again.");
+  return api.isFollowing({ scopePath, slug }, actor);
+}

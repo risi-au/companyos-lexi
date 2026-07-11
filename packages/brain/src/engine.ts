@@ -38,6 +38,7 @@ const PERSON_VS_WORK_ROUTING_RULE = "is the fact about the person or about the w
 const JSON_ENVELOPE_INSTRUCTIONS: Record<BrainLlmRequest["purpose"], string> = {
   "scope-ingest": "Return only one JSON object: {\"pages\":[{\"slug\":\"kebab-slug\",\"title\":\"Title\",\"bodyMd\":\"markdown\",\"targetScopePath\":\"optional-valid-target\"}],\"recordsDistilled\":0}. No prose, no markdown fence.",
   "root-distill": "Return only one JSON object: {\"pages\":[{\"slug\":\"critical-facts|scope-map|pattern-name\",\"title\":\"Title\",\"bodyMd\":\"markdown\"}]}. No prose, no markdown fence.",
+  "project-overview": "Return only one JSON object: {\"pages\":[{\"slug\":\"overview\",\"title\":\"Overview\",\"bodyMd\":\"markdown\"}]}. No prose, no markdown fence.",
   "lint-scope": "Return only one JSON object with either {\"findings\":[{\"type\":\"contradiction\",\"severity\":\"warning\",\"message\":\"...\",\"slugs\":[\"slug\"],\"action\":\"flagged\"}]} or {\"graduations\":[{\"direction\":\"personal-to-scope|scope-to-personal\",\"targetScopePath\":\"target\",\"fromScopePath\":\"source\",\"fromSlug\":\"slug\",\"proposal\":{\"slug\":\"target-slug\",\"title\":\"Title\",\"proposedMd\":\"markdown\"}}]}. No prose, no markdown fence.",
   "code-docs": "Return only one JSON object: {\"pages\":[{\"slug\":\"code-architecture|code-stack|code-integrations|code-ops\",\"title\":\"Title\",\"bodyMd\":\"markdown\"}]}. No prose, no markdown fence.",
 };
@@ -47,7 +48,7 @@ export type BrainRoleAlias = "cheap" | "analysis";
 
 export interface BrainLlmRequest {
   role: BrainRoleAlias;
-  purpose: "scope-ingest" | "root-distill" | "lint-scope" | "code-docs";
+  purpose: "scope-ingest" | "root-distill" | "project-overview" | "lint-scope" | "code-docs";
   system: string;
   prompt: string;
   maxTokens: number;
@@ -473,7 +474,19 @@ export async function runBrainEngine(
               summary.parseFailureExcerpt = codeDocs.parseFailureExcerpt;
             }
           }
-          anyInputs = anyInputs || summary.inputCount > 0 || (codeDocs?.pagesTouched ?? 0) > 0;
+          const overviewSummary = scope.type === "project"
+            ? await distillProjectOverview(db, scope, since, actorPrincipalId, deps, counters, runTokenCeiling, monthlyTokenBudget)
+            : null;
+          if (overviewSummary) {
+            summary.pagesTouched += overviewSummary.pagesTouched;
+            summary.recordsDistilled += overviewSummary.recordsDistilled;
+            if (overviewSummary.parseFailed) {
+              summary.parseFailed = true;
+              summary.parseFailureReason = overviewSummary.parseFailureReason;
+              summary.parseFailureExcerpt = overviewSummary.parseFailureExcerpt;
+            }
+          }
+          anyInputs = anyInputs || summary.inputCount > 0 || (codeDocs?.pagesTouched ?? 0) > 0 || (overviewSummary?.pagesTouched ?? 0) > 0;
           scopeRuns.push(summary);
         } catch (error) {
           if (error instanceof BudgetExceededError) {
@@ -1060,6 +1073,71 @@ function ensureWikiPageBody(bodyMd: string, now: Date): string {
   return `${withFrontmatter}\n\n## Sources\n\n- ambiguous: engine synthesis (${iso(now)})`;
 }
 
+
+async function distillProjectOverview(
+  db: DB,
+  scope: ScopeInfo,
+  since: Date | undefined,
+  actorPrincipalId: string,
+  deps: BrainDeps,
+  counters: EngineCounters,
+  runTokenCeiling: number,
+  monthlyTokenBudget: number
+): Promise<ScopeRunSummary | null> {
+  const existing = await getDoc(db, { scopePath: scope.path, slug: "overview" }, actorPrincipalId);
+  const inputs = await collectInputs(db, scope.path, since, actorPrincipalId);
+  if (inputs.length === 0 && existing) return null;
+
+  const skill = await getSkill(db, { name: WIKI_MAINTENANCE_SKILL }, actorPrincipalId);
+  const docs = await loadDocs(db, scope.path, actorPrincipalId);
+  const response = await callLlm(
+    db,
+    deps.llm,
+    {
+      role: "analysis",
+      purpose: "project-overview",
+      system: skill.body,
+      prompt: promptWithJsonEnvelope("project-overview", {
+        reservedSlug: "overview",
+        instruction: "Write the project overview page. Cover what this project is, current state, and a recent-activity digest linking to changelog and decision record ids where available.",
+        scope: { path: scope.path, name: scope.name, type: scope.type },
+        since: since?.toISOString() ?? null,
+        inputs: inputs.map(compactSource),
+        currentPages: docs.map(compactDoc),
+        currentOverview: existing ? { title: existing.title, bodyMd: existing.bodyMd.slice(0, 4000) } : null,
+      }),
+      maxTokens: Math.max(1, runTokenCeiling - counters.tokens),
+    },
+    actorPrincipalId,
+    counters,
+    runTokenCeiling,
+    monthlyTokenBudget,
+    scope.path
+  );
+
+  const parsed = parseJsonObjectResult<RootDistillOutput>(response.text, { pages: [] });
+  const rawPages = Array.isArray(parsed.value.pages) ? parsed.value.pages : [];
+  const usablePages = rawPages.filter(usablePage);
+  const page = usablePages.find((candidate) => candidate.slug === "overview");
+  const parseFailure = !parsed.ok
+    ? outputFailure(counters, parsed.reason ?? "invalid JSON", response.text)
+    : !page
+      ? outputFailure(counters, "project overview returned no overview page", response.text)
+      : null;
+
+  if (!page) {
+    return { scopePath: scope.path, inputCount: inputs.length, pagesTouched: 0, recordsDistilled: 0, ...(parseFailure ?? {}) };
+  }
+
+  const finalBody = ensureWikiPageBody(page.bodyMd, deps.now ?? new Date());
+  if (existing?.bodyMd === finalBody) return parseFailure
+    ? { scopePath: scope.path, inputCount: inputs.length, pagesTouched: 0, recordsDistilled: 0, ...parseFailure }
+    : null;
+
+  await saveDoc(db, { scopePath: scope.path, slug: "overview", title: page.title, bodyMd: finalBody }, actorPrincipalId);
+  counters.pagesTouched += 1;
+  return { scopePath: scope.path, inputCount: inputs.length, pagesTouched: 1, recordsDistilled: 0, ...(parseFailure ?? {}) };
+}
 async function distillRoot(
   db: DB,
   scopePaths: string[],

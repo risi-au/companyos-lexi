@@ -15,6 +15,7 @@ export const attentionKindEnum = pgEnum("attention_kind", [
   "lint_finding",
   "graduation",
   "external_gate",
+  "page_update",
 ]);
 
 export const attentionStatusEnum = pgEnum("attention_status", [
@@ -39,6 +40,7 @@ export const attentionItems = pgTable(
     createdBy: uuid("created_by")
       .notNull()
       .references(() => principals.id),
+    targetPrincipalId: uuid("target_principal_id").references(() => principals.id, { onDelete: "cascade" }),
     resolvedBy: uuid("resolved_by").references(() => principals.id),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     resolutionNote: text("resolution_note"),
@@ -48,18 +50,20 @@ export const attentionItems = pgTable(
   (t) => ({
     scopeStatusCreatedIdx: index("attention_items_scope_status_created_idx").on(t.scopeId, t.status, t.createdAt),
     kindStatusIdx: index("attention_items_kind_status_idx").on(t.kind, t.status),
+    targetStatusIdx: index("attention_items_target_status_idx").on(t.targetPrincipalId, t.status),
   })
 );
 
 export interface AttentionItem {
   id: string;
   scopeId: string;
-  kind: "wiki_proposal" | "lint_finding" | "graduation" | "external_gate";
+  kind: "wiki_proposal" | "lint_finding" | "graduation" | "external_gate" | "page_update";
   status: "open" | "approved" | "rejected" | "dismissed";
   title: string;
   summary: string | null;
   payload: Record<string, unknown>;
   createdBy: string;
+  targetPrincipalId: string | null;
   resolvedBy: string | null;
   resolvedAt: Date | null;
   resolutionNote: string | null;
@@ -69,4 +73,4 @@ export interface AttentionItem {
 
 export type NewAttentionItem = Partial<Omit<AttentionItem, "id" | "status" | "createdAt" | "updatedAt" | "resolvedBy" | "resolvedAt" | "resolutionNote">> &
   Pick<AttentionItem, "scopeId" | "kind" | "title" | "payload" | "createdBy"> &
-  Partial<Pick<AttentionItem, "status" | "summary" | "resolvedBy" | "resolvedAt" | "resolutionNote">>;
+  Partial<Pick<AttentionItem, "status" | "summary" | "targetPrincipalId" | "resolvedBy" | "resolvedAt" | "resolutionNote">>;

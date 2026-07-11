@@ -159,7 +159,7 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
   const records = await api.listRecords({ scopePath, limit: 8 }, actor);
   const tasks = await api.listTasks({ scopePath, state: "open", limit: 8 }, actor);
   const events = await api.listEvents({ scopePath, limit: 12 });
-  const attentionItems = await api.listAttentionItems({ scopePath, status: "open", includeDescendants: true, limit: 10 }, actor);
+  const attentionItems = await api.listAttentionItems({ scopePath, status: "open", includeDescendants: true, limit: 50 }, actor);
 
   // Build tab links preserving range when on dashboard; doc param for docs tab; canvas param
   const makeTabHref = (t: string) => {

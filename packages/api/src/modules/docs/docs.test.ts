@@ -21,6 +21,11 @@ import {
   listDocRevisions,
   revertDoc,
   verifyDoc,
+  followDoc,
+  unfollowDoc,
+  isFollowing,
+  listAttentionItems,
+  resolveAttentionItem,
   getBacklinks,
   getLinkGraph,
   listEvents,
@@ -310,6 +315,115 @@ describe("docs module (PGlite + migrations)", () => {
     });
   });
 
+
+  describe("following and page update notifications", () => {
+    it("follow/unfollow are idempotent and emit events", async () => {
+      const sp = "doc-follow-" + Date.now();
+      await createScope(db, { slug: sp, name: "Doc Follow", type: "project" }, rootPrincipalId);
+      await grantRole(db, { principalId: rootPrincipalId, scopePath: sp, role: "editor" }, rootPrincipalId);
+      await grantRole(db, { principalId: viewerPrincipalId, scopePath: sp, role: "viewer" }, rootPrincipalId);
+
+      const doc = await saveDoc(db, { scopePath: sp, slug: "watched", title: "Watched", bodyMd: "Initial" }, rootPrincipalId);
+      await followDoc(db, { scopePath: sp, slug: "watched" }, viewerPrincipalId);
+      await followDoc(db, { scopePath: sp, slug: "watched" }, viewerPrincipalId);
+
+      let rows = await db
+        .select()
+        .from(schema.docFollows)
+        .where(eq(schema.docFollows.documentId, doc.id));
+      expect(rows.filter((row: any) => row.principalId === viewerPrincipalId)).toHaveLength(1);
+      await expect(isFollowing(db, { scopePath: sp, slug: "watched" }, viewerPrincipalId)).resolves.toBe(true);
+
+      const followedEvents = await listEvents(db, { scopePath: sp, type: "doc.followed", limit: 10 });
+      expect(followedEvents.some((event) => (event.payload as any).principalId === viewerPrincipalId)).toBe(true);
+
+      await unfollowDoc(db, { scopePath: sp, slug: "watched" }, viewerPrincipalId);
+      await unfollowDoc(db, { scopePath: sp, slug: "watched" }, viewerPrincipalId);
+      rows = await db
+        .select()
+        .from(schema.docFollows)
+        .where(eq(schema.docFollows.documentId, doc.id));
+      expect(rows.some((row: any) => row.principalId === viewerPrincipalId)).toBe(false);
+      await expect(isFollowing(db, { scopePath: sp, slug: "watched" }, viewerPrincipalId)).resolves.toBe(false);
+
+      const unfollowedEvents = await listEvents(db, { scopePath: sp, type: "doc.unfollowed", limit: 10 });
+      expect(unfollowedEvents.some((event) => (event.payload as any).principalId === viewerPrincipalId)).toBe(true);
+    });
+
+    it("auto-follows human authors and verifiers only", async () => {
+      const sp = "doc-autofollow-" + Date.now();
+      await createScope(db, { slug: sp, name: "Doc Auto Follow", type: "project" }, rootPrincipalId);
+      await grantRole(db, { principalId: rootPrincipalId, scopePath: sp, role: "editor" }, rootPrincipalId);
+      await grantRole(db, { principalId: agentPrincipalId, scopePath: sp, role: "agent" }, rootPrincipalId);
+
+      await saveDoc(db, { scopePath: sp, slug: "human-page", title: "Human Page", bodyMd: "Human authored" }, rootPrincipalId);
+      await expect(isFollowing(db, { scopePath: sp, slug: "human-page" }, rootPrincipalId)).resolves.toBe(true);
+
+      await saveDoc(db, { scopePath: sp, slug: "agent-page", title: "Agent Page", bodyMd: "Agent authored" }, agentPrincipalId);
+      await expect(isFollowing(db, { scopePath: sp, slug: "agent-page" }, agentPrincipalId)).resolves.toBe(false);
+      await expect(isFollowing(db, { scopePath: sp, slug: "agent-page" }, rootPrincipalId)).resolves.toBe(false);
+
+      await verifyDoc(db, { scopePath: sp, slug: "agent-page" }, rootPrincipalId);
+      await expect(isFollowing(db, { scopePath: sp, slug: "agent-page" }, rootPrincipalId)).resolves.toBe(true);
+      await expect(isFollowing(db, { scopePath: sp, slug: "agent-page" }, agentPrincipalId)).resolves.toBe(false);
+    });
+
+    it("fan-out creates targeted page_update items, coalesces, refreshes payload, and starts fresh after dismiss", async () => {
+      const sp = "doc-fanout-" + Date.now();
+      await createScope(db, { slug: sp, name: "Doc Fanout", type: "project" }, rootPrincipalId);
+      await grantRole(db, { principalId: rootPrincipalId, scopePath: sp, role: "editor" }, rootPrincipalId);
+      await grantRole(db, { principalId: agentPrincipalId, scopePath: sp, role: "agent" }, rootPrincipalId);
+      await grantRole(db, { principalId: viewerPrincipalId, scopePath: sp, role: "viewer" }, rootPrincipalId);
+
+      await saveDoc(db, { scopePath: sp, slug: "tracked", title: "Tracked", bodyMd: "Initial" }, agentPrincipalId);
+      await followDoc(db, { scopePath: sp, slug: "tracked" }, viewerPrincipalId);
+
+      await saveDoc(db, { scopePath: sp, slug: "tracked", title: "Tracked", bodyMd: "Edited" }, agentPrincipalId);
+      let items = await listAttentionItems(db, { scopePath: sp, kind: "page_update", status: "open" }, viewerPrincipalId);
+      expect(items).toHaveLength(1);
+      const firstId = items[0]!.id;
+      expect(items[0]!.targetPrincipalId).toBe(viewerPrincipalId);
+      expect(items[0]!.payload).toMatchObject({ documentId: expect.any(String), slug: "tracked", title: "Tracked", lastEventType: "doc.saved", changeCount: 1 });
+
+      await verifyDoc(db, { scopePath: sp, slug: "tracked" }, rootPrincipalId);
+      await renameDoc(db, { scopePath: sp, slug: "tracked", newSlug: "tracked-renamed", newTitle: "Tracked Renamed" }, agentPrincipalId);
+      items = await listAttentionItems(db, { scopePath: sp, kind: "page_update", status: "open" }, viewerPrincipalId);
+      expect(items[0]!.payload).toMatchObject({ slug: "tracked-renamed", title: "Tracked Renamed", lastEventType: "doc.renamed", changeCount: 3 });
+      await archiveDoc(db, { scopePath: sp, slug: "tracked-renamed" }, agentPrincipalId);
+      const revs = await listDocRevisions(db, { scopePath: sp, slug: "tracked-renamed", limit: 5 }, rootPrincipalId);
+      await revertDoc(db, { scopePath: sp, slug: "tracked-renamed", revisionId: revs[0]!.id }, agentPrincipalId);
+
+      items = await listAttentionItems(db, { scopePath: sp, kind: "page_update", status: "open" }, viewerPrincipalId);
+      expect(items).toHaveLength(1);
+      expect(items[0]!.id).toBe(firstId);
+      expect(items[0]!.payload).toMatchObject({ slug: "tracked-renamed", title: "Tracked", lastEventType: "doc.reverted", changeCount: 5 });
+
+      const agentItems = await listAttentionItems(db, { scopePath: sp, kind: "page_update", status: "open" }, agentPrincipalId);
+      expect(agentItems).toHaveLength(0);
+
+      await resolveAttentionItem(db, { id: firstId, resolution: "dismissed" }, viewerPrincipalId);
+      await saveDoc(db, { scopePath: sp, slug: "tracked-renamed", title: "Tracked Renamed", bodyMd: "After dismiss" }, agentPrincipalId);
+      items = await listAttentionItems(db, { scopePath: sp, kind: "page_update", status: "open" }, viewerPrincipalId);
+      expect(items).toHaveLength(1);
+      expect(items[0]!.id).not.toBe(firstId);
+      expect(items[0]!.payload).toMatchObject({ slug: "tracked-renamed", changeCount: 1 });
+    });
+
+    it("does not notify a follower about their own change", async () => {
+      const sp = "doc-self-notify-" + Date.now();
+      await createScope(db, { slug: sp, name: "Doc Self Notify", type: "project" }, rootPrincipalId);
+      await grantRole(db, { principalId: rootPrincipalId, scopePath: sp, role: "editor" }, rootPrincipalId);
+      await grantRole(db, { principalId: agentPrincipalId, scopePath: sp, role: "agent" }, rootPrincipalId);
+      await grantRole(db, { principalId: viewerPrincipalId, scopePath: sp, role: "editor" }, rootPrincipalId);
+
+      await saveDoc(db, { scopePath: sp, slug: "self-change", title: "Self Change", bodyMd: "Initial" }, agentPrincipalId);
+      await followDoc(db, { scopePath: sp, slug: "self-change" }, viewerPrincipalId);
+      await saveDoc(db, { scopePath: sp, slug: "self-change", title: "Self Change", bodyMd: "Own edit" }, viewerPrincipalId);
+
+      const items = await listAttentionItems(db, { scopePath: sp, kind: "page_update", status: "open" }, viewerPrincipalId);
+      expect(items).toHaveLength(0);
+    });
+  });
   describe("access control", () => {
     it("viewer can list/get; editor/agent write; no grant denied", async () => {
       const sp = "doc-access-" + Date.now();

@@ -12,11 +12,14 @@ Drizzle schema package for CompanyOS. Owns table definitions, typed row interfac
 - `scope_type` includes `personal` for per-human personal wikis; the migration is a plain enum value add.
 - Vertical module tables live in separate files such as `documents.ts`, `agent.ts`, `sessions.ts`, and are re-exported by `src/schema/index.ts`.
 - `agent_sessions` includes nullable wrap-up fields from M10-03: `summary` text and `citations` jsonb. `citations` stores an array shaped like API memory citations: slug, scopePath, optional revisionId/title, and source.
+- `doc_follows` stores per-document/principal follows with a unique `(document_id, principal_id)` index and `principal_id` index.
+- `attention_kind` includes `page_update`; `attention_items.target_principal_id` scopes targeted attention rows to a single principal and is indexed with status.
 
 ## Migrations
 - Generate migrations with `pnpm --filter @companyos/db db:generate` from repo root.
 - Do not hand-edit `drizzle/meta/_journal.json`; let Drizzle update it.
 - Do not run migrations against the dev database during implementation briefs unless the brief explicitly says to.
+- M10-04B migration `0026_following_notifications.sql` was hand-written after `drizzle-kit generate` failed on the existing snapshot parent collision; existing journal entries were left semantically unchanged and a new entry was appended.
 
 ## How To Test
 From repo root:

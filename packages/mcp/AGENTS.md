@@ -104,3 +104,6 @@ Acceptance coverage:
 
 ## Usage Notes For Agents
 Use `get_context` at session start for scoped context, then `recall_memory` before external research or broad record trawling. Use `log_*` / `save_*` at end of work to persist. Always use full paths for scope. Prefer structured data in optional `data` for machine consumption alongside markdown bodies.
+
+
+M10-04B: list_attention_items, esolve_attention_item, and get_context rely on the attention service target-principal filter. page_update attention items are visible only to their target principal and are dismiss-only over MCP; no follow/unfollow MCP tools are exposed.

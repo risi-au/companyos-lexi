@@ -16,6 +16,7 @@ export * from "./modules/dashboards/service";
 
 // Docs (KB) module
 export * from "./modules/docs/service";
+export * from "./modules/docs/follows";
 
 // Canvas module (M3-03)
 export * from "./modules/canvas/service";

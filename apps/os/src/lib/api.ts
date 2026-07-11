@@ -37,6 +37,9 @@ import {
   revertDoc,
   getBacklinks,
   verifyDoc,
+  followDoc,
+  unfollowDoc,
+  isFollowing,
   saveCanvas,
   getCanvas,
   listCanvases,
@@ -240,6 +243,12 @@ export const api = {
     getBacklinks(db, input, actorPrincipalId),
   verifyDoc: (input: Parameters<typeof verifyDoc>[1], actorPrincipalId: string) =>
     verifyDoc(db, input, actorPrincipalId),
+  followDoc: (input: Parameters<typeof followDoc>[1], actorPrincipalId: string) =>
+    followDoc(db, input, actorPrincipalId),
+  unfollowDoc: (input: Parameters<typeof unfollowDoc>[1], actorPrincipalId: string) =>
+    unfollowDoc(db, input, actorPrincipalId),
+  isFollowing: (input: Parameters<typeof isFollowing>[1], actorPrincipalId: string) =>
+    isFollowing(db, input, actorPrincipalId),
 
   // Canvas (M3-03)
   saveCanvas: (input: Parameters<typeof saveCanvas>[1], actorPrincipalId: string) =>

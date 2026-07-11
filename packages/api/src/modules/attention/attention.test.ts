@@ -184,6 +184,45 @@ describe("attention module (PGlite + migrations)", () => {
     await expect(getDoc(db, { scopePath: personal.scopePath, slug: "working-style" }, adminPrincipalId)).resolves.toBeNull();
   });
 
+
+  it("filters targeted page_update items to the viewing principal in list and count", async () => {
+    const scopePath = await createProject("attention-targeted");
+    const item = await createAttentionItem(db, {
+      scopePath,
+      kind: "page_update",
+      targetPrincipalId: viewerPrincipalId,
+      title: "Overview changed",
+      payload: { documentId: "doc-1", slug: "overview", title: "Overview", changeCount: 1 },
+    }, editorPrincipalId);
+
+    const viewerItems = await listAttentionItems(db, { scopePath, kind: "page_update", status: "open" }, viewerPrincipalId);
+    expect(viewerItems.map((row) => row.id)).toEqual([item.id]);
+    await expect(countOpenAttentionItems(db, { scopePath }, viewerPrincipalId)).resolves.toBe(1);
+
+    const editorItems = await listAttentionItems(db, { scopePath, kind: "page_update", status: "open" }, editorPrincipalId);
+    expect(editorItems).toHaveLength(0);
+    await expect(countOpenAttentionItems(db, { scopePath }, editorPrincipalId)).resolves.toBe(0);
+  });
+
+  it("page_update items reject approve/reject and resolve as dismissed by the target viewer", async () => {
+    const scopePath = await createProject("attention-page-update");
+    const item = await createAttentionItem(db, {
+      scopePath,
+      kind: "page_update",
+      targetPrincipalId: viewerPrincipalId,
+      title: "Wiki changed",
+      payload: { documentId: "doc-2", slug: "wiki", title: "Wiki", changeCount: 1 },
+    }, editorPrincipalId);
+
+    await expect(resolveAttentionItem(db, { id: item.id, resolution: "approved" }, viewerPrincipalId)).rejects.toThrow(AttentionStateError);
+    await expect(resolveAttentionItem(db, { id: item.id, resolution: "rejected" }, viewerPrincipalId)).rejects.toThrow(AttentionStateError);
+    await expect(resolveAttentionItem(db, { id: item.id, resolution: "dismissed" }, editorPrincipalId)).rejects.toThrow();
+
+    const resolved = await resolveAttentionItem(db, { id: item.id, resolution: "dismissed" }, viewerPrincipalId);
+    expect(resolved.status).toBe("dismissed");
+    const open = await listAttentionItems(db, { scopePath, kind: "page_update", status: "open" }, viewerPrincipalId);
+    expect(open).toHaveLength(0);
+  });
   it("rejects double resolve and viewer resolve", async () => {
     const scopePath = await createProject("attention-guards");
     const item = await createAttentionItem(db, {

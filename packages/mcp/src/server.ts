@@ -314,7 +314,7 @@ export function createServer(options: CreateServerOptions) {
     "resolve_attention_item",
     {
       title: "Resolve Attention Item",
-      description: "Approve, reject, or dismiss an open Things to resolve item. Approval of a wiki proposal applies the proposed wiki edit and records a decision.",
+      description: "Approve, reject, or dismiss an open Things to resolve item. Approval of a wiki proposal applies the proposed wiki edit and records a decision. page_update items are dismiss-only for the targeted principal.",
       inputSchema: z.object({
         id: z.string().min(1).describe("Attention item id"),
         resolution: z.enum(["approved", "rejected", "dismissed"]),

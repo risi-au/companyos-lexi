@@ -8,6 +8,7 @@ Runs the wiki maintenance loops for M8:
 - per top-level scope ingest from records, workbench events, and session wrap-ups
 - update-in-place wiki page merges through `saveDoc`
 - root distillation for `critical-facts`, `scope-map`, and `pattern-*` pages
+- per-project distillation for the reserved top-level project `overview` page
 - lint pass with safe auto-fixes and warning alerts
 - personal wiki routing: routine sweeps skip personal scopes, event-driven/explicit
   personal targets are valid, and scope ingest prompts apply the person-vs-work test
@@ -26,13 +27,14 @@ Runs the wiki maintenance loops for M8:
 - Callers inject DB handle, actor principal, and LLM client/config.
 - LLM model names are role aliases only: `cheap` and `analysis`.
 - Every LLM user prompt carries an engine-owned JSON envelope instruction; do not rely on
-  skill prose alone to define output shape.
+  skill prose alone to define output shape. `project-overview` must return only the reserved `overview` page.
 - Non-empty malformed LLM output, truncated JSON, or output filtered to zero usable pages
   is surfaced in run payloads with `parseFailed: true` and a bounded response excerpt
   (about 2KB). Runs with output-contract failures report capability status `error`; they
   are not retried automatically.
 - Tests use fixture LLM clients only. No live calls and no `.env` reads in tests.
 - All OS reads/writes go through `@companyos/api` services: docs, records, events, search, skills, capabilities, usage, and scopes.
+- Project overview writes use `saveDoc` as the brain actor, skip identical regenerated bodies to avoid follower notification noise, and intentionally notify followers on real changes.
 - Brain access to personal scopes is mediated through the kernel rule for agent
   principals with direct root admin/agent grants; do not add direct schema reads here.
 - The engine loads `wiki-maintenance` via the skills module at run time.

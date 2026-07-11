@@ -52,6 +52,10 @@ reads before working. Records are what happened; the wiki is what is true now.
   `- extracted: record:rec_123 (2026-07-07) - checkout uses Stripe`.
   This is the backlink graph and provenance layer in plain markdown.
 
+## Project wiki reserved pages
+
+Every top-level project wiki reserves `overview` for the brain-maintained project overview. It summarizes what the project is, current state, and a recent-activity digest linked back to changelog and decision records. The brain writes it in place and skips no-op rewrites so followers are notified only when the page really changes.
+
 ## Root wiki reserved pages
 
 The root scope has an instance-level wiki maintained for root admins. Normal scope grants
@@ -96,6 +100,10 @@ still apply elsewhere; root wiki pages are root-admin territory.
    contract. Pilot on one client before fleet-wide.
 3. **Humans**: read and correct the same pages in the Docs tab. No separate human
    section — authorship lives in revision history, not in the tree.
+
+## Following conventions
+
+Humans can follow any wiki page from the page header. Creating a page auto-follows the human author, and verifying a page auto-follows the human verifier; agent and brain-authored pages do not auto-follow their authors. A followed page change creates one targeted `page_update` attention item for each follower except the actor. Further changes coalesce into the same open item until the follower dismisses it; the next change after dismissal starts a fresh item.
 
 ## Proposals & attention items
 

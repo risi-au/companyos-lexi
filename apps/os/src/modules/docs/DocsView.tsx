@@ -18,6 +18,9 @@ import {
   getInheritedWikiAction,
   getBacklinksAction,
   verifyDocAction,
+  followDocAction,
+  unfollowDocAction,
+  isFollowingDocAction,
 } from "./actions";
 
 type AuthorKind = "human" | "agent" | "system";
@@ -89,6 +92,8 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
 
   const [docs, setDocs] = useState<DocListItem[]>([]);
   const [currentDoc, setCurrentDoc] = useState<CurrentDoc | null>(null);
+  const [isFollowingCurrent, setIsFollowingCurrent] = useState(false);
+  const [isFollowBusy, setIsFollowBusy] = useState(false);
   const [access, setAccess] = useState<string | null>(initialAccess || null);
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [isLoadingDoc, setIsLoadingDoc] = useState(false);
@@ -163,6 +168,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
       try {
         const d = await getDocAction(targetScopePath, slug);
         if (d) {
+          const following = await isFollowingDocAction(targetScopePath, d.slug).catch(() => false);
           const listRow = docs.find((row) => row.scopePath === targetScopePath && row.slug === d.slug);
           setCurrentDoc({
             scopePath: targetScopePath,
@@ -171,9 +177,11 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
             bodyMd: d.bodyMd ?? "",
             unreviewed: Boolean(listRow?.unreviewed),
           });
+          setIsFollowingCurrent(Boolean(following));
           if (syncUrl) updateUrlDoc(targetScopePath, d.slug);
         }
       } catch {
+        setIsFollowingCurrent(false);
         await refreshList();
       } finally {
         setIsLoadingDoc(false);
@@ -185,6 +193,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
   useEffect(() => {
     let mounted = true;
     setCurrentDoc(null);
+    setIsFollowingCurrent(false);
     setDocs([]);
     setBacklinks([]);
     setInheritedWiki(null);
@@ -431,6 +440,25 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
     }
   };
 
+
+  const toggleFollowCurrent = async () => {
+    if (!currentDoc || isFollowBusy) return;
+    setIsFollowBusy(true);
+    try {
+      if (isFollowingCurrent) {
+        await unfollowDocAction(currentDoc.scopePath, currentDoc.slug);
+        setIsFollowingCurrent(false);
+      } else {
+        await followDocAction(currentDoc.scopePath, currentDoc.slug);
+        setIsFollowingCurrent(true);
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Couldn't update following for this page. Refresh and try again.";
+      toast.error(msg);
+    } finally {
+      setIsFollowBusy(false);
+    }
+  };
   const handleSaveState = (s: "saved" | "saving" | "error") => setSaveState(s);
 
   const hasDocs = docs.length > 0;
@@ -659,6 +687,9 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
             knownPages={knownPages}
             unreviewed={currentDoc.unreviewed}
             onVerify={verifyCurrentDoc}
+            isFollowing={isFollowingCurrent}
+            isFollowBusy={isFollowBusy}
+            onToggleFollow={toggleFollowCurrent}
             onEditingChange={setIsDocEditing}
           />
         )}

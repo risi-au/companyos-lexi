@@ -62,6 +62,18 @@ class FixtureLlm implements BrainLlmClient {
         totalTokens: 100,
       };
     }
+    if (request.purpose === "project-overview") {
+      return {
+        text: JSON.stringify({
+          pages: [{
+            slug: "overview",
+            title: "Overview",
+            bodyMd: "# Overview\n\nCode project is active.\n\n## Sources\n\n- inferred: code docs pass",
+          }],
+        }),
+        totalTokens: 50,
+      };
+    }
     if (request.purpose === "root-distill") {
       return {
         text: JSON.stringify({

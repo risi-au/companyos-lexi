@@ -5,7 +5,7 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import { useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
 import type { BlockNoteEditor } from "@blocknote/core";
-import { ArrowDown, ArrowUp, Check, Edit3, Plus, Save, ShieldCheck, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Bell, Check, Edit3, Plus, Save, ShieldCheck, Trash2 } from "lucide-react";
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
 import {
@@ -43,6 +43,9 @@ interface DocEditorProps {
   knownPages?: KnownWikiPage[];
   unreviewed?: boolean;
   onVerify?: () => Promise<void>;
+  isFollowing?: boolean;
+  isFollowBusy?: boolean;
+  onToggleFollow?: () => Promise<void>;
   onEditingChange?: (editing: boolean) => void;
 }
 
@@ -135,6 +138,9 @@ export function DocEditor({
   knownPages,
   unreviewed = false,
   onVerify,
+  isFollowing = false,
+  isFollowBusy = false,
+  onToggleFollow,
   onEditingChange,
 }: DocEditorProps) {
   const [isEditing, setIsEditing] = useState(false);
@@ -520,6 +526,17 @@ export function DocEditor({
             </div>
           ) : (
             <div className="flex shrink-0 items-center gap-[var(--space-2)]">
+              {onToggleFollow && (
+                <button
+                  onClick={onToggleFollow}
+                  disabled={isFollowBusy}
+                  className="inline-flex min-h-[36px] items-center gap-[var(--space-1)] rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-2)] text-[var(--font-size-sm)] hover:bg-[var(--muted)] disabled:opacity-60"
+                >
+                  <Bell size={14} />
+                  {isFollowing ? "Following" : "Follow"}
+                  {isFollowing && <Check size={14} />}
+                </button>
+              )}
               {unreviewed && !readOnly && (
                 <button
                   onClick={verifyPage}

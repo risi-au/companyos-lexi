@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { and, count, desc, eq, inArray, like, or } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, like, or } from "drizzle-orm";
 import { attentionItems, scopes, type AttentionItem } from "@companyos/db";
 import { emitEvent, type DB } from "../../kernel/events";
 import { requireAccess } from "../../kernel/grants";
@@ -83,6 +83,10 @@ function graduationPayload(value: unknown): GraduationPayload {
   };
 }
 
+function targetPrincipalCondition(actorPrincipalId: string) {
+  return or(isNull(attentionItems.targetPrincipalId), eq(attentionItems.targetPrincipalId, actorPrincipalId));
+}
+
 function subtreeCondition(scopePath: string) {
   return scopePath === "root"
     ? like(scopes.path, "%")
@@ -108,6 +112,7 @@ async function getAttentionRow(db: DB, id: string): Promise<AttentionItemView> {
       summary: attentionItems.summary,
       payload: attentionItems.payload,
       createdBy: attentionItems.createdBy,
+      targetPrincipalId: attentionItems.targetPrincipalId,
       resolvedBy: attentionItems.resolvedBy,
       resolvedAt: attentionItems.resolvedAt,
       resolutionNote: attentionItems.resolutionNote,
@@ -129,6 +134,7 @@ export interface CreateAttentionItemInput {
   kind: AttentionKind;
   title: string;
   summary?: string | null;
+  targetPrincipalId?: string | null;
   payload: Record<string, unknown>;
 }
 
@@ -150,6 +156,7 @@ export async function createAttentionItem(
       summary: input.summary ?? null,
       payload: input.payload,
       createdBy: actorPrincipalId,
+      targetPrincipalId: input.targetPrincipalId ?? null,
     })
     .returning()) as AttentionItem[];
   if (!created) throw new Error("Failed to create attention item");
@@ -158,7 +165,7 @@ export async function createAttentionItem(
     type: "attention.created",
     scopePath: input.scopePath,
     principalId: actorPrincipalId,
-    payload: { attentionItemId: created.id, kind: created.kind, title: created.title },
+    payload: { attentionItemId: created.id, kind: created.kind, title: created.title, targetPrincipalId: created.targetPrincipalId },
   });
 
   return getAttentionRow(db, created.id);
@@ -178,7 +185,7 @@ export async function listAttentionItems(
   actorPrincipalId: string
 ): Promise<AttentionItemView[]> {
   const limit = Math.min(Math.max(1, input.limit ?? 50), 200);
-  const conditions: any[] = [];
+  const conditions: any[] = [targetPrincipalCondition(actorPrincipalId)];
   if (input.status) conditions.push(eq(attentionItems.status, input.status));
   if (input.kind) conditions.push(eq(attentionItems.kind, input.kind));
 
@@ -203,6 +210,7 @@ export async function listAttentionItems(
       summary: attentionItems.summary,
       payload: attentionItems.payload,
       createdBy: attentionItems.createdBy,
+      targetPrincipalId: attentionItems.targetPrincipalId,
       resolvedBy: attentionItems.resolvedBy,
       resolvedAt: attentionItems.resolvedAt,
       resolutionNote: attentionItems.resolutionNote,
@@ -224,7 +232,7 @@ export async function countOpenAttentionItems(
   input: { scopePath: string; includeDescendants?: boolean },
   actorPrincipalId: string
 ): Promise<number> {
-  const conditions: any[] = [eq(attentionItems.status, "open")];
+  const conditions: any[] = [eq(attentionItems.status, "open"), targetPrincipalCondition(actorPrincipalId)];
   if (input.scopePath === "root" && input.includeDescendants) {
     const ids = await visibleScopeIds(db, actorPrincipalId);
     if (!ids.length) return 0;
@@ -283,7 +291,20 @@ export async function resolveAttentionItem(
   actorPrincipalId: string
 ): Promise<AttentionItemView> {
   const item = await getAttentionRow(db, input.id);
-  await requireAccess(db, actorPrincipalId, item.scopePath, "admin");
+  if (item.targetPrincipalId && item.targetPrincipalId !== actorPrincipalId) {
+    throw new AttentionNotFoundError(input.id);
+  }
+  if (item.kind === "page_update") {
+    if (item.targetPrincipalId !== actorPrincipalId) {
+      throw new AttentionNotFoundError(input.id);
+    }
+    if (input.resolution !== "dismissed") {
+      throw new AttentionStateError("page_update attention items can only be dismissed");
+    }
+    await requireAccess(db, actorPrincipalId, item.scopePath, "viewer");
+  } else {
+    await requireAccess(db, actorPrincipalId, item.scopePath, "admin");
+  }
   if (item.status !== "open") {
     throw new AttentionStateError(`Attention item ${item.id} is ${item.status}; only open items can be resolved`);
   }
@@ -319,20 +340,22 @@ export async function resolveAttentionItem(
     type: "attention.resolved",
     scopePath: resolved.scopePath,
     principalId: actorPrincipalId,
-    payload: { attentionItemId: resolved.id, kind: resolved.kind, resolution: input.resolution },
+    payload: { attentionItemId: resolved.id, kind: resolved.kind, resolution: input.resolution, targetPrincipalId: resolved.targetPrincipalId },
   });
 
-  await createRecord(
-    db,
-    {
-      scopePath: resolved.scopePath,
-      kind: "decision",
-      title: `Resolved: ${resolved.title}`,
-      bodyMd: decisionBody(resolved, input.resolution, input.note),
-      data: { attentionItemId: resolved.id, kind: resolved.kind, resolution: input.resolution },
-    },
-    actorPrincipalId
-  );
+  if (resolved.kind !== "page_update") {
+    await createRecord(
+      db,
+      {
+        scopePath: resolved.scopePath,
+        kind: "decision",
+        title: `Resolved: ${resolved.title}`,
+        bodyMd: decisionBody(resolved, input.resolution, input.note),
+        data: { attentionItemId: resolved.id, kind: resolved.kind, resolution: input.resolution },
+      },
+      actorPrincipalId
+    );
+  }
 
   return resolved;
 }

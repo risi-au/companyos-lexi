@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { eq, and, desc, inArray, not, isNull, like, or } from "drizzle-orm";
-import { docLinks, documents, documentRevisions, principals, scopes } from "@companyos/db";
-import type { Document, DocumentRevision } from "@companyos/db";
+import { attentionItems, docLinks, documents, documentRevisions, principals, scopes } from "@companyos/db";
+import type { AttentionItem, Document, DocumentRevision } from "@companyos/db";
 import {
   emitEvent,
   type DB,
@@ -14,6 +14,7 @@ import {
   AccessDeniedError,
 } from "../../errors";
 import { enqueueEmbeddingForEntity } from "../../lib/embeddings";
+import { autoFollowDocForHuman, listFollowers } from "./follows";
 
 const MAX_REVISIONS = 50;
 const SLUG_REGEX = /^[a-z0-9-]+$/;
@@ -330,6 +331,104 @@ export async function extractLinksForDocument(
   });
 }
 
+
+interface NotifyFollowersInput {
+  documentId: string;
+  scopeId: string;
+  scopePath: string;
+  slug: string;
+  title: string;
+  eventType: string;
+  actor: string;
+}
+
+function payloadRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+async function actorName(db: DB, actorPrincipalId: string): Promise<string | null> {
+  const [actor] = (await db
+    .select({ name: principals.name })
+    .from(principals)
+    .where(eq(principals.id, actorPrincipalId))
+    .limit(1)) as Array<{ name: string }>;
+  return actor?.name ?? null;
+}
+
+async function notifyFollowers(db: DB, input: NotifyFollowersInput): Promise<void> {
+  try {
+    await notifyFollowersUnsafe(db, input);
+  } catch (error) {
+    console.error("[docs.notifyFollowers] failed", error);
+  }
+}
+
+async function notifyFollowersUnsafe(db: DB, input: NotifyFollowersInput): Promise<void> {
+  const followers = (await listFollowers(db, input.documentId))
+    .filter((follower) => follower.principalId !== input.actor);
+  if (followers.length === 0) return;
+
+  const displayName = await actorName(db, input.actor);
+  const { createAttentionItem } = await import("../attention/service");
+
+  for (const follower of followers) {
+    const openItems = (await db
+      .select()
+      .from(attentionItems)
+      .where(and(
+        eq(attentionItems.kind, "page_update"),
+        eq(attentionItems.status, "open"),
+        eq(attentionItems.targetPrincipalId, follower.principalId)
+      ))
+      .limit(100)) as AttentionItem[];
+    const existing = openItems.find((item) => String(payloadRecord(item.payload).documentId ?? "") === input.documentId);
+
+    if (existing) {
+      const currentPayload = payloadRecord(existing.payload);
+      const changeCount = Number(currentPayload.changeCount ?? 0);
+      const nextPayload = {
+        ...currentPayload,
+        documentId: input.documentId,
+        slug: input.slug,
+        scopePath: input.scopePath,
+        title: input.title,
+        lastEventType: input.eventType,
+        lastActorId: input.actor,
+        ...(displayName ? { lastActorName: displayName } : {}),
+        changeCount: Number.isFinite(changeCount) ? changeCount + 1 : 1,
+      };
+      const now = new Date();
+      await db
+        .update(attentionItems)
+        .set({ payload: nextPayload, updatedAt: now })
+        .where(eq(attentionItems.id, existing.id));
+      await emitEvent(db, {
+        type: "attention.updated",
+        scopePath: input.scopePath,
+        principalId: input.actor,
+        payload: { attentionItemId: existing.id, kind: "page_update", documentId: input.documentId, targetPrincipalId: follower.principalId },
+      });
+      continue;
+    }
+
+    await createAttentionItem(db, {
+      scopePath: input.scopePath,
+      kind: "page_update",
+      targetPrincipalId: follower.principalId,
+      title: `"${input.title}" changed`,
+      payload: {
+        documentId: input.documentId,
+        slug: input.slug,
+        scopePath: input.scopePath,
+        title: input.title,
+        lastEventType: input.eventType,
+        lastActorId: input.actor,
+        ...(displayName ? { lastActorName: displayName } : {}),
+        changeCount: 1,
+      },
+    }, input.actor);
+  }
+}
 export interface SaveDocInput {
   scopePath: string;
   slug?: string;
@@ -398,6 +497,7 @@ export async function saveDoc(
 
   const now = new Date();
   let saved: Document;
+  let createdNewDocument = false;
 
   if (existing) {
     const [updated] = (await db
@@ -432,6 +532,11 @@ export async function saveDoc(
       throw new Error("Failed to create document");
     }
     saved = created;
+    createdNewDocument = true;
+  }
+
+  if (createdNewDocument) {
+    await autoFollowDocForHuman(db, { documentId: saved.id, scopePath, slug: saved.slug }, actorPrincipalId);
   }
 
   await appendRevision(db, saved.id, title, bodyMd, actorPrincipalId);
@@ -442,6 +547,16 @@ export async function saveDoc(
     scopePath,
     principalId: actorPrincipalId,
     payload: { slug: saved.slug, title: saved.title, documentId: saved.id },
+  });
+
+  await notifyFollowers(db, {
+    documentId: saved.id,
+    scopeId: saved.scopeId,
+    scopePath,
+    slug: saved.slug,
+    title: saved.title,
+    eventType: "doc.saved",
+    actor: actorPrincipalId,
   });
 
   enqueueEmbeddingForEntity(db, { entityType: "doc", entityId: saved.id, principalId: actorPrincipalId });
@@ -537,12 +652,23 @@ export async function verifyDoc(
   }
 
   await appendRevision(db, updated.id, updated.title, updated.bodyMd, actorPrincipalId);
+  await autoFollowDocForHuman(db, { documentId: updated.id, scopePath, slug: updated.slug }, actorPrincipalId);
 
   await emitEvent(db, {
     type: "doc.verified",
     scopePath,
     principalId: actorPrincipalId,
     payload: { slug: updated.slug, title: updated.title, documentId: updated.id, verifiedAt },
+  });
+
+  await notifyFollowers(db, {
+    documentId: updated.id,
+    scopeId: updated.scopeId,
+    scopePath,
+    slug: updated.slug,
+    title: updated.title,
+    eventType: "doc.verified",
+    actor: actorPrincipalId,
   });
 
   return updated;
@@ -893,6 +1019,16 @@ export async function renameDoc(
     payload: { oldSlug: slug, newSlug: updated.slug, title: updated.title, documentId: updated.id },
   });
 
+  await notifyFollowers(db, {
+    documentId: updated.id,
+    scopeId: updated.scopeId,
+    scopePath,
+    slug: updated.slug,
+    title: updated.title,
+    eventType: "doc.renamed",
+    actor: actorPrincipalId,
+  });
+
   return updated;
 }
 
@@ -945,6 +1081,16 @@ export async function archiveDoc(
     scopePath,
     principalId: actorPrincipalId,
     payload: { slug, title: updated.title, documentId: updated.id },
+  });
+
+  await notifyFollowers(db, {
+    documentId: updated.id,
+    scopeId: updated.scopeId,
+    scopePath,
+    slug: updated.slug,
+    title: updated.title,
+    eventType: "doc.archived",
+    actor: actorPrincipalId,
   });
 
   return updated;
@@ -1060,6 +1206,16 @@ export async function revertDoc(
     scopePath,
     principalId: actorPrincipalId,
     payload: { slug, documentId: doc.id, fromRevisionId: revisionId },
+  });
+
+  await notifyFollowers(db, {
+    documentId: updated.id,
+    scopeId: updated.scopeId,
+    scopePath,
+    slug: updated.slug,
+    title: updated.title,
+    eventType: "doc.reverted",
+    actor: actorPrincipalId,
   });
 
   enqueueEmbeddingForEntity(db, { entityType: "doc", entityId: updated.id, principalId: actorPrincipalId });

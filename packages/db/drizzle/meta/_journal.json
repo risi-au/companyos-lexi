@@ -183,6 +183,13 @@
       "when": 1783729752182,
       "tag": "0025_silly_satana",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1783753627285,
+      "tag": "0026_following_notifications",
+      "breakpoints": true
     }
   ]
 }
