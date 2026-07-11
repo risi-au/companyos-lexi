@@ -14,8 +14,12 @@ const TEXT_EXT = /\.(ts|tsx|js|jsx|mjs|cjs|md|css|scss|json|sql|ya?ml|toml|ps1|s
 // Files that legitimately contain mojibake byte sequences (they document them).
 const EXCLUDE = new Set(["ONBOARDING.md"]);
 
-// Byte patterns, computed from the strings so this file stays pure ASCII.
-const MOJIBAKE = ["â€", "âŒ", "âœ", "Ã¢", "Â·"].map((s) => Buffer.from(s, "utf8"));
+// Unicode-escaped so this file contains no literal mojibake bytes (git ls-files
+// includes this script — with raw literals it would flag itself, which is exactly
+// how it broke main's first Release run).
+const MOJIBAKE = ["\u00e2\u20ac", "\u00e2\u0152", "\u00e2\u0153", "\u00c3\u00a2", "\u00c2\u00b7"].map(
+  (s) => Buffer.from(s, "utf8")
+);
 const BOM_UTF8 = Buffer.from([0xef, 0xbb, 0xbf]);
 const BOM_UTF16LE = Buffer.from([0xff, 0xfe]);
 const BOM_UTF16BE = Buffer.from([0xfe, 0xff]);
