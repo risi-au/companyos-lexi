@@ -69,7 +69,7 @@ export function CredentialsPanel({
       setError(null);
     } catch (e) {
       setRows([]);
-      setError(e instanceof Error ? e.message : "Couldn't load credentials. Refresh and try again.");
+      setError(e instanceof Error ? e.message : "Couldn't load platform connections. Refresh and try again.");
     } finally {
       setLoading(false);
     }
@@ -134,14 +134,14 @@ export function CredentialsPanel({
           <div className="flex items-center gap-[var(--space-2)]">
             <KeyRound size={18} />
             <div>
-              <div className="text-[var(--font-size-sm)] font-medium">{setupMode ? "Setup credentials" : "Credentials"}</div>
+              <div className="text-[var(--font-size-sm)] font-medium">{setupMode ? "Set up platform connections" : "Platform connections"}</div>
               <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Stored encrypted. Values can be replaced but never read back.</div>
             </div>
           </div>
           <button
             type="button"
-            aria-label="Refresh credentials"
-            title="Refresh credentials"
+            aria-label="Refresh platform connections"
+            title="Refresh platform connections"
             onClick={refresh}
             className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] hover:bg-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
           >
@@ -191,7 +191,7 @@ export function CredentialsPanel({
 
         {!mayManage ? (
           <div className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--background)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
-            Admin access is required to add, update, or delete credentials.
+            Admin access is required to add, update, or delete platform connections.
           </div>
         ) : (
           <div className="grid gap-[var(--space-3)] lg:grid-cols-[220px_1fr_240px_auto_auto]">
@@ -248,11 +248,11 @@ export function CredentialsPanel({
       </div>
 
       <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
-        <div className="mb-[var(--space-3)] text-[var(--font-size-sm)] font-medium">Credentials in this project</div>
+        <div className="mb-[var(--space-3)] text-[var(--font-size-sm)] font-medium">Platform connections in this project</div>
         {loading ? (
-          <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">Loading credentials…</div>
+          <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">Loading platform connections…</div>
         ) : rows.length === 0 ? (
-          <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No credentials set for this project.</div>
+          <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No platform connections set for this project.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] text-left text-[var(--font-size-sm)]">

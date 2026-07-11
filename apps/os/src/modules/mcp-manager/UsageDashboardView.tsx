@@ -64,7 +64,7 @@ const GROUP_BY_LABELS: Record<GroupBy, string> = {
   scope: "Project",
   principal: "Person or agent",
   token: "Token",
-  connection: "Connection",
+  connection: "Connected app",
   session: "Session",
   source: "Source",
   model: "Model",
@@ -197,7 +197,7 @@ export function UsageDashboardView({ initial }: { initial: UsagePayload }) {
             ["Operation", operation, setOperation],
             ["Person or agent", principalId, setPrincipalId],
             ["Token", tokenId, setTokenId],
-            ["Connection", connectionId, setConnectionId],
+            ["Connected app", connectionId, setConnectionId],
             ["Session", sessionId, setSessionId],
           ].map(([label, value, setter]) => (
             <label key={label as string} className="block">

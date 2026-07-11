@@ -2,6 +2,32 @@
 
 *Every user-facing noun and verb, audited against the operating doctrine ("calm, trustworthy operating system", agent-facing system of record) and DESIGN.md's own ratified terminology. Per-string grammar/voice findings live in STRING-AUDIT.md; this doc is the vocabulary.*
 
+## 0. Ratified (decision 13, M10-06 — 2026-07-09)
+
+**Authority:** `docs/tasks/M10-living-wiki-overview.md` decision 13. User-facing label strings only — tab keys (`?tab=docs`), routes, query params, enum values, API/tool/schema names, and variables stay unchanged.
+
+### Confirmed renames (landed in M10-06)
+
+| Concept | User-facing term | Where | Internal name (unchanged) |
+|---|---|---|---|
+| **Docs surface** | **Wiki** | Scope tab label, docs module chrome | `docs`, `save_doc`, `?tab=docs` |
+| **Worker tokens** | **Worker tokens** | Scope tab + `ConnectPanel` — mint MCP tokens for non-human principals in this project | `connect`, `connection_tokens`, `mint_connection_token` |
+| **Platform connections** | **Platform connections** | Scope tab + `CredentialsPanel` — vault credentials (Meta, Shopify, Google Ads; connect-once promise) | `credentials`, `credential_vault` |
+| **Connected apps** | **Connected apps** | Admin MCP Manager (`/admin/mcp`) — account-level MCP clients (Claude, Hermes…) | `mcp`, `list_connections` |
+| **Attention queue** | **Things to resolve** | Scope overview card (`AttentionCard`) | `attention_items` |
+
+**Connect split rationale:** one overloaded word (*Connect* / *connections* / *credentials*) previously covered all three surfaces. Each now has a distinct user-facing name; M11-01 implements the panel IA fix.
+
+### Pending owner confirmation (do not apply until decided)
+
+| Current (as shown) | Proposed | Notes |
+|---|---|---|
+| **Setup** (tab), setup / setup packet | **Scope setup** / **setup packet** | In-app UI largely says *Setup* already; candidate tightens wizard vocabulary |
+| **capability** (event labels, health copy) | **Automations** | Tab already says *Automations*; watch n8n overlap |
+| **Person or agent** / **Who** (directory UI) | **People & agents** | Consolidate fragmented principal labels in grants, activity, MCP manager |
+
+---
+
 ## 1. Principles
 
 1. **The UI speaks operator language; MCP/API speaks agent language.** `scope`, `principal`, `provision_scope` are correct *contract* words — they should keep living in the MCP tools, API params, and docs. The question per term is only: what does the human see?
@@ -18,23 +44,23 @@
 |---|---|---|---|---|
 | **scope** (raw, ~20 sites: "New scope", "Insufficient permissions to create scope", "This scope's credentials", "scope: {path}", "No credentials set for this scope") | `Sidebar.tsx:71,237`, `_components/actions.ts:26`, `CredentialsPanel.tsx:248,252`, `DashboardGrid.tsx:201` | **Project / Sub-project** in labels; "this project"; keep the mono *path* (`indya/marketing`) as the visible address. "Scope" survives only in Admin + agent-facing surfaces (Connect snippets, MCP docs) | DESIGN.md §2 ratified exactly this and the UI ignores it. "Scope" is an authz concept; operators think in projects. The path already communicates the tree | Code |
 | **Project / Client** badge; "(top level — new Project / Client)" | `s/[...path]:166`, `Sidebar.tsx:257` | **Project** (badge). The create-flow explains "clients and internal ventures are both projects" once, in helper text | "Project / Client" as a compound label reads as indecision. Doctrine: clients convert *into* scopes; the type is project either way | Code |
-| **Intake** (tab), **intake packet** ("No intake packets.", "Packets awaiting action", "Requested during intake") | `s/[...path]:246`, `IntakePanel.tsx:153`, `admin/intake:29`, `CredentialsPanel.tsx:157` | **Setup** (tab + wizard surface); the artifact = **setup packet** in admin, invisible as a noun to operators (they see "the interview" and "the review") | "Intake" is clinic/CRM vocabulary; doctrine says this is the *creation wizard*. Operators run "setup"; admins can keep "packet" as the reviewable artifact | Code (tab label, `?tab=` param — needs redirect) |
+| **Intake** (tab), **intake packet** | `s/[...path]:246`, `IntakePanel.tsx`, `admin/intake` | **Setup** (tab + wizard surface, landed). *Candidate (pending):* **Scope setup** / **setup packet** | "Intake" is clinic/CRM vocabulary; doctrine says this is the *creation wizard*. See §0 pending table | Code |
 | **Creation wizard** (panel title) | `IntakePanel.tsx:232` | **Set up {scope name}** as the wizard title (e.g. "Set up indya/seo") | The wizard should name its object, not its mechanism | Code |
 | **External pack / paste back / Submit return** | `IntakePanel.tsx:345,351,374` | **Interview pack** (what you copy out) / **Interview results** (what you paste back). Button: "Submit results" | "External pack" describes the architecture; "interview" describes the activity. Doctrine already calls it "the external interview" | Code |
 | **Provision / provisioned** | `IntakePanel.tsx:409`, status enum | Verb on button: **"Create everything"** or "Run setup" (with a sub-line listing what gets created); status: **"Live"**. Keep *provision* in admin/API | "Provision" is ops jargon; the moment deserves plain confidence. Admins auditing the queue still see the precise term | Code + DB enum label map |
 | **Brain reuse** (wizard section), **Use template** | `IntakePanel.tsx:314,335` | **Starting points** (section), **"Start from this"** (button) | "Brain reuse" is internal-architecture naming. It also collides with the *other* template (below) | Code |
 | **Wizard templates / Commit template update** (admin) | `admin/intake:62,75` | **Setup templates** / **"Save template"** (sync detail in helper text: "Saved templates sync to the skills repo.") | "Commit" leaks git; and "template" must belong to exactly one thing — the admin-edited framing/markdown. The reuse-pattern side is renamed (above) to break the collision | Code |
-| **principal** ("Principal" table headers, "Scope and principal required", "principal offboarding") | `admin/grants:16,33`, `admin/activity:14`, `_components/actions.ts:67,85`, `admin/mcp:38-40` | **Person or agent** (McpManagerView already uses this at L316 — promote it); table header **"Who"** or "Person / agent"; errors say "user or agent" | The codebase already found the right words once. "Principal" stays in schema/API | Code |
+| **principal** ("Principal" table headers, "Scope and principal required", "principal offboarding") | `admin/grants`, `admin/activity`, `McpManagerView` | **Person or agent** / **Who** (landed). *Candidate (pending):* **People & agents** in directory UI | "Principal" stays in schema/API. See §0 pending table | Code |
 | **grant / Grants** (admin tab, "Project members (grants on this scope)") | `admin/layout:12`, `s/[...path]:514` | **Access** (admin tab); "Members" for the project surface (already exists); "grant" survives in admin table detail where precision helps (`root:owner`) | Access is what's being granted; the tab should name the outcome | Code |
 | **Plane** ("via Plane", "Plane not configured — tasks hidden.", "Task Manager") | `s/[...path]:314,318`, `Sidebar.tsx:185`, `TasksWidget:20` | **Tasks** everywhere; provenance as tooltip/detail ("Synced from Plane"). Keep "Task Manager ↗" link but rename **"Open task board ↗"** | Vendor names in primary chrome undercut the "tools are disposable" bet (DESIGN.md §1). If Plane is swapped, the UI shouldn't need renaming | Code |
-| **capability / Capability** (table headers) vs **Automations** (tab) | `admin/automations:20` vs `admin/layout:13`, `admin/health:151` | **Automation** everywhere user-facing; "capability" remains the registry/API term | The product already chose "Automations" for the tab; the table disagreeing with its own page title is the bug | Code |
+| **capability / Capability** (table headers) vs **Automations** (tab) | `admin/automations`, `labels.ts`, `admin/health` | **Automations** (tab landed). *Candidate (pending):* **Automation** everywhere user-facing including event labels; "capability" remains the registry/API term. Watch n8n overlap | See §0 pending table | Code |
 | **Brain / Brain Engine** | `brain/page:23`, `brain/engine:28` | Keep **Brain** (distinctive, owner vocabulary). Engine page: **Brain · Engine room** → or keep "Engine"; subtitle must explain: "How the Brain distills records into the wiki" | Brand-worthy internal name; just needs one explanatory subtitle instead of "Runs, lint, and spend" | Code |
 | **ingest / lint / backfill** (trigger buttons) | `brain/engine:61-66` | **"Run ingest now" / "Run lint now" / "Run backfill now"** with one-line descriptions under each; confirmation before run | Bare lowercase enums as buttons that spend money | Code |
 | **Ops Health** | `Sidebar.tsx:113`, `admin/health:56` | Keep **Ops Health** | Accurate, short, already consistent in both sites | — |
 | **Tenant Admin** (h1) vs **Admin** (sidebar) | `admin/layout:28` vs `Sidebar.tsx:119` | **Admin** in both; the tenant/instance distinction belongs to the control plane, not this UI | Same destination, two names = broken wayfinding; "tenant" is SaaS-internal vocabulary (DESIGN.md: never conflate — so don't surface it here) | Code |
-| **Mint / minted / Mint virtual key** | `ConnectPanel:263`, `LiteLlmMintForm:13,31`, `admin/settings` | **Create token** / **Create key**; "Minted by" column → **"Created by"** | "Mint" is crypto-flavored; "create" is calm. (Keep `mint` in API names) | Code |
-| **MCP / Connect to MCP** | `s/[...path]:234` tab "Connect", `ConnectPanel:196` | Tab: **Connect** (keep). Panel title: **"Connect an agent"**; MCP named in the body ("via MCP") not the headline | Operators connect *agents*; MCP is the plumbing | Code |
-| **Credential vault / Setup credentials** | `CredentialsPanel:134` | **Credentials** (title); "vault" in helper line ("Stored encrypted; values can't be read back — only replaced.") | The reassurance belongs in the helper, not the title | Code |
+| **Mint / minted / Mint virtual key** | `ConnectPanel`, `LiteLlmMintForm`, `admin/settings` | **Create worker token** (ConnectPanel, landed) / **Create key**; "Minted by" column → **"Created by"** | "Mint" is crypto-flavored; "create" is calm. (Keep `mint` in API names) | Code |
+| **MCP / Connect to MCP** | `s/[...path]:234` tab, `ConnectPanel`, `admin/mcp` | **Three-way split (decision 13):** scope tab **Worker tokens** + panel; scope tab **Platform connections** + `CredentialsPanel`; admin **Connected apps** for account-level MCP clients. MCP named in helper/body, not tab headlines | One word "Connect" covered three distinct concepts; each now has its own label | Code |
+| **Credential vault / Setup credentials** | `CredentialsPanel:134` | **Platform connections** (title, per decision 13); "vault" reassurance in helper line ("Stored encrypted; values can't be read back — only replaced.") | Scope-level vault credentials are not generic "credentials" | Code |
 | **Dashboard** + **Overview** (sibling tabs) | `s/[...path]:192,198` | One tab: **Overview** (renders dashboard spec when present, starter cards otherwise — the default logic at L94 already behaves this way) | Two tabs for one intent is a naming failure expressed as IA | Code (`?tab=` redirect) |
 | **Work Log / Sessions / Activity** (three history tabs) | `s/[...path]:207-217, 201` | Group under **Activity** with segmented views: **Work log · Sessions · System events** | Three adjacent tabs answering "what happened here?" | Code |
 | **Records / kinds** (changelog · decision · report · note) | `WorkLogView:18-24`, overview cards | Keep **Records** and the four kinds (capitalize chips) | Doctrine-core vocabulary; already right | — |
@@ -64,7 +90,7 @@
 | "open ↗" | `s/[...path]:326`, `TasksWidget:32` | "Open in task board ↗" (aria-label with task title) | Vague label + glyph icon |
 | "Save and sync" | `admin/intake:84` | "Save template" + helper "Syncs to the skills repo on save." + success toast | Compound verbs hide which part failed |
 | "Use template" | `IntakePanel:335` | "Start from this" | Breaks the template collision (§2) |
-| "New" (docs) / "New" (canvas) / "+" (scope) | `DocsView:319`, `CanvasView:271`, `Sidebar:67` | "New doc" / "New canvas" / "New project…" | Bare "New" fails out of visual context (a11y, menus) |
+| "New" (wiki) / "New" (canvas) / "+" (scope) | `DocsView:319`, `CanvasView:271`, `Sidebar:67` | "New wiki page" / "New canvas" / "New project…" | Bare "New" fails out of visual context (a11y, menus). Docs tab → **Wiki** (decision 13) | Code |
 
 ## 4. Status & role vocabulary (label maps, never raw enums)
 

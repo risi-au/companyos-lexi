@@ -121,7 +121,7 @@ export function ConnectPanel({ scopePath, initialAccess }: { scopePath: string; 
       setConnections(rows as ConnectionRow[]);
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't load connections. Refresh and try again.");
+      setError(e instanceof Error ? e.message : "Couldn't load worker tokens. Refresh and try again.");
       setConnections([]);
     } finally {
       setLoading(false);
@@ -172,14 +172,14 @@ Header: ${authHeader}`,
       setMinted(result as MintResult);
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't create the connection token. Check the fields and retry.");
+      setError(e instanceof Error ? e.message : "Couldn't create the worker token. Check the fields and retry.");
     } finally {
       setSubmitting(false);
     }
   }
 
   async function onRevoke(tokenId: string) {
-    if (!(await requestConfirm({ title: "Revoke token", body: "This agent connection stops working immediately. Existing records stay in the audit log.", confirmLabel: "Revoke token" }))) return;
+    if (!(await requestConfirm({ title: "Revoke token", body: "This worker token stops working immediately. Existing records stay in the audit log.", confirmLabel: "Revoke token" }))) return;
     setError(null);
     try {
       await revokeConnectionTokenAction(scopePath, tokenId);
@@ -196,14 +196,14 @@ Header: ${authHeader}`,
           <div className="flex items-center gap-[var(--space-2)]">
             <PlugZap size={18} />
             <div>
-              <div className="text-[var(--font-size-sm)] font-medium">Connect an agent</div>
-              <div className="font-mono text-[var(--font-size-xs)] text-[var(--muted-foreground)]">{mcpUrl}</div>
+              <div className="text-[var(--font-size-sm)] font-medium">Worker tokens</div>
+              <div className="font-mono text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Mint tokens for agents via MCP · {mcpUrl}</div>
             </div>
           </div>
           <button
             type="button"
-            aria-label="Refresh connections"
-            title="Refresh connections"
+            aria-label="Refresh worker tokens"
+            title="Refresh worker tokens"
             onClick={refresh}
             className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] hover:bg-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
           >
@@ -263,7 +263,7 @@ Header: ${authHeader}`,
                 className="inline-flex h-10 items-center gap-[var(--space-2)] rounded-[var(--radius-sm)] bg-[var(--primary)] px-[var(--space-3)] text-[var(--font-size-sm)] text-[var(--primary-foreground)] disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
               >
                 <Shield size={15} />
-                Create token
+                Create worker token
               </button>
             </div>
           </div>
@@ -272,7 +272,7 @@ Header: ${authHeader}`,
         {readOnly && (
           <div className="flex items-center gap-[var(--space-2)] rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--background)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
             <Shield size={15} />
-            Viewers can see connections but can't create tokens.
+            Viewers can see worker tokens but can't create tokens.
           </div>
         )}
       </div>
@@ -302,18 +302,18 @@ Header: ${authHeader}`,
             <SnippetBlock title="Claude CLI" text={snippets.claude} />
             <SnippetBlock title="VS Code / Cursor mcp.json" text={snippets.mcpJson} />
             <SnippetBlock title="Codex config.toml" text={snippets.codex} />
-            <SnippetBlock title="Claude Desktop connector" text={snippets.claudeDesktop} />
+            <SnippetBlock title="Claude Desktop connected app" text={snippets.claudeDesktop} />
             <SnippetBlock title="ChatGPT web" text={snippets.chatgpt} />
           </div>
         </div>
       )}
 
       <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
-        <div className="mb-[var(--space-3)] text-[var(--font-size-sm)] font-medium">This scope&apos;s connections</div>
+        <div className="mb-[var(--space-3)] text-[var(--font-size-sm)] font-medium">Worker tokens in this project</div>
         {loading ? (
-          <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">Loading connections…</div>
+          <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">Loading worker tokens…</div>
         ) : connections.length === 0 ? (
-          <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No connections created for this project.</div>
+          <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No worker tokens created for this project.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[900px] text-left text-[var(--font-size-sm)]">

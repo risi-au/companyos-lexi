@@ -268,10 +268,10 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
           { id: "activity", label: "Activity", href: makeTabHref("activity") },
           { id: "work-log", label: "Work Log", href: makeTabHref("work-log") },
           { id: "sessions", label: "Sessions", href: makeTabHref("sessions") },
-          { id: "docs", label: "Docs", href: makeTabHref("docs") },
+          { id: "docs", label: "Wiki", href: makeTabHref("docs") },
           { id: "canvas", label: "Canvas", href: makeTabHref("canvas") },
-          { id: "connect", label: "Connect", href: makeTabHref("connect") },
-          { id: "credentials", label: "Credentials", href: makeTabHref("credentials") },
+          { id: "connect", label: "Worker tokens", href: makeTabHref("connect") },
+          { id: "credentials", label: "Platform connections", href: makeTabHref("credentials") },
           { id: "intake", label: "Setup", href: makeTabHref("intake") },
           ...(canManageMembers ? [{ id: "members", label: "Members", href: makeTabHref("members") }] : []),
         ]}

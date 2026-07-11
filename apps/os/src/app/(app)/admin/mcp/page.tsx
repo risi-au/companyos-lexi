@@ -18,7 +18,7 @@ export default async function McpAdminPage() {
       <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
         <div className="text-[var(--font-size-sm)] font-medium">Not authorized</div>
         <div className="mt-[var(--space-1)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
-          MCP connection management requires admin access for this instance.
+          Connected app management requires admin access for this instance.
         </div>
       </div>
     );
@@ -35,9 +35,9 @@ export default async function McpAdminPage() {
     <div className="space-y-[var(--space-6)]">
       <div className="flex items-start justify-between gap-[var(--space-4)]">
         <div>
-          <h1 className="text-[var(--font-size-2xl)] font-semibold tracking-[-0.01em]">MCP Manager</h1>
+          <h1 className="text-[var(--font-size-2xl)] font-semibold tracking-[-0.01em]">Connected apps</h1>
           <div className="mt-[var(--space-1)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
-            Agent connections across all projects: review, revoke, offboard.
+            MCP clients across all projects: review, revoke, offboard.
           </div>
         </div>
         <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Role: {labelForRole(rootAccess)}</div>

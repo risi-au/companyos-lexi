@@ -100,7 +100,7 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
       try {
         await refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Couldn't load MCP connections. Refresh and try again.");
+        setError(err instanceof Error ? err.message : "Couldn't load connected apps. Refresh and try again.");
       }
     });
   }
@@ -131,7 +131,7 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
     const scopes = Array.from(new Set(personRows.map((row) => row.scopePath))).sort();
     if (!(await requestConfirm({
       title: "Offboard person or agent",
-      body: `${personName} loses ${personRows.length} active connection tokens across ${scopeSummary(scopes)}.`,
+      body: `${personName} loses ${personRows.length} active worker tokens across ${scopeSummary(scopes)}.`,
       confirmLabel: "Offboard access",
     }))) {
       return;
@@ -230,7 +230,7 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
 
         <div className="flex flex-wrap items-center justify-between gap-[var(--space-3)]">
           <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
-            {isPending ? "Working…" : `${visibleConnections.length} connections visible`}
+            {isPending ? "Working…" : `${visibleConnections.length} connected apps visible`}
           </div>
           <button
             type="button"
@@ -259,7 +259,7 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
         <table className="w-full min-w-[1040px] text-left text-[var(--font-size-sm)]">
           <thead className="border-b border-[var(--border)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
             <tr>
-              <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Connection</th>
+              <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Connected app</th>
               <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Project path</th>
               <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Person or agent</th>
               <th className="px-[var(--space-3)] py-[var(--space-2)] font-medium">Created by</th>
@@ -274,7 +274,7 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
             {visibleConnections.length === 0 ? (
               <tr>
                 <td colSpan={9} className="px-[var(--space-3)] py-[var(--space-4)] text-[var(--muted-foreground)]">
-                  No connections match these filters.
+                  No connected apps match these filters.
                 </td>
               </tr>
             ) : (
@@ -346,7 +346,7 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
         </div>
 
         {selectedPrincipalRows.length === 0 ? (
-          <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No connection access for this person or agent.</div>
+          <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No connected app access for this person or agent.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[720px] text-left text-[var(--font-size-sm)]">

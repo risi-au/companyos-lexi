@@ -58,10 +58,10 @@ const MODULES: Array<{ tab: string; label: string }> = [
   { tab: "activity", label: "Activity" },
   { tab: "work-log", label: "Work Log" },
   { tab: "sessions", label: "Sessions" },
-  { tab: "docs", label: "Docs" },
+  { tab: "docs", label: "Wiki" },
   { tab: "canvas", label: "Canvas" },
-  { tab: "connect", label: "Connect" },
-  { tab: "credentials", label: "Credentials" },
+  { tab: "connect", label: "Worker tokens" },
+  { tab: "credentials", label: "Platform connections" },
   { tab: "intake", label: "Setup" },
 ];
 
