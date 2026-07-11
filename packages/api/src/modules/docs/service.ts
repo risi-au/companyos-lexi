@@ -11,12 +11,21 @@ import { requireAccess } from "../../kernel/grants";
 import {
   ScopeNotFoundError,
   DocumentNotFoundError,
+  AccessDeniedError,
 } from "../../errors";
 import { enqueueEmbeddingForEntity } from "../../lib/embeddings";
 
 const MAX_REVISIONS = 50;
 const SLUG_REGEX = /^[a-z0-9-]+$/;
 const WIKILINK_REGEX = /\[\[([^\]\n]+)\]\]/g;
+
+type PrincipalKind = "human" | "agent" | "system";
+
+interface ParsedFrontmatter {
+  body: string;
+  metadata: Record<string, string>;
+  raw: string | null;
+}
 
 function slugify(input: string): string {
   const s = (input || "untitled")
@@ -25,6 +34,143 @@ function slugify(input: string): string {
     .replace(/^-+|-+$/g, "")
     .slice(0, 100);
   return s || "untitled";
+}
+
+function normalizeLinkTarget(input: string): string {
+  return (input || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function stripQuotes(value: string): string {
+  return value.trim().replace(/^['"]|['"]$/g, "");
+}
+
+function parseFrontmatter(markdown: string): ParsedFrontmatter {
+  const normalized = markdown.replace(/^\uFEFF/, "");
+  const match = normalized.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  if (!match) return { body: markdown, metadata: {}, raw: null };
+
+  const metadata: Record<string, string> = {};
+  const lines = match[1]!.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const pair = lines[i]!.match(/^([A-Za-z0-9_-]+):\s*(.*?)\s*$/);
+    if (!pair) continue;
+    const key = pair[1]!;
+    const rawValue = pair[2]!;
+    if (!rawValue) {
+      const items: string[] = [];
+      for (let j = i + 1; j < lines.length; j++) {
+        const item = lines[j]!.match(/^\s*-\s+(.+?)\s*$/);
+        if (!item) break;
+        items.push(stripQuotes(item[1]!));
+        i = j;
+      }
+      if (items.length > 0) metadata[key] = items.join(", ");
+      continue;
+    }
+    const value = stripQuotes(rawValue);
+    if (value) metadata[key] = value;
+  }
+
+  return { body: normalized.slice(match[0].length), metadata, raw: match[0] };
+}
+
+function splitFrontmatterContent(raw: string): string {
+  return raw
+    .replace(/^---\r?\n/, "")
+    .replace(/\r?\n---(?:\r?\n|$)/, "");
+}
+
+function parseAliasList(value: string | undefined): string[] {
+  if (!value) return [];
+  const trimmed = value.trim();
+  const unwrapped = trimmed.startsWith("[") && trimmed.endsWith("]")
+    ? trimmed.slice(1, -1)
+    : trimmed;
+  return unwrapped
+    .split(",")
+    .map((part) => stripQuotes(part))
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function frontmatterAliases(markdown: string): string[] {
+  const parsed = parseFrontmatter(markdown);
+  if (!parsed.raw) return [];
+  const lines = splitFrontmatterContent(parsed.raw).split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const pair = lines[i]!.match(/^aliases:\s*(.*?)\s*$/);
+    if (!pair) continue;
+    if (pair[1]) return parseAliasList(pair[1]);
+    const items: string[] = [];
+    for (let j = i + 1; j < lines.length; j++) {
+      const item = lines[j]!.match(/^\s*-\s+(.+?)\s*$/);
+      if (!item) break;
+      items.push(stripQuotes(item[1]!));
+    }
+    return items;
+  }
+  return [];
+}
+
+function yamlScalar(value: string): string {
+  return /^[A-Za-z0-9 _./:-]+$/.test(value) ? value : JSON.stringify(value);
+}
+
+function removeFrontmatterKey(lines: string[], key: string): string[] {
+  const next: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const pair = lines[i]!.match(/^([A-Za-z0-9_-]+):/);
+    if (pair?.[1] !== key) {
+      next.push(lines[i]!);
+      continue;
+    }
+    for (let j = i + 1; j < lines.length; j++) {
+      if (/^\s*-\s+/.test(lines[j]!)) {
+        i = j;
+        continue;
+      }
+      break;
+    }
+  }
+  return next;
+}
+
+function setFrontmatterKeys(markdown: string, updates: Record<string, string | null>): string {
+  const parsed = parseFrontmatter(markdown);
+  let lines = parsed.raw ? splitFrontmatterContent(parsed.raw).split(/\r?\n/) : [];
+  for (const key of Object.keys(updates)) {
+    lines = removeFrontmatterKey(lines, key);
+  }
+  lines = lines.filter((line, index, all) => {
+    if (line.trim()) return true;
+    return index > 0 && index < all.length - 1;
+  });
+  for (const [key, value] of Object.entries(updates)) {
+    if (value === null) continue;
+    lines.push(`${key}: ${yamlScalar(value)}`);
+  }
+  if (lines.length === 0) return parsed.body;
+  return `---\n${lines.join("\n")}\n---\n${parsed.body}`;
+}
+
+function frontmatterDate(metadata: Record<string, string>, key: string): number | null {
+  const value = metadata[key];
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isUnreviewedBody(bodyMd: string, latestAuthorKind: PrincipalKind | null): boolean {
+  if (latestAuthorKind !== "agent") return false;
+  const metadata = parseFrontmatter(bodyMd).metadata;
+  const verifiedAt = frontmatterDate(metadata, "verified_at");
+  if (!verifiedAt) return true;
+  const learnedAt = frontmatterDate(metadata, "learned_at");
+  return learnedAt !== null && verifiedAt < learnedAt;
 }
 
 async function pruneOldRevisions(db: DB, documentId: string): Promise<void> {
@@ -69,11 +215,12 @@ function parseWikilinks(bodyMd: string): Array<{ scopePath: string | null; slug:
   for (const match of bodyMd.matchAll(WIKILINK_REGEX)) {
     const raw = (match[1] || "").trim();
     if (!raw) continue;
-    const target = raw.split("|", 1)[0] ?? "";
+    const pipe = raw.lastIndexOf("|");
+    const target = pipe > -1 ? raw.slice(pipe + 1).trim() : raw;
     if (!target) continue;
     const colon = target.lastIndexOf(":");
     const scopePath = colon > 0 ? target.slice(0, colon).trim() : null;
-    const slug = (colon > 0 ? target.slice(colon + 1) : target).trim();
+    const slug = normalizeLinkTarget(colon > 0 ? target.slice(colon + 1) : target);
     if (!slug || !SLUG_REGEX.test(slug)) continue;
     const key = `${scopePath ?? ""}:${slug}`;
     links.set(key, { scopePath: scopePath || null, slug });
@@ -82,10 +229,13 @@ function parseWikilinks(bodyMd: string): Array<{ scopePath: string | null; slug:
 }
 
 async function resolveInboundLinksForDocument(db: DB, doc: Document): Promise<void> {
+  const aliases = frontmatterAliases(doc.bodyMd || "").map(normalizeLinkTarget).filter(Boolean);
+  const slugs = Array.from(new Set([doc.slug, ...aliases]));
+  if (slugs.length === 0) return;
   await db
     .update(docLinks)
     .set({ toDocumentId: doc.id })
-    .where(and(eq(docLinks.toScopeId, doc.scopeId), eq(docLinks.toSlug, doc.slug)));
+    .where(and(eq(docLinks.toScopeId, doc.scopeId), inArray(docLinks.toSlug, slugs)));
 }
 
 export async function extractLinksForDocument(
@@ -123,17 +273,41 @@ export async function extractLinksForDocument(
       .where(inArray(scopes.path, targetScopePaths))) as Array<{ id: string; path: string }>
     : [];
   const scopeIdByPath = new Map(targetScopes.map((scope) => [scope.path, scope.id]));
+  const targetScopeIds = targetScopes.map((scope) => scope.id);
+  const candidateDocs = targetScopeIds.length > 0
+    ? (await db
+      .select({
+        id: documents.id,
+        scopeId: documents.scopeId,
+        slug: documents.slug,
+        bodyMd: documents.bodyMd,
+      })
+      .from(documents)
+      .where(and(inArray(documents.scopeId, targetScopeIds), isNull(documents.archivedAt)))) as Array<{
+        id: string;
+        scopeId: string;
+        slug: string;
+        bodyMd: string;
+      }>
+    : [];
+  const exactDocByScopeSlug = new Map<string, { id: string; scopeId: string; slug: string }>();
+  const aliasDocByScopeSlug = new Map<string, { id: string; scopeId: string; slug: string }>();
+  for (const candidate of candidateDocs) {
+    exactDocByScopeSlug.set(`${candidate.scopeId}:${candidate.slug}`, candidate);
+    for (const alias of frontmatterAliases(candidate.bodyMd || "").map(normalizeLinkTarget).filter(Boolean)) {
+      if (!aliasDocByScopeSlug.has(`${candidate.scopeId}:${alias}`)) {
+        aliasDocByScopeSlug.set(`${candidate.scopeId}:${alias}`, candidate);
+      }
+    }
+  }
 
   const rows: Array<{ fromDocumentId: string; toScopeId: string; toSlug: string; toDocumentId: string | null }> = [];
   for (const link of parsed) {
     const targetPath = link.scopePath ?? doc.scopePath;
     const toScopeId = scopeIdByPath.get(targetPath);
     if (!toScopeId) continue;
-    const [targetDoc] = (await db
-      .select({ id: documents.id })
-      .from(documents)
-      .where(and(eq(documents.scopeId, toScopeId), eq(documents.slug, link.slug)))
-      .limit(1)) as Array<{ id: string }>;
+    const targetDoc = exactDocByScopeSlug.get(`${toScopeId}:${link.slug}`)
+      ?? aliasDocByScopeSlug.get(`${toScopeId}:${link.slug}`);
     rows.push({
       fromDocumentId: doc.id,
       toScopeId,
@@ -303,6 +477,77 @@ export async function getDoc(
   return doc ?? null;
 }
 
+export interface VerifyDocInput {
+  scopePath: string;
+  slug: string;
+}
+
+export async function verifyDoc(
+  db: DB,
+  input: VerifyDocInput,
+  actorPrincipalId: string
+): Promise<Document> {
+  const { scopePath, slug } = input;
+
+  const scope = await getScope(db, scopePath);
+  if (!scope) {
+    throw new ScopeNotFoundError(scopePath);
+  }
+
+  await requireAccess(db, actorPrincipalId, scopePath, "editor");
+
+  const [principal] = (await db
+    .select({ id: principals.id, kind: principals.kind, name: principals.name })
+    .from(principals)
+    .where(eq(principals.id, actorPrincipalId))
+    .limit(1)) as Array<{ id: string; kind: PrincipalKind; name: string }>;
+
+  if (!principal || principal.kind !== "human") {
+    throw new AccessDeniedError(actorPrincipalId, scopePath, "human", "Only human editors can verify wiki pages.");
+  }
+
+  const [doc] = (await db
+    .select()
+    .from(documents)
+    .where(and(eq(documents.scopeId, scope.id), eq(documents.slug, slug)))
+    .limit(1)) as Document[];
+
+  if (!doc) {
+    throw new DocumentNotFoundError(scopePath, slug);
+  }
+
+  const verifiedAt = new Date().toISOString();
+  const bodyMd = setFrontmatterKeys(doc.bodyMd || "", {
+    verified_at: verifiedAt,
+    verified_by: principal.name,
+  });
+
+  const [updated] = (await db
+    .update(documents)
+    .set({
+      bodyMd,
+      updatedBy: actorPrincipalId,
+      updatedAt: new Date(),
+    })
+    .where(eq(documents.id, doc.id))
+    .returning()) as Document[];
+
+  if (!updated) {
+    throw new DocumentNotFoundError(scopePath, slug);
+  }
+
+  await appendRevision(db, updated.id, updated.title, updated.bodyMd, actorPrincipalId);
+
+  await emitEvent(db, {
+    type: "doc.verified",
+    scopePath,
+    principalId: actorPrincipalId,
+    payload: { slug: updated.slug, title: updated.title, documentId: updated.id, verifiedAt },
+  });
+
+  return updated;
+}
+
 export interface Backlink {
   fromDocumentId: string;
   fromScopePath: string;
@@ -324,6 +569,15 @@ export async function getBacklinks(
   }
   await requireAccess(db, actorPrincipalId, scopePath, "viewer");
 
+  const [targetDoc] = (await db
+    .select({ id: documents.id })
+    .from(documents)
+    .where(and(eq(documents.scopeId, scope.id), eq(documents.slug, input.slug)))
+    .limit(1)) as Array<{ id: string }>;
+  const backlinkTarget = targetDoc
+    ? or(eq(docLinks.toSlug, input.slug), eq(docLinks.toDocumentId, targetDoc.id))
+    : eq(docLinks.toSlug, input.slug);
+
   const rows = (await db
     .select({
       fromDocumentId: documents.id,
@@ -336,7 +590,7 @@ export async function getBacklinks(
     .from(docLinks)
     .innerJoin(documents, eq(docLinks.fromDocumentId, documents.id))
     .innerJoin(scopes, eq(documents.scopeId, scopes.id))
-    .where(and(eq(docLinks.toScopeId, scope.id), eq(docLinks.toSlug, input.slug)))
+    .where(and(eq(docLinks.toScopeId, scope.id), backlinkTarget))
     .orderBy(scopes.path, documents.slug)) as Array<{
       fromDocumentId: string;
       fromScopePath: string;
@@ -467,14 +721,25 @@ export async function getLinkGraph(
 export interface ListDocsInput {
   scopePath: string;
   includeArchived?: boolean;
+  includeDescendants?: boolean;
+}
+
+export interface ListDocRow {
+  id: string;
+  slug: string;
+  title: string;
+  updatedAt: Date;
+  createdByKind: PrincipalKind | null;
+  scopePath: string;
+  unreviewed: boolean;
 }
 
 export async function listDocs(
   db: DB,
   input: ListDocsInput,
   actorPrincipalId: string
-): Promise<Array<{ id: string; slug: string; title: string; updatedAt: Date; createdByKind: "human" | "agent" | null }>> {
-  const { scopePath, includeArchived = false } = input;
+): Promise<ListDocRow[]> {
+  const { scopePath, includeArchived = false, includeDescendants = false } = input;
 
   const scope = await getScope(db, scopePath);
   if (!scope) {
@@ -483,7 +748,7 @@ export async function listDocs(
 
   await requireAccess(db, actorPrincipalId, scopePath, "viewer");
 
-  const conditions: any[] = [eq(documents.scopeId, scope.id)];
+  const conditions: any[] = [includeDescendants ? subtreeCondition(scopePath) : eq(documents.scopeId, scope.id)];
   if (!includeArchived) {
     conditions.push(isNull(documents.archivedAt));
   }
@@ -494,14 +759,58 @@ export async function listDocs(
       slug: documents.slug,
       title: documents.title,
       updatedAt: documents.updatedAt,
+      bodyMd: documents.bodyMd,
       createdByKind: principals.kind,
+      scopePath: scopes.path,
     })
     .from(documents)
+    .innerJoin(scopes, eq(documents.scopeId, scopes.id))
     .leftJoin(principals, eq(documents.createdBy, principals.id))
     .where(and(...conditions))
-    .orderBy(documents.position, documents.title)) as Array<{ id: string; slug: string; title: string; updatedAt: Date; createdByKind: "human" | "agent" | null }>;
+    .orderBy(scopes.path, documents.position, documents.title)) as Array<{
+      id: string;
+      slug: string;
+      title: string;
+      updatedAt: Date;
+      bodyMd: string;
+      createdByKind: PrincipalKind | null;
+      scopePath: string;
+    }>;
 
-  return rows;
+  const docIds = rows.map((row) => row.id);
+  const latestKinds = new Map<string, PrincipalKind | null>();
+  if (docIds.length > 0) {
+    const revisionRows = (await db
+      .select({
+        documentId: documentRevisions.documentId,
+        savedByKind: principals.kind,
+        createdAt: documentRevisions.createdAt,
+      })
+      .from(documentRevisions)
+      .leftJoin(principals, eq(documentRevisions.savedBy, principals.id))
+      .where(inArray(documentRevisions.documentId, docIds))
+      .orderBy(documentRevisions.documentId, desc(documentRevisions.createdAt))) as Array<{
+        documentId: string;
+        savedByKind: PrincipalKind | null;
+        createdAt: Date;
+      }>;
+
+    for (const revision of revisionRows) {
+      if (!latestKinds.has(revision.documentId)) {
+        latestKinds.set(revision.documentId, revision.savedByKind);
+      }
+    }
+  }
+
+  return rows.map((row) => ({
+    id: row.id,
+    slug: row.slug,
+    title: row.title,
+    updatedAt: row.updatedAt,
+    createdByKind: row.createdByKind,
+    scopePath: row.scopePath,
+    unreviewed: isUnreviewedBody(row.bodyMd, latestKinds.get(row.id) ?? null),
+  }));
 }
 
 export interface RenameDocInput {

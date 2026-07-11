@@ -13,6 +13,7 @@ stores only selected references on the intake row.
 - Returns typed hits from records and active docs: `type`, `id`, `title`, `scopePath`, `date`, `snippet`, plus `kind` for records and `slug` for docs.
 - Default limit is 10, clamped to 50.
 - `keyword` is Postgres full-text search. `semantic` uses pgvector embeddings when available. `hybrid` fuses keyword and vector candidates with reciprocal rank fusion.
+- Doc frontmatter is part of `body_md`, so wiki aliases stored under `aliases:` are keyword-searchable without a separate search index.
 - If embeddings do not exist for the subtree or LiteLLM alias `embed` is unconfigured/unavailable, semantic and hybrid calls fall back to keyword behavior without storing raw query text.
 - After a successful search, logs a redacted usage event with result count, requested limit, kind filters, snippet budget, bytes, and estimated returned tokens. It never stores the query text or snippets in usage metadata.
 

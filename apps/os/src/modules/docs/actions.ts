@@ -8,10 +8,10 @@ import { api, getCurrentActorPrincipalId } from "@/lib/api";
  * Access enforced in service layer via requireAccess + principal.
  */
 
-export async function listDocsAction(scopePath: string) {
+export async function listDocsAction(scopePath: string, includeDescendants = false) {
   const actor = await getCurrentActorPrincipalId();
   if (!actor) throw new Error("Your session expired. Sign in again.");
-  return api.listDocs({ scopePath }, actor);
+  return api.listDocs({ scopePath, includeDescendants }, actor);
 }
 
 export async function getDocAction(scopePath: string, slug: string) {
@@ -56,6 +56,20 @@ export async function revertDocAction(scopePath: string, slug: string, revisionI
   const restored = await api.revertDoc({ scopePath, slug, revisionId }, actor);
   revalidatePath(`/s/${scopePath}?tab=docs`);
   return restored;
+}
+
+export async function getBacklinksAction(scopePath: string, slug: string) {
+  const actor = await getCurrentActorPrincipalId();
+  if (!actor) throw new Error("Your session expired. Sign in again.");
+  return api.getBacklinks({ scopePath, slug }, actor);
+}
+
+export async function verifyDocAction(scopePath: string, slug: string) {
+  const actor = await getCurrentActorPrincipalId();
+  if (!actor) throw new Error("Your session expired. Sign in again.");
+  const verified = await api.verifyDoc({ scopePath, slug }, actor);
+  revalidatePath(`/s/${scopePath}?tab=docs`);
+  return verified;
 }
 
 export async function getAccessAction(scopePath: string) {

@@ -8,6 +8,9 @@ import {
   parseFrontmatter,
   reattachFrontmatter,
   splitTrailingSources,
+  parseStructuredMarkdown,
+  serializeStructuredMarkdown,
+  wikilinksToMarkdown,
 } from "./DocEditor";
 
 // Fixture covering required elements per brief: headings, lists, code, table, image link, bold/italic
@@ -175,5 +178,84 @@ Updated body.`);
 
     expect(markdownForSave(initial, body, false, raw)).toBe(initial);
     expect(reattachFrontmatter(raw, body)).toBe(initial);
+  });
+});
+
+describe("structured wiki form mapping", () => {
+  it("round-trips a form-shaped page byte-identically when unchanged", () => {
+    const markdown = `---
+learned_at: 2026-07-01
+aliases:
+  - intake
+  - setup flow
+---
+Definition paragraph.
+
+Details stay as markdown.
+
+## First
+First content.
+
+## Second
+- item
+`;
+
+    const form = parseStructuredMarkdown("Setup", markdown);
+
+    expect(form.aliases).toEqual(["intake", "setup flow"]);
+    expect(form.definition).toBe("Definition paragraph.");
+    expect(form.sections).toHaveLength(2);
+    expect(serializeStructuredMarkdown(form)).toBe(markdown);
+  });
+
+  it("updates aliases as a YAML list without rewriting the markdown body", () => {
+    const markdown = `---
+confidence: high
+aliases: old alias, legacy
+---
+Definition.
+
+## Raw
+<aside>unsupported html remains raw</aside>
+`;
+    const form = parseStructuredMarkdown("Page", markdown);
+    form.aliases = ["new alias", "Legacy Two"];
+
+    const serialized = serializeStructuredMarkdown(form);
+
+    expect(serialized).toContain("confidence: high");
+    expect(serialized).toContain("aliases:\n  - new alias\n  - Legacy Two");
+    expect(serialized).toContain("## Raw\n<aside>unsupported html remains raw</aside>\n");
+  });
+
+  it("keeps unsupported section markdown opaque through unrelated form edits", () => {
+    const markdown = `Definition.
+
+## API
+### Nested
+
+\`\`\`ts
+const x = 1;
+\`\`\`
+`;
+    const form = parseStructuredMarkdown("API", markdown);
+    form.definition = "Updated definition.";
+
+    const serialized = serializeStructuredMarkdown(form);
+
+    expect(form.sections[0]?.kind).toBe("markdown");
+    expect(serialized).toContain("## API\n### Nested\n\n```ts\nconst x = 1;\n```\n");
+  });
+
+  it("renders wikilinks as scoped markdown links and marks unknown pages missing", () => {
+    const markdown = "See [[Known|known-page]], [[Missing Page]], and [[client/ads:remote]].";
+    const rendered = wikilinksToMarkdown(markdown, "client", [
+      { scopePath: "client", slug: "known-page" },
+      { scopePath: "client/ads", slug: "remote" },
+    ]);
+
+    expect(rendered).toContain("[Known](/s/client?tab=docs&doc=known-page)");
+    expect(rendered).toContain('[Missing Page](/s/client?tab=docs&doc=missing-page "missing-wikilink")');
+    expect(rendered).toContain("[remote](/s/client/ads?tab=docs&doc=remote)");
   });
 });

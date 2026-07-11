@@ -121,7 +121,7 @@ describe("search module", () => {
         scopePath: clientA,
         slug: "checkout",
         title: "Checkout Knowledge",
-        bodyMd: "The checkout migration uses the gateway reconciliation pattern from the old report.",
+        bodyMd: "---\naliases:\n  - cartalias\n---\nThe checkout migration uses the gateway reconciliation pattern from the old report.",
       },
       rootPrincipalId
     );
@@ -142,6 +142,9 @@ describe("search module", () => {
     const docOnly = await search(db, { scopePath: clientA, query: "checkout migration", kinds: ["doc"] }, viewerPrincipalId);
     expect(docOnly.length).toBeGreaterThan(0);
     expect(docOnly.every((h) => h.type === "doc")).toBe(true);
+
+    const aliasHit = await search(db, { scopePath: clientA, query: "cartalias", kinds: ["doc"], mode: "keyword" }, viewerPrincipalId);
+    expect(aliasHit.some((h) => h.type === "doc" && h.slug === "checkout")).toBe(true);
 
     await expect(search(db, { scopePath: clientA, query: "checkout" }, noAccessPrincipalId)).rejects.toThrow(AccessDeniedError);
 

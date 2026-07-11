@@ -1,9 +1,9 @@
 # packages/api/src/modules/docs — AGENTS.md
 
-Knowledge base module (M3-01): per-scope documents with markdown as canonical body. Revisions preserved (last 50), soft archive, slug uniqueness per scope with auto-suffix on derived slugs. Agents + HTTP + (future UI) all use the same service layer. M8-01 adds wikilink extraction/backlinks and deferred semantic embeddings.
+Knowledge base/wiki module (M3-01 + M8-01 + M10-04A): per-scope documents with markdown as canonical body. Revisions preserved (last 50), soft archive, slug uniqueness per scope with auto-suffix on derived slugs. Agents + HTTP + UI all use the same service layer. M8-01 adds wikilink extraction/backlinks and deferred semantic embeddings. M10-04A adds alias-aware wikilinks, subtree wiki browsing rows, and human-only page verification state stored in frontmatter.
 
 ## Purpose
-Markdown-canonical documents for scopes. Supports save (upsert by slug), get, list (excludes archived), rename, archive (soft), revisions + revert. All mutations emit kernel events. Viewer/editor/agent grants control access.
+Markdown-canonical wiki pages for scopes. Supports save (upsert by slug), get, list (excludes archived), rename, archive (soft), revisions + revert, backlinks, and human verification. All mutations emit kernel events. Viewer/editor/agent grants control access; verification requires a human principal with editor access.
 
 ## Tables (in packages/db)
 - `documents` (new):
@@ -23,7 +23,7 @@ Markdown-canonical documents for scopes. Supports save (upsert by slug), get, li
   - Pruned to last 50 on each append.
 - `doc_links`:
   - from_document_id, to_scope_id, to_slug, to_document_id nullable, created_at
-  - Replaced for the source document on every save/revert; unresolved target documents are allowed.
+  - Replaced for the source document on every save/revert; unresolved target documents are allowed. Alias-only links keep `to_slug` as the linked alias slug and set `to_document_id` when resolved.
 - `embeddings`:
   - Entity-level semantic embedding rows for docs/records. Docs enqueue embedding refresh after save/revert; the embedding library owns upsert/hash-skip/fail-open behavior.
 
@@ -32,12 +32,13 @@ Exports from `@companyos/db`: documents, documentRevisions, Document, DocumentRe
 ## Contract / Functions
 All take `db: DB` first. Re-exported from `@companyos/api`.
 
-- `saveDoc(db, {scopePath, slug?, title, bodyMd?}, actor)`: editor/agent. Slug defaults to slugify(title) with -2/-3 suffix on collision for auto case. Upsert by (scope,slug). Appends revision + prune. Emits `doc.saved`.
-- `extractLinksForDocument(db, documentId, actor?)`: replaces that document's `doc_links` rows from wikilinks. Same-wiki links use `[[slug]]`; cross-wiki links use `[[scope-path:slug]]`.
+- `saveDoc(db, {scopePath, slug?, title, bodyMd?}, actor)`: editor/agent. Slug defaults to slugify(title) with -2/-3 suffix on collision for auto case. Upsert by (scope,slug). Appends revision + prune. Extracts links, resolves inbound exact/alias links, emits `doc.saved`, and enqueues embedding refresh.
+- `extractLinksForDocument(db, documentId, actor?)`: replaces that document's `doc_links` rows from wikilinks. Same-wiki links use `[[slug]]`; labelled links use `[[label|slug]]`; cross-wiki links use `[[scope-path:slug]]`. Exact slug matches win, then same-target-scope frontmatter `aliases:` match by normalized slug.
 - `getDoc(db, {scopePath, slug}, actor)`: viewer. Returns full or null. (returns archived too)
-- `getBacklinks(db, {scopePath, slug}, actor)`: viewer. Returns source docs that link to the target slug in that scope.
+- `verifyDoc(db, {scopePath, slug}, actor)`: editor + human principal only. Writes `verified_at` and `verified_by` frontmatter keys without changing the markdown body, appends a revision, and emits `doc.verified`.
+- `getBacklinks(db, {scopePath, slug}, actor)`: viewer. Returns source docs that link to the target slug in that scope, including alias links resolved to the target document id.
 - `getLinkGraph(db, {scopePath}, actor)`: viewer. Returns nodes and edges for docs in the requested subtree; `root` means the whole instance.
-- `listDocs(db, {scopePath, includeArchived?}, actor)`: viewer. Returns {id,slug,title,updatedAt}[] ordered by position then title. Excludes archived unless flag.
+- `listDocs(db, {scopePath, includeArchived?, includeDescendants?}, actor)`: viewer. Returns {id,slug,title,updatedAt,createdByKind,scopePath,unreviewed}[] ordered by scope path, position, then title. Excludes archived unless flag. `unreviewed` is true when the latest revision was saved by an agent and `verified_at` is absent or older than `learned_at`.
 - `renameDoc(db, {scopePath, slug, newTitle?, newSlug?}, actor)`: editor/agent. Changes title and/or slug (validates unique on change). Emits `doc.renamed`.
 - `archiveDoc(db, {scopePath, slug}, actor)`: editor/agent. Sets archived_at. Emits `doc.archived`. No hard delete.
 - `listRevisions(db, {scopePath, slug, limit?}, actor)`: viewer.
@@ -70,7 +71,9 @@ Tests cover: migrations, access matrix, save/get/list roundtrip (byte exact md),
 - Agent grants work via subtree inheritance.
 - Invalid slug on provided throws or normalizes for auto.
 - Revisions always append on save and on revert.
-- Save/revert extracts `[[slug]]` and `[[scope-path:slug]]` links into `doc_links`.
+- Save/revert extracts `[[slug]]`, `[[label|slug]]`, and `[[scope-path:slug]]` links into `doc_links`.
+- Frontmatter `aliases:` accepts YAML list or comma string and participates in wikilink resolution without new columns or indexes.
+- Verification metadata is frontmatter-only; no schema migration is used for review state.
 - Save/revert queues a deferred document embedding refresh through `lib/embeddings.ts`; LiteLLM failures must not fail document writes.
 
 ## Do not

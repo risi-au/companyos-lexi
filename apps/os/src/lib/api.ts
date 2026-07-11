@@ -35,6 +35,8 @@ import {
   archiveDoc,
   listDocRevisions,
   revertDoc,
+  getBacklinks,
+  verifyDoc,
   saveCanvas,
   getCanvas,
   listCanvases,
@@ -234,6 +236,10 @@ export const api = {
     listDocRevisions(db, input, actorPrincipalId),
   revertDoc: (input: Parameters<typeof revertDoc>[1], actorPrincipalId: string) =>
     revertDoc(db, input, actorPrincipalId),
+  getBacklinks: (input: Parameters<typeof getBacklinks>[1], actorPrincipalId: string) =>
+    getBacklinks(db, input, actorPrincipalId),
+  verifyDoc: (input: Parameters<typeof verifyDoc>[1], actorPrincipalId: string) =>
+    verifyDoc(db, input, actorPrincipalId),
 
   // Canvas (M3-03)
   saveCanvas: (input: Parameters<typeof saveCanvas>[1], actorPrincipalId: string) =>

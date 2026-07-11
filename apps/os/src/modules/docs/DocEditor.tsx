@@ -1,83 +1,55 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import { useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
 import type { BlockNoteEditor } from "@blocknote/core";
-import { Check, Edit3, Save } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, Edit3, Plus, Save, ShieldCheck, Trash2 } from "lucide-react";
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
+import {
+  parseAliasList,
+  parseFrontmatter,
+  parseStructuredMarkdown,
+  reattachFrontmatter,
+  serializeStructuredMarkdown,
+  slugifyHeading,
+  splitTrailingSources,
+  wikilinksToMarkdown,
+  type KnownWikiPage,
+  type StructuredDocForm,
+  type StructuredSection,
+} from "./structured-editor";
+
+export {
+  parseAliasList,
+  parseFrontmatter,
+  reattachFrontmatter,
+  splitTrailingSources,
+  parseStructuredMarkdown,
+  serializeStructuredMarkdown,
+  wikilinksToMarkdown,
+};
 
 interface DocEditorProps {
   title: string;
   initialMarkdown: string;
-  onSave: (markdown: string) => Promise<void>;
+  onSave: (input: { title: string; markdown: string }) => Promise<void>;
   readOnly?: boolean;
   onSaveStateChange?: (state: "saved" | "saving" | "error") => void;
   docKey?: string;
+  scopePath: string;
+  knownPages?: KnownWikiPage[];
+  unreviewed?: boolean;
+  onVerify?: () => Promise<void>;
+  onEditingChange?: (editing: boolean) => void;
 }
 
 type SaveState = "saved" | "saving" | "error";
-
-export interface ParsedFrontmatter {
-  body: string;
-  metadata: Record<string, string>;
-  raw: string | null;
-}
-
-export interface SplitSourcesResult {
-  body: string;
-  sources: string | null;
-  count: number;
-}
+type WriteMode = "form" | "markdown";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-export function parseFrontmatter(markdown: string): ParsedFrontmatter {
-  const normalized = markdown.replace(/^\uFEFF/, "");
-  const match = normalized.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
-  if (!match) {
-    return { body: markdown, metadata: {}, raw: null };
-  }
-
-  const metadata: Record<string, string> = {};
-  for (const line of match[1]!.split(/\r?\n/)) {
-    const pair = line.match(/^([A-Za-z0-9_-]+):\s*(.*?)\s*$/);
-    if (!pair) continue;
-    const value = pair[2]!.replace(/^['"]|['"]$/g, "");
-    if (value) metadata[pair[1]!] = value;
-  }
-
-  return { body: normalized.slice(match[0].length), metadata, raw: match[0] };
-}
-
-export function reattachFrontmatter(frontmatterRaw: string | null, body: string): string {
-  if (!frontmatterRaw) return body;
-  return frontmatterRaw + body;
-}
-
-export function splitTrailingSources(markdown: string): SplitSourcesResult {
-  const matches = Array.from(markdown.matchAll(/^##\s+Sources\s*$/gim));
-  const last = matches.at(-1);
-  if (!last || last.index === undefined) {
-    return { body: markdown, sources: null, count: 0 };
-  }
-
-  const before = markdown.slice(0, last.index).trimEnd();
-  const sources = markdown.slice(last.index).replace(/^##\s+Sources\s*$/im, "").trim();
-  if (!sources) {
-    return { body: before, sources: null, count: 0 };
-  }
-
-  const listItems = sources
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => /^([-*]|\d+\.)\s+/.test(line));
-  const count = listItems.length || sources.split(/\r?\n+/).filter((line) => line.trim()).length;
-
-  return { body: before, sources, count };
-}
 
 export function buildMetadataChips(metadata: Record<string, string>): string[] {
   const chips: string[] = [];
@@ -108,6 +80,15 @@ function formatDateChip(value: string): string {
   return `${day} ${MONTHS[month]} ${year}`;
 }
 
+function textFromChildren(children: React.ReactNode): string {
+  if (typeof children === "string" || typeof children === "number") return String(children);
+  if (Array.isArray(children)) return children.map(textFromChildren).join("");
+  if (React.isValidElement<{ children?: React.ReactNode }>(children)) {
+    return textFromChildren(children.props.children);
+  }
+  return "";
+}
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function useDebouncedCallback<T extends (...args: any[]) => void>(cb: T, delay: number) {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -123,6 +104,26 @@ function useDebouncedCallback<T extends (...args: any[]) => void>(cb: T, delay: 
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
+function cloneForm(form: StructuredDocForm): StructuredDocForm {
+  return {
+    ...form,
+    aliases: [...form.aliases],
+    originalAliases: [...form.originalAliases],
+    sections: form.sections.map((section) => ({ ...section })),
+  };
+}
+
+function newSection(): StructuredSection {
+  return {
+    id: `section-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    kind: "section",
+    title: "New section",
+    content: "",
+    headingPrefix: "## ",
+    lineEnding: "\n",
+  };
+}
+
 export function DocEditor({
   title,
   initialMarkdown,
@@ -130,18 +131,29 @@ export function DocEditor({
   readOnly = false,
   onSaveStateChange,
   docKey,
+  scopePath,
+  knownPages,
+  unreviewed = false,
+  onVerify,
+  onEditingChange,
 }: DocEditorProps) {
   const [isEditing, setIsEditing] = useState(false);
+  const [writeMode, setWriteMode] = useState<WriteMode>("form");
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [lastSaved, setLastSaved] = useState<string>("");
+  const [titleDraft, setTitleDraft] = useState(title);
+  const [formDraft, setFormDraft] = useState<StructuredDocForm>(() => parseStructuredMarkdown(title, initialMarkdown));
+  const [isVerifying, setIsVerifying] = useState(false);
+
   const dirtyRef = useRef(false);
+  const markdownDirtyRef = useRef(false);
   const hydratingRef = useRef(false);
   const initialMarkdownRef = useRef(initialMarkdown);
-  const frontmatterRawRef = useRef<string | null>(null);
+  const frontmatterRawRef = useRef<string | null>(parseFrontmatter(initialMarkdown).raw);
+  const titleDraftRef = useRef(title);
+  const formDraftRef = useRef(formDraft);
+  const writeModeRef = useRef<WriteMode>(writeMode);
 
-  // Kept in a ref so a parent re-render (which recreates inline callbacks)
-  // never changes updateSaveState's identity — the reset/hydration effects
-  // below depend on it and must only fire when the document itself changes.
   const onSaveStateChangeRef = useRef(onSaveStateChange);
   useEffect(() => {
     onSaveStateChangeRef.current = onSaveStateChange;
@@ -154,81 +166,129 @@ export function DocEditor({
   const editor: BlockNoteEditor = useCreateBlockNote({});
 
   useEffect(() => {
+    titleDraftRef.current = titleDraft;
+  }, [titleDraft]);
+
+  useEffect(() => {
+    formDraftRef.current = formDraft;
+  }, [formDraft]);
+
+  useEffect(() => {
+    writeModeRef.current = writeMode;
+  }, [writeMode]);
+
+  useEffect(() => {
+    onEditingChange?.(isEditing);
+  }, [isEditing, onEditingChange]);
+
+  useEffect(() => {
     initialMarkdownRef.current = initialMarkdown;
     frontmatterRawRef.current = parseFrontmatter(initialMarkdown).raw;
-  }, [initialMarkdown]);
+    if (!dirtyRef.current) {
+      setTitleDraft(title);
+      setFormDraft(parseStructuredMarkdown(title, initialMarkdown));
+    }
+  }, [initialMarkdown, title]);
 
-  // Reset edit mode only when switching documents — autosave feeds the saved
-  // markdown back through initialMarkdown, and that must not kick the user
-  // out of edit mode.
   useEffect(() => {
     dirtyRef.current = false;
+    markdownDirtyRef.current = false;
     setIsEditing(false);
+    setWriteMode("form");
+    setTitleDraft(title);
+    setFormDraft(parseStructuredMarkdown(title, initialMarkdown));
     setLastSaved("");
     updateSaveState("saved");
-  }, [docKey, updateSaveState]);
+  }, [docKey, initialMarkdown, title, updateSaveState]);
 
-  useEffect(() => {
-    if (!isEditing) return;
-    let cancelled = false;
-    async function load() {
+  const hydrateMarkdownEditor = useCallback(
+    async (markdown: string) => {
+      let cancelled = false;
       hydratingRef.current = true;
       try {
-        const { body } = parseFrontmatter(initialMarkdownRef.current || "");
+        const { body, raw } = parseFrontmatter(markdown || "");
         const blocks = await editor.tryParseMarkdownToBlocks(body);
         if (!cancelled) {
           editor.replaceBlocks(editor.document, blocks);
-          dirtyRef.current = false;
-          setLastSaved(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
-          updateSaveState("saved");
+          frontmatterRawRef.current = raw;
         }
       } catch {
         if (!cancelled) {
           editor.replaceBlocks(editor.document, []);
-          dirtyRef.current = false;
-          updateSaveState("saved");
         }
       } finally {
         window.setTimeout(() => {
           if (!cancelled) hydratingRef.current = false;
         }, 0);
       }
-    }
-    load();
-    return () => {
-      cancelled = true;
-      hydratingRef.current = false;
-    };
-  }, [editor, isEditing, docKey, updateSaveState]);
+      return () => {
+        cancelled = true;
+        hydratingRef.current = false;
+      };
+    },
+    [editor],
+  );
 
   const doSave = useCallback(async () => {
     if (readOnly) return;
     try {
       updateSaveState("saving");
-      const serialized = await editor.blocksToMarkdownLossy(editor.document);
-      const md = markdownForSave(
-        initialMarkdownRef.current,
-        serialized,
-        dirtyRef.current,
-        frontmatterRawRef.current,
-      );
-      await onSave(md);
+      const nextTitle = titleDraftRef.current.trim() || title;
+      let md = initialMarkdownRef.current;
+
+      if (markdownDirtyRef.current) {
+        if (writeModeRef.current === "markdown") {
+          const serialized = await editor.blocksToMarkdownLossy(editor.document);
+          md = markdownForSave(initialMarkdownRef.current, serialized, true, frontmatterRawRef.current);
+        } else {
+          md = serializeStructuredMarkdown(formDraftRef.current);
+        }
+      }
+
+      await onSave({ title: nextTitle, markdown: md });
       initialMarkdownRef.current = md;
+      frontmatterRawRef.current = parseFrontmatter(md).raw;
       dirtyRef.current = false;
+      markdownDirtyRef.current = false;
+      setFormDraft((current) => {
+        const next = cloneForm(current);
+        next.originalAliases = [...next.aliases];
+        next.frontmatterRaw = parseFrontmatter(md).raw;
+        return next;
+      });
       setLastSaved(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
       updateSaveState("saved");
     } catch {
       updateSaveState("error");
     }
-  }, [editor, onSave, readOnly, updateSaveState]);
+  }, [editor, onSave, readOnly, title, updateSaveState]);
 
   const debouncedSave = useDebouncedCallback(doSave, 1500);
 
-  const handleEditorChange = useCallback(() => {
+  const markTitleDirty = useCallback(() => {
     if (readOnly || hydratingRef.current) return;
     dirtyRef.current = true;
     debouncedSave();
   }, [debouncedSave, readOnly]);
+
+  const markMarkdownDirty = useCallback(() => {
+    if (readOnly || hydratingRef.current) return;
+    dirtyRef.current = true;
+    markdownDirtyRef.current = true;
+    debouncedSave();
+  }, [debouncedSave, readOnly]);
+
+  const updateForm = useCallback(
+    (updater: (form: StructuredDocForm) => StructuredDocForm) => {
+      setFormDraft((current) => updater(cloneForm(current)));
+      markMarkdownDirty();
+    },
+    [markMarkdownDirty],
+  );
+
+  const handleEditorChange = useCallback(() => {
+    markMarkdownDirty();
+  }, [markMarkdownDirty]);
 
   useEffect(() => {
     if (!isEditing) return;
@@ -242,6 +302,47 @@ export function DocEditor({
     return () => window.removeEventListener("keydown", onKey);
   }, [doSave, isEditing]);
 
+  const switchWriteMode = async (mode: WriteMode) => {
+    if (mode === writeMode) return;
+    if (mode === "markdown") {
+      const md = markdownDirtyRef.current
+        ? serializeStructuredMarkdown(formDraftRef.current)
+        : initialMarkdownRef.current;
+      await hydrateMarkdownEditor(md);
+      setWriteMode("markdown");
+      return;
+    }
+
+    const serialized = markdownDirtyRef.current
+      ? await editor.blocksToMarkdownLossy(editor.document)
+      : parseFrontmatter(initialMarkdownRef.current).body;
+    const md = markdownForSave(initialMarkdownRef.current, serialized, markdownDirtyRef.current, frontmatterRawRef.current);
+    setFormDraft(parseStructuredMarkdown(titleDraftRef.current, md));
+    setWriteMode("form");
+  };
+
+  const enterEditMode = () => {
+    setTitleDraft(title);
+    setFormDraft(parseStructuredMarkdown(title, initialMarkdownRef.current));
+    setWriteMode("form");
+    setIsEditing(true);
+  };
+
+  const exitEditMode = async () => {
+    await doSave();
+    setIsEditing(false);
+  };
+
+  const verifyPage = async () => {
+    if (!onVerify || isVerifying) return;
+    setIsVerifying(true);
+    try {
+      await onVerify();
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
   const statusText = useMemo(() => {
     if (saveState === "saving") return "Saving...";
     if (saveState === "error") return "Save failed";
@@ -252,17 +353,128 @@ export function DocEditor({
   const readPresentation = useMemo(() => {
     const parsed = parseFrontmatter(initialMarkdown);
     const split = splitTrailingSources(parsed.body);
+    const renderedBody = wikilinksToMarkdown(split.body, scopePath, knownPages);
     return {
-      body: split.body,
+      body: renderedBody,
       sources: split.sources,
       sourceCount: split.count,
       chips: buildMetadataChips(parsed.metadata),
     };
-  }, [initialMarkdown]);
+  }, [initialMarkdown, knownPages, scopePath]);
 
-  const exitEditMode = async () => {
-    await doSave();
-    setIsEditing(false);
+  const markdownComponents = useMemo<Components>(() => ({
+    h2({ children, ...props }) {
+      const id = slugifyHeading(textFromChildren(children));
+      return <h2 id={id} {...props}>{children}</h2>;
+    },
+    h3({ children, ...props }) {
+      const id = slugifyHeading(textFromChildren(children));
+      return <h3 id={id} {...props}>{children}</h3>;
+    },
+    a({ children, href, title: linkTitle, ...props }) {
+      const missing = linkTitle === "missing-wikilink";
+      return (
+        <a
+          href={href}
+          className={missing ? "text-[var(--muted-foreground)] underline decoration-dashed underline-offset-4" : undefined}
+          title={missing ? "Missing page" : linkTitle}
+          {...props}
+        >
+          {children}
+        </a>
+      );
+    },
+  }), []);
+
+  const renderSection = (section: StructuredSection, index: number) => {
+    const move = (direction: -1 | 1) => {
+      updateForm((form) => {
+        const target = index + direction;
+        if (target < 0 || target >= form.sections.length) return form;
+        const [item] = form.sections.splice(index, 1);
+        if (item) form.sections.splice(target, 0, item);
+        return form;
+      });
+    };
+
+    return (
+      <div key={section.id} className="rounded-[var(--radius-sm)] border border-[var(--border)] p-[var(--space-3)]">
+        <div className="mb-[var(--space-2)] flex items-center justify-between gap-[var(--space-2)]">
+          <div className="text-[var(--font-size-xs)] font-medium uppercase text-[var(--muted-foreground)]">
+            {section.kind === "markdown" ? "Markdown block" : "Section"}
+          </div>
+          <div className="flex items-center gap-[var(--space-1)]">
+            <button
+              type="button"
+              aria-label="Move section up"
+              title="Move up"
+              disabled={index === 0}
+              onClick={() => move(-1)}
+              className="rounded-[var(--radius-sm)] p-[var(--space-1)] hover:bg-[var(--muted)] disabled:opacity-40"
+            >
+              <ArrowUp size={14} />
+            </button>
+            <button
+              type="button"
+              aria-label="Move section down"
+              title="Move down"
+              disabled={index === formDraft.sections.length - 1}
+              onClick={() => move(1)}
+              className="rounded-[var(--radius-sm)] p-[var(--space-1)] hover:bg-[var(--muted)] disabled:opacity-40"
+            >
+              <ArrowDown size={14} />
+            </button>
+            <button
+              type="button"
+              aria-label="Remove section"
+              title="Remove"
+              onClick={() => updateForm((form) => {
+                form.sections.splice(index, 1);
+                return form;
+              })}
+              className="rounded-[var(--radius-sm)] p-[var(--space-1)] hover:bg-[var(--muted)]"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        </div>
+
+        {section.kind === "section" ? (
+          <div className="space-y-[var(--space-2)]">
+            <input
+              value={section.title}
+              onChange={(e) => updateForm((form) => {
+                const current = form.sections[index];
+                if (current?.kind === "section") current.title = e.target.value;
+                return form;
+              })}
+              className="w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-transparent px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] font-medium focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
+            />
+            <textarea
+              value={section.content}
+              onChange={(e) => updateForm((form) => {
+                const current = form.sections[index];
+                if (current?.kind === "section") current.content = e.target.value;
+                return form;
+              })}
+              rows={5}
+              className="w-full resize-y rounded-[var(--radius-sm)] border border-[var(--border)] bg-transparent px-[var(--space-3)] py-[var(--space-2)] font-mono text-[var(--font-size-sm)] leading-6 focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
+            />
+          </div>
+        ) : (
+          <textarea
+            value={section.content}
+            onChange={(e) => updateForm((form) => {
+              const current = form.sections[index];
+              if (current?.kind === "markdown") current.content = e.target.value;
+              return form;
+            })}
+            rows={8}
+            className="w-full resize-y rounded-[var(--radius-sm)] border border-[var(--border)] bg-transparent px-[var(--space-3)] py-[var(--space-2)] font-mono text-[var(--font-size-sm)] leading-6 focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
+          />
+        )}
+      </div>
+    );
   };
 
   return (
@@ -271,8 +483,13 @@ export function DocEditor({
         <div className="flex items-start justify-between gap-[var(--space-3)]">
           <div className="min-w-0">
             <h2 className="truncate text-[var(--font-size-lg)] font-semibold leading-tight">{title}</h2>
-            {!isEditing && readPresentation.chips.length > 0 && (
+            {!isEditing && (readPresentation.chips.length > 0 || unreviewed) && (
               <div className="mt-[var(--space-2)] flex flex-wrap gap-[var(--space-1)]">
+                {unreviewed && (
+                  <span className="rounded-[var(--radius-sm)] border border-[var(--accent)] bg-[var(--muted)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-xs)] text-[var(--accent)]">
+                    Unreviewed
+                  </span>
+                )}
                 {readPresentation.chips.map((chip) => (
                   <span
                     key={chip}
@@ -302,39 +519,148 @@ export function DocEditor({
               </button>
             </div>
           ) : (
-            !readOnly && (
-              <button
-                onClick={() => setIsEditing(true)}
-                className="inline-flex min-h-[36px] shrink-0 items-center gap-[var(--space-1)] rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-2)] text-[var(--font-size-sm)] hover:bg-[var(--muted)]"
-              >
-                <Edit3 size={14} /> Edit
-              </button>
-            )
+            <div className="flex shrink-0 items-center gap-[var(--space-2)]">
+              {unreviewed && !readOnly && (
+                <button
+                  onClick={verifyPage}
+                  disabled={isVerifying}
+                  className="inline-flex min-h-[36px] items-center gap-[var(--space-1)] rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-2)] text-[var(--font-size-sm)] hover:bg-[var(--muted)] disabled:opacity-60"
+                >
+                  <ShieldCheck size={14} /> {isVerifying ? "Verifying..." : "Mark verified"}
+                </button>
+              )}
+              {!readOnly && (
+                <button
+                  onClick={enterEditMode}
+                  className="inline-flex min-h-[36px] items-center gap-[var(--space-1)] rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-2)] text-[var(--font-size-sm)] hover:bg-[var(--muted)]"
+                >
+                  <Edit3 size={14} /> Edit
+                </button>
+              )}
+            </div>
           )}
         </div>
 
         {isEditing && (
-          <div className="mt-[var(--space-2)] flex items-center justify-between text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
-            <div>{readOnly ? "Read only" : "Autosaves as you work"}</div>
+          <div className="mt-[var(--space-2)] flex flex-wrap items-center justify-between gap-[var(--space-2)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
+            <div className="flex items-center gap-[var(--space-2)]">
+              <div className="inline-flex overflow-hidden rounded-[var(--radius-sm)] border border-[var(--border)]">
+                <button
+                  type="button"
+                  onClick={() => switchWriteMode("form")}
+                  className={`min-h-[32px] px-[var(--space-2)] ${writeMode === "form" ? "bg-[var(--primary)] text-[var(--primary-foreground)]" : "hover:bg-[var(--muted)]"}`}
+                >
+                  Form
+                </button>
+                <button
+                  type="button"
+                  onClick={() => switchWriteMode("markdown")}
+                  className={`min-h-[32px] border-l border-[var(--border)] px-[var(--space-2)] ${writeMode === "markdown" ? "bg-[var(--primary)] text-[var(--primary-foreground)]" : "hover:bg-[var(--muted)]"}`}
+                >
+                  Markdown
+                </button>
+              </div>
+              <div>{readOnly ? "Read only" : "Autosaves as you work"}</div>
+            </div>
             <div className={saveState === "error" ? "text-[var(--destructive)]" : ""}>{statusText}</div>
           </div>
         )}
       </div>
 
       {isEditing ? (
-        <div
-          className="bn-container flex-1 overflow-auto p-[var(--space-2)]"
-          onScroll={() => window.dispatchEvent(new Event("scroll"))}
-        >
-          <BlockNoteView editor={editor} editable={!readOnly} onChange={handleEditorChange} />
-        </div>
+        writeMode === "markdown" ? (
+          <div
+            className="bn-container flex-1 overflow-auto p-[var(--space-2)]"
+            onScroll={() => window.dispatchEvent(new Event("scroll"))}
+          >
+            <BlockNoteView editor={editor} editable={!readOnly} onChange={handleEditorChange} />
+          </div>
+        ) : (
+          <div className="flex-1 space-y-[var(--space-3)] overflow-auto p-[var(--space-3)]">
+            <label className="block text-[var(--font-size-xs)] font-medium uppercase text-[var(--muted-foreground)]">
+              Title
+              <input
+                value={titleDraft}
+                onChange={(e) => {
+                  setTitleDraft(e.target.value);
+                  markTitleDirty();
+                }}
+                className="mt-[var(--space-1)] w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-transparent px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] normal-case text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
+              />
+            </label>
+
+            <label className="block text-[var(--font-size-xs)] font-medium uppercase text-[var(--muted-foreground)]">
+              Aliases
+              <textarea
+                value={formDraft.aliases.join(", ")}
+                onChange={(e) => updateForm((form) => {
+                  form.aliases = parseAliasList(e.target.value);
+                  return form;
+                })}
+                rows={2}
+                className="mt-[var(--space-1)] w-full resize-y rounded-[var(--radius-sm)] border border-[var(--border)] bg-transparent px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] normal-case text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
+              />
+            </label>
+
+            <label className="block text-[var(--font-size-xs)] font-medium uppercase text-[var(--muted-foreground)]">
+              Definition
+              <textarea
+                value={formDraft.definition}
+                onChange={(e) => updateForm((form) => {
+                  form.definition = e.target.value;
+                  return form;
+                })}
+                rows={3}
+                className="mt-[var(--space-1)] w-full resize-y rounded-[var(--radius-sm)] border border-[var(--border)] bg-transparent px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] normal-case leading-6 text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
+              />
+            </label>
+
+            <label className="block text-[var(--font-size-xs)] font-medium uppercase text-[var(--muted-foreground)]">
+              Details
+              <textarea
+                value={formDraft.details}
+                onChange={(e) => updateForm((form) => {
+                  form.details = e.target.value;
+                  return form;
+                })}
+                rows={5}
+                className="mt-[var(--space-1)] w-full resize-y rounded-[var(--radius-sm)] border border-[var(--border)] bg-transparent px-[var(--space-3)] py-[var(--space-2)] font-mono text-[var(--font-size-sm)] normal-case leading-6 text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
+              />
+            </label>
+
+            <div className="space-y-[var(--space-2)]">
+              <div className="flex items-center justify-between gap-[var(--space-2)]">
+                <div className="text-[var(--font-size-xs)] font-medium uppercase text-[var(--muted-foreground)]">Sections</div>
+                <button
+                  type="button"
+                  onClick={() => updateForm((form) => {
+                    form.sections.push(newSection());
+                    return form;
+                  })}
+                  className="inline-flex min-h-[36px] items-center gap-[var(--space-1)] rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-2)] text-[var(--font-size-xs)] hover:bg-[var(--muted)]"
+                >
+                  <Plus size={14} /> Add section
+                </button>
+              </div>
+              {formDraft.sections.length === 0 ? (
+                <div className="rounded-[var(--radius-sm)] border border-dashed border-[var(--border)] px-[var(--space-3)] py-[var(--space-3)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
+                  No sections yet.
+                </div>
+              ) : (
+                <div className="space-y-[var(--space-2)]">
+                  {formDraft.sections.map(renderSection)}
+                </div>
+              )}
+            </div>
+          </div>
+        )
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="docs-read-body mx-auto w-full max-w-[75ch] flex-1 overflow-auto px-[var(--space-3)] py-[var(--space-3)] text-[var(--font-size-base)] leading-6">
             {readPresentation.body.trim() ? (
-              <ReactMarkdown>{readPresentation.body}</ReactMarkdown>
+              <ReactMarkdown components={markdownComponents}>{readPresentation.body}</ReactMarkdown>
             ) : (
-              <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">This doc is empty.</div>
+              <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">This page is empty.</div>
             )}
           </div>
           {readPresentation.sources && (
@@ -343,7 +669,7 @@ export function DocEditor({
                 Sources ({readPresentation.sourceCount})
               </summary>
               <div className="docs-read-body mt-[var(--space-2)] text-[var(--font-size-sm)] leading-6">
-                <ReactMarkdown>{readPresentation.sources}</ReactMarkdown>
+                <ReactMarkdown components={markdownComponents}>{readPresentation.sources}</ReactMarkdown>
               </div>
             </details>
           )}

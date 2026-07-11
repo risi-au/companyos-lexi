@@ -20,6 +20,7 @@ import {
   archiveDoc,
   listDocRevisions,
   revertDoc,
+  verifyDoc,
   getBacklinks,
   getLinkGraph,
   listEvents,
@@ -223,6 +224,89 @@ describe("docs module (PGlite + migrations)", () => {
 
       await expect(getBacklinks(db, { scopePath: sp, slug: "target" }, noAccessPrincipalId)).rejects.toThrow(AccessDeniedError);
       await expect(getLinkGraph(db, { scopePath: sp }, noAccessPrincipalId)).rejects.toThrow(AccessDeniedError);
+    });
+
+    it("resolves alias-only wikilinks and counts them as resolved backlinks", async () => {
+      const suffix = Date.now();
+      const sp = `doc-alias-${suffix}`;
+      await createScope(db, { slug: sp, name: "Doc Alias", type: "project" }, rootPrincipalId);
+      await grantRole(db, { principalId: rootPrincipalId, scopePath: sp, role: "editor" }, rootPrincipalId);
+
+      const source = await saveDoc(
+        db,
+        { scopePath: sp, slug: "wiki", title: "Wiki", bodyMd: "See [[Legacy Name]]." },
+        rootPrincipalId
+      );
+      let links = await db.select().from(schema.docLinks).where(eq(schema.docLinks.fromDocumentId, source.id));
+      expect(links[0]?.toSlug).toBe("legacy-name");
+      expect(links[0]?.toDocumentId).toBeNull();
+
+      const target = await saveDoc(
+        db,
+        {
+          scopePath: sp,
+          slug: "canonical",
+          title: "Canonical",
+          bodyMd: "---\naliases:\n  - Legacy Name\n---\nCanonical page.",
+        },
+        rootPrincipalId
+      );
+
+      links = await db.select().from(schema.docLinks).where(eq(schema.docLinks.fromDocumentId, source.id));
+      expect(links.some((link: any) => link.toSlug === "legacy-name" && link.toDocumentId === target.id)).toBe(true);
+
+      const backlinks = await getBacklinks(db, { scopePath: sp, slug: "canonical" }, rootPrincipalId);
+      expect(backlinks).toEqual(expect.arrayContaining([
+        expect.objectContaining({ fromSlug: "wiki", resolved: true }),
+      ]));
+    });
+  });
+
+  describe("wiki review state and subtree listing", () => {
+    it("lists descendants with scope paths and marks agent learned pages unreviewed until human verify", async () => {
+      const suffix = Date.now();
+      const sp = `doc-review-${suffix}`;
+      const child = `${sp}/child`;
+      await createScope(db, { slug: sp, name: "Doc Review", type: "project" }, rootPrincipalId);
+      await createScope(db, { parentPath: sp, slug: "child", name: "Child", type: "subproject" }, rootPrincipalId);
+      await grantRole(db, { principalId: rootPrincipalId, scopePath: sp, role: "editor" }, rootPrincipalId);
+      await grantRole(db, { principalId: agentPrincipalId, scopePath: sp, role: "agent" }, rootPrincipalId);
+
+      await saveDoc(
+        db,
+        {
+          scopePath: child,
+          slug: "learned-page",
+          title: "Learned Page",
+          bodyMd: "---\nlearned_at: 2026-07-10T00:00:00.000Z\n---\nBody stays exact.",
+        },
+        agentPrincipalId
+      );
+
+      const defaultRows = await listDocs(db, { scopePath: sp }, rootPrincipalId);
+      expect(defaultRows.some((row) => row.scopePath === child)).toBe(false);
+
+      const subtreeRows = await listDocs(db, { scopePath: sp, includeDescendants: true }, rootPrincipalId);
+      const childRow = subtreeRows.find((row) => row.scopePath === child && row.slug === "learned-page");
+      expect(childRow).toMatchObject({ scopePath: child, unreviewed: true });
+
+      await expect(
+        verifyDoc(db, { scopePath: child, slug: "learned-page" }, agentPrincipalId)
+      ).rejects.toThrow(AccessDeniedError);
+
+      const verified = await verifyDoc(db, { scopePath: child, slug: "learned-page" }, rootPrincipalId);
+      expect(verified.bodyMd).toContain("verified_at:");
+      expect(verified.bodyMd).toContain("verified_by: Root Principal");
+      expect(verified.bodyMd.endsWith("Body stays exact.")).toBe(true);
+
+      const afterVerify = await listDocs(db, { scopePath: sp, includeDescendants: true }, rootPrincipalId);
+      expect(afterVerify.find((row) => row.scopePath === child && row.slug === "learned-page")?.unreviewed).toBe(false);
+
+      const revs = await listDocRevisions(db, { scopePath: child, slug: "learned-page", limit: 5 }, rootPrincipalId);
+      expect(revs[0]?.savedBy).toBe(rootPrincipalId);
+
+      const events = await listEvents(db, { scopePath: child, type: "doc.verified", limit: 1 });
+      expect(events.length).toBe(1);
     });
   });
 
