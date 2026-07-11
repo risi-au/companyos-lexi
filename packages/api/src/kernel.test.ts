@@ -18,6 +18,8 @@ import {
   getVisibleTree,
   archiveScope,
   grantRole,
+  ensurePersonalScope,
+  getPersonalScopePath,
   resolveAccess,
   requireAccess,
   revokeGrant,
@@ -65,6 +67,12 @@ describe("kernel services (PGlite + migrations)", () => {
   // fresh-ish data per test group by using unique paths
   let rootPrincipalId: string;
 
+  async function ensureRootScope(actorPrincipalId: string) {
+    const existing = await getScope(db, "root");
+    if (existing) return existing;
+    return createScope(db, { slug: "root", name: "Root", type: "root" }, actorPrincipalId);
+  }
+
   beforeEach(async () => {
     // ensure a principal for actor/tests
     const pRes = (await db.insert(schema.principals).values({
@@ -91,11 +99,14 @@ describe("kernel services (PGlite + migrations)", () => {
     // fresh should allow project/subproject
     await freshDb.execute("INSERT INTO scopes (id, slug, path, name, type, status) VALUES (gen_random_uuid(), 'p1', 'p1', 'P1', 'project', 'active')");
     await freshDb.execute("INSERT INTO scopes (id, slug, path, name, type, status) VALUES (gen_random_uuid(), 's1', 'p1/s1', 'S1', 'subproject', 'active')");
+    await freshDb.execute("INSERT INTO scopes (id, slug, path, name, type, status) VALUES (gen_random_uuid(), 'personal-test', 'personal-test', 'Personal', 'personal', 'active')");
     const freshRes: any = await freshDb.execute("SELECT type FROM scopes WHERE path IN ('p1','p1/s1') ORDER BY path");
     const frows = freshRes.rows || [];
     const ftypes = frows.map((r: any) => r.type || (Array.isArray(r)? r[0] : r)).filter(Boolean);
     expect(ftypes).toContain("project");
     expect(ftypes).toContain("subproject");
+    const personalRes: any = await freshDb.execute("SELECT type FROM scopes WHERE path = 'personal-test'");
+    expect((personalRes.rows || [])[0]?.type).toBe("personal");
     await freshClient.close();
 
     // Legacy data test: raw setup old enum + rows, apply 0009 stmts individually
@@ -182,6 +193,20 @@ describe("kernel services (PGlite + migrations)", () => {
       ).rejects.toThrow(/Nested/);
       const okNest = await createScope(db, { parentPath: top, slug: "oksub", name: "OkSub", type: "subproject" }, rootPrincipalId);
       expect(okNest.type).toBe("subproject");
+    });
+
+    it("createScope allows personal only as a top-level scope", async () => {
+      await ensureRootScope(rootPrincipalId);
+      const top = `personal-manual-${Date.now()}`;
+      const personal = await createScope(db, { slug: top, name: "Manual Personal", type: "personal" }, rootPrincipalId);
+      expect(personal.type).toBe("personal");
+      expect(personal.parentId).toBeTruthy();
+
+      const project = `personal-parent-${Date.now()}`;
+      await createScope(db, { slug: project, name: "Project Parent", type: "project" }, rootPrincipalId);
+      await expect(
+        createScope(db, { parentPath: project, slug: "nested-personal", name: "Nested Personal", type: "personal" }, rootPrincipalId)
+      ).rejects.toThrow(/Nested/);
     });
 
     it("getScope, getChildren, getSubtree work", async () => {
@@ -298,13 +323,35 @@ describe("kernel services (PGlite + migrations)", () => {
       await expect(requireAccess(db, agentPid, ag + "-sib", "viewer")).rejects.toThrow(AccessDeniedError);
     });
 
+    it("resolveAccess never inherits human root grants into personal scopes, but mediates root agents", async () => {
+      await ensureRootScope(rootPrincipalId);
+      const { scopePath } = await ensurePersonalScope(db, rootPrincipalId);
+      expect(scopePath).toBe(getPersonalScopePath(rootPrincipalId));
+      expect(await resolveAccess(db, rootPrincipalId, scopePath)).toBe("owner");
+
+      const humanRoot = (await db.insert(schema.principals).values({ kind: "human", name: `Human Root ${Date.now()}` }).returning() as any[])[0].id;
+      await grantRole(db, { principalId: humanRoot, scopePath: "root", role: "owner" }, rootPrincipalId);
+      expect(await resolveAccess(db, humanRoot, scopePath)).toBeNull();
+
+      const rootAgentAdmin = (await db.insert(schema.principals).values({ kind: "agent", name: `Root Agent Admin ${Date.now()}` }).returning() as any[])[0].id;
+      await grantRole(db, { principalId: rootAgentAdmin, scopePath: "root", role: "admin" }, rootPrincipalId);
+      expect(await resolveAccess(db, rootAgentAdmin, scopePath)).toBe("agent");
+
+      const rootAgent = (await db.insert(schema.principals).values({ kind: "agent", name: `Root Agent ${Date.now()}` }).returning() as any[])[0].id;
+      await grantRole(db, { principalId: rootAgent, scopePath: "root", role: "agent" }, rootPrincipalId);
+      expect(await resolveAccess(db, rootAgent, scopePath)).toBe("agent");
+
+      const unrelated = (await db.insert(schema.principals).values({ kind: "human", name: `Unrelated ${Date.now()}` }).returning() as any[])[0].id;
+      expect(await resolveAccess(db, unrelated, scopePath)).toBeNull();
+    });
+
     it("getVisibleTree: root owner sees all; project-only sees exactly their project subtree; no-grant sees nothing", async () => {
       const rootOwner = rootPrincipalId;
       const projOnly = (await db.insert(schema.principals).values({ kind: "human", name: "ProjOnly" + Date.now() }).returning() as any[])[0].id;
       const noGrant = (await db.insert(schema.principals).values({ kind: "human", name: "NoG" + Date.now() }).returning() as any[])[0].id;
 
       // ensure root scope + grant (tests may not auto-seed root)
-      await createScope(db, { slug: "root", name: "Root", type: "root" }, rootOwner);
+      await ensureRootScope(rootOwner);
       await grantRole(db, { principalId: rootOwner, scopePath: "root", role: "owner" }, rootOwner);
 
       const air = "airvis-" + Date.now();
@@ -332,6 +379,24 @@ describe("kernel services (PGlite + migrations)", () => {
       // no grant
       const visNone = await getVisibleTree(db, noGrant);
       expect(visNone.length).toBe(0);
+    });
+
+    it("getVisibleTree hides other personal scopes while showing the caller's own", async () => {
+      await ensureRootScope(rootPrincipalId);
+      await grantRole(db, { principalId: rootPrincipalId, scopePath: "root", role: "admin" }, rootPrincipalId);
+      const own = await ensurePersonalScope(db, rootPrincipalId);
+      const other = (await db.insert(schema.principals).values({ kind: "human", name: `Other Personal ${Date.now()}` }).returning() as any[])[0].id;
+      const otherPersonal = await ensurePersonalScope(db, other);
+
+      const rootVisible = await getVisibleTree(db, rootPrincipalId);
+      expect(rootVisible.some((scope) => scope.path === own.scopePath)).toBe(true);
+      expect(rootVisible.some((scope) => scope.path === otherPersonal.scopePath)).toBe(false);
+
+      const plain = (await db.insert(schema.principals).values({ kind: "human", name: `Plain Personal ${Date.now()}` }).returning() as any[])[0].id;
+      const plainPersonal = await ensurePersonalScope(db, plain);
+      const plainVisible = await getVisibleTree(db, plain);
+      expect(plainVisible.map((scope) => scope.path)).toContain(plainPersonal.scopePath);
+      expect(plainVisible.some((scope) => scope.path === own.scopePath)).toBe(false);
     });
 
     it("revokeGrant removes grant and emits grant.revoked", async () => {

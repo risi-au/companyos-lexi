@@ -14,6 +14,8 @@ const schema: any = (dbMod as any).schema ?? dbMod;
 import {
   linkAuthUser,
   getPrincipalIdForAuthUser,
+  getPersonalScopePath,
+  resolveAccess,
 } from "./index";
 import { listEvents } from "./index";
 
@@ -72,6 +74,19 @@ describe("auth-link service (PGlite)", () => {
     const [row] = await db.select().from(schema.principals).where(eq(schema.principals.id, pid));
     expect(row.authUserId).toBe("au-new-1");
     expect(row.email).toBe("new@example.com");
+
+    const personalPath = getPersonalScopePath(res.principalId);
+    const [personal] = await db.select().from(schema.scopes).where(eq(schema.scopes.path, personalPath));
+    expect(personal).toMatchObject({ path: personalPath, type: "personal", name: "New User \u2014 personal" });
+    expect(await resolveAccess(db, res.principalId, personalPath)).toBe("owner");
+
+    await linkAuthUser(db, {
+      authUserId: "au-new-1",
+      email: "new@example.com",
+      name: "New User",
+    });
+    const personalRows = await db.select().from(schema.scopes).where(eq(schema.scopes.path, personalPath));
+    expect(personalRows).toHaveLength(1);
   });
 
   it("links by email when a matching unlinked principal exists", async () => {
@@ -90,6 +105,7 @@ describe("auth-link service (PGlite)", () => {
 
     const [updated] = await db.select().from(schema.principals).where(eq(schema.principals.id, pre.id));
     expect(updated.authUserId).toBe("au-match-1");
+    expect(await resolveAccess(db, pre.id, getPersonalScopePath(pre.id))).toBe("owner");
   });
 
   it("bootstrap: first linked user on root with no prior linked owner gets owner grant + principal.bootstrapped event", async () => {

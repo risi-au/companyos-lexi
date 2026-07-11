@@ -39,6 +39,7 @@ import {
   accordionBranchForPath,
   parseStoredModuleShortcut,
   serializeStoredModuleShortcut,
+  isNewScopeParentOption,
   toggleAccordionPath,
   toggleModuleShortcutPath,
 } from "./sidebar-state";
@@ -508,7 +509,7 @@ function NewScopeDialog({ tree, defaultParent, onClose }: { tree: Scope[]; defau
   const [parent, setParent] = useState(defaultParent);
 
   const parentOptions: Scope[] = tree
-    .filter((s: Scope) => s.type === "project" || s.type === "subproject")
+    .filter(isNewScopeParentOption)
     .sort((a: Scope, b: Scope) => a.path.localeCompare(b.path));
 
   async function handleSubmit(formData: FormData) {

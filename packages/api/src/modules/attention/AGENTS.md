@@ -30,7 +30,8 @@ the proposed markdown through the docs service, then records the decision trail.
   scopes.
 - `countOpenAttentionItems(db, input, actor)`: count-only helper for context banners.
 - `resolveAttentionItem(db, input, actor)`: requires admin/owner, only resolves open
-  items. Approval of `wiki_proposal` calls `saveDoc` as the approving human. Every
+  items. Approval of `wiki_proposal` calls `saveDoc` as the approving human; approval
+  of `graduation` applies the embedded target wiki proposal the same way. Every
   resolution emits `attention.resolved` and creates a `decision` record.
 
 ## Payloads
@@ -43,6 +44,14 @@ the proposed markdown through the docs service, then records the decision trail.
 
 The payload stores both current and proposed markdown where available so the attention
 item is self-contained.
+
+`graduation` payload:
+
+```ts
+{ direction: "personal-to-scope" | "scope-to-personal"; fromScopePath: string; fromSlug: string; proposal: WikiProposalPayload }
+```
+
+The item's own scope is the target scope for the embedded proposal.
 
 ## Tests
 

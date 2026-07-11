@@ -3,6 +3,7 @@ import { principals, grants } from "@companyos/db";
 import { emitEvent, type DB } from "./events";
 import { getScope } from "./scopes";
 import { grantRole } from "./grants";
+import { ensurePersonalScope } from "./personal";
 import type { Principal } from "@companyos/db";
 
 /**
@@ -41,6 +42,7 @@ export async function linkAuthUser(
     .limit(1);
 
   if (principal) {
+    await ensurePersonalScope(db, principal.id);
     return { principalId: principal.id, bootstrapped: false };
   }
 
@@ -88,6 +90,8 @@ export async function linkAuthUser(
       principal = existing;
     }
   }
+
+  await ensurePersonalScope(db, principal.id);
 
   // 4. Bootstrap check: is there ANY principal WITH authUserId (linked) that has owner grant on root?
   const root = await getScope(db, "root");

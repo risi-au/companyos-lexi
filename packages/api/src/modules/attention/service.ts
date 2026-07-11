@@ -24,6 +24,13 @@ export interface WikiProposalPayload {
   currentMd?: string;
 }
 
+export interface GraduationPayload {
+  direction: "personal-to-scope" | "scope-to-personal";
+  fromScopePath: string;
+  fromSlug: string;
+  proposal: WikiProposalPayload;
+}
+
 export class AttentionNotFoundError extends Error {
   constructor(id: string) {
     super(`Attention item not found: ${id}`);
@@ -55,6 +62,24 @@ function wikiProposalPayload(value: unknown): WikiProposalPayload {
     proposedMd: value.proposedMd,
     ...(typeof value.baseRevisionId === "string" ? { baseRevisionId: value.baseRevisionId } : {}),
     ...(typeof value.currentMd === "string" ? { currentMd: value.currentMd } : {}),
+  };
+}
+
+function graduationPayload(value: unknown): GraduationPayload {
+  if (!isRecord(value)) throw new Error("graduation payload must be an object");
+  const direction = value.direction;
+  if (direction !== "personal-to-scope" && direction !== "scope-to-personal") {
+    throw new Error("graduation payload requires direction");
+  }
+  const fromScopePath = String(value.fromScopePath ?? "").trim();
+  const fromSlug = String(value.fromSlug ?? "").trim();
+  if (!fromScopePath) throw new Error("graduation payload requires fromScopePath");
+  if (!fromSlug) throw new Error("graduation payload requires fromSlug");
+  return {
+    direction,
+    fromScopePath,
+    fromSlug,
+    proposal: wikiProposalPayload(value.proposal),
   };
 }
 
@@ -220,17 +245,36 @@ export async function countOpenAttentionItems(
 }
 
 function decisionBody(item: AttentionItemView, resolution: AttentionResolution, note?: string | null): string {
-  const wiki = item.kind === "wiki_proposal" ? wikiProposalPayload(item.payload) : null;
+  const wiki = item.kind === "wiki_proposal"
+    ? wikiProposalPayload(item.payload)
+    : item.kind === "graduation"
+      ? graduationPayload(item.payload).proposal
+      : null;
+  const graduation = item.kind === "graduation" ? graduationPayload(item.payload) : null;
   const lines = [
     `Resolution: ${resolution}`,
     "",
     item.summary ? `Summary: ${item.summary}` : "",
     note ? `Note: ${note}` : "",
+    graduation ? `Graduation: ${graduation.direction} from ${graduation.fromScopePath}:${graduation.fromSlug}` : "",
     wiki ? `Wiki page: [[${wiki.slug}]]` : "",
     "",
     `Attention item: ${item.id}`,
   ].filter(Boolean);
   return lines.join("\n");
+}
+
+async function applyWikiProposal(
+  db: DB,
+  scopePath: string,
+  payload: WikiProposalPayload,
+  actorPrincipalId: string
+): Promise<void> {
+  await saveDoc(
+    db,
+    { scopePath, slug: payload.slug, title: payload.title, bodyMd: payload.proposedMd },
+    actorPrincipalId
+  );
 }
 
 export async function resolveAttentionItem(
@@ -244,13 +288,12 @@ export async function resolveAttentionItem(
     throw new AttentionStateError(`Attention item ${item.id} is ${item.status}; only open items can be resolved`);
   }
 
-  if (input.resolution === "approved" && item.kind === "wiki_proposal") {
-    const payload = wikiProposalPayload(item.payload);
-    await saveDoc(
-      db,
-      { scopePath: item.scopePath, slug: payload.slug, title: payload.title, bodyMd: payload.proposedMd },
-      actorPrincipalId
-    );
+  if (input.resolution === "approved") {
+    if (item.kind === "wiki_proposal") {
+      await applyWikiProposal(db, item.scopePath, wikiProposalPayload(item.payload), actorPrincipalId);
+    } else if (item.kind === "graduation") {
+      await applyWikiProposal(db, item.scopePath, graduationPayload(item.payload).proposal, actorPrincipalId);
+    }
   }
 
   const now = new Date();

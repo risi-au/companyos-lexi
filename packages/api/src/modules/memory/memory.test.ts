@@ -12,6 +12,7 @@ import * as dbMod from "@companyos/db";
 const schema: any = (dbMod as any).schema ?? dbMod;
 import {
   createScope,
+  ensurePersonalScope,
   getScope,
   grantRole,
   recallMemory,
@@ -150,6 +151,26 @@ describe("memory module", () => {
     const hits = await recallMemory(db, { scopePath: child, query: "seasonality ladder" }, agentPrincipalId);
 
     expect(hits.some((hit) => hit.scopePath === clientA && hit.slug === "ancestor-playbook" && hit.source === "ancestor")).toBe(true);
+  });
+
+  it("recalls the actor's personal wiki pages without leaking them to another principal", async () => {
+    const ownPersonal = await ensurePersonalScope(db, rootPrincipalId);
+    await saveDoc(db, {
+      scopePath: ownPersonal.scopePath,
+      slug: "operator-preferences",
+      title: "Operator Preferences",
+      bodyMd: "Personal recall needle uses the blue terminal profile for launch reviews.",
+    }, rootPrincipalId);
+
+    const [other] = await db.insert(schema.principals).values({ kind: "human", name: `Other Memory ${Date.now()}`, status: "active" }).returning();
+    await ensurePersonalScope(db, other.id);
+    await grantRole(db, { principalId: other.id, scopePath: clientA, role: "viewer" }, rootPrincipalId);
+
+    const ownHits = await recallMemory(db, { scopePath: clientA, query: "blue terminal profile launch reviews", limit: 10 }, rootPrincipalId);
+    expect(ownHits.some((hit) => hit.scopePath === ownPersonal.scopePath && hit.slug === "operator-preferences" && hit.source === "personal")).toBe(true);
+
+    const otherHits = await recallMemory(db, { scopePath: clientA, query: "blue terminal profile launch reviews", limit: 10 }, other.id);
+    expect(otherHits.every((hit) => hit.scopePath !== ownPersonal.scopePath)).toBe(true);
   });
 
   it("returns the latest revisionId for recalled pages and null when no revision rows exist", async () => {

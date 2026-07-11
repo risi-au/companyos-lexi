@@ -12,8 +12,10 @@ import * as dbMod from "@companyos/db";
 import {
   createRecord,
   createScope,
+  ensurePersonalScope,
   getDoc,
   grantRole,
+  listAttentionItems,
   listAlerts,
   listCapabilityRuns,
   listDocs,
@@ -270,6 +272,89 @@ describe("brain engine", () => {
     expect(result?.scopeRuns.map((run) => run.scopePath)).toEqual(["event-beta"]);
     await expect(getDoc(db, { scopePath: "event-beta", slug: "operations" }, adminPrincipalId)).resolves.toBeTruthy();
     await expect(getDoc(db, { scopePath: "event-alpha", slug: "operations" }, adminPrincipalId)).resolves.toBeNull();
+  });
+
+  it("excludes personal scopes from routine ingest targets", async () => {
+    const [human] = await db.insert(schema.principals).values({ kind: "human", name: `Personal Owner ${unique}` }).returning();
+    const personal = await ensurePersonalScope(db, human.id);
+    await createRecord(db, { scopePath: personal.scopePath, kind: "note", title: "Personal-only input", bodyMd: "Do not sweep this routinely." }, adminPrincipalId);
+
+    const result = await runBrainEngine(db, { mode: "ingest", runRef: "personal-routine" }, adminPrincipalId, {
+      llm: fixture,
+      now: new Date("2026-07-07T00:00:00.000Z"),
+    });
+
+    expect(result.scopeRuns.map((run) => run.scopePath)).not.toContain(personal.scopePath);
+    expect(fixture.calls.some((call) => call.purpose === "scope-ingest")).toBe(false);
+  });
+
+  it("passes personal routing targets to ingest and writes valid routed pages to a personal wiki", async () => {
+    await createProject("routing-work");
+    const [human] = await db.insert(schema.principals).values({ kind: "human", name: `Routing Human ${unique}` }).returning();
+    const personal = await ensurePersonalScope(db, human.id);
+    await createRecord(db, { scopePath: "routing-work", kind: "note", title: "Tool preference", bodyMd: "The operator prefers CLI drafts." }, adminPrincipalId);
+    const llm = new ScriptedLlm({
+      "scope-ingest": JSON.stringify({
+        recordsDistilled: 1,
+        pages: [{
+          slug: "tool-preferences",
+          title: "Tool Preferences",
+          targetScopePath: personal.scopePath,
+          bodyMd: "# Tool Preferences\n\nOperator prefers CLI drafts.\n\n## Sources\n\n- extracted: record:r1",
+        }],
+      }),
+      "root-distill": JSON.stringify({ pages: [] }),
+    });
+
+    await runBrainEngine(db, { mode: "ingest", scopePath: "routing-work", runRef: "personal-routing" }, adminPrincipalId, { llm });
+
+    const prompt = JSON.parse(llm.calls.find((call) => call.purpose === "scope-ingest")!.prompt) as any;
+    expect(prompt.routingRule).toContain("is the fact about the person or about the work?");
+    expect(prompt.personalWikiTargets).toEqual(expect.arrayContaining([expect.objectContaining({ scopePath: personal.scopePath })]));
+    await expect(getDoc(db, { scopePath: personal.scopePath, slug: "tool-preferences" }, adminPrincipalId)).resolves.toBeTruthy();
+  });
+
+  it("emits deduped graduation attention items from lint maintenance proposals", async () => {
+    await createProject("graduation-work");
+    const [human] = await db.insert(schema.principals).values({ kind: "human", name: `Graduation Human ${unique}` }).returning();
+    const personal = await ensurePersonalScope(db, human.id);
+    await saveDoc(db, {
+      scopePath: personal.scopePath,
+      slug: "client-truth",
+      title: "Client Truth",
+      bodyMd: "# Client Truth\n\nGraduation source personal note says the work scope owns this fact.",
+    }, human.id);
+    const llm = new ScriptedLlm({
+      "lint-scope": [
+        JSON.stringify({ findings: [] }),
+        JSON.stringify({
+          graduations: [{
+            direction: "personal-to-scope",
+            targetScopePath: "graduation-work",
+            fromScopePath: personal.scopePath,
+            fromSlug: "client-truth",
+            proposal: {
+              slug: "client-truth",
+              title: "Client Truth",
+              proposedMd: "Graduated target page only.",
+            },
+          }],
+        }),
+      ],
+    });
+
+    await runBrainEngine(db, { mode: "lint", scopePath: "graduation-work", runRef: "graduation-lint" }, adminPrincipalId, { llm });
+    await runBrainEngine(db, { mode: "lint", scopePath: "graduation-work", runRef: "graduation-lint-2" }, adminPrincipalId, { llm });
+
+    const items = await listAttentionItems(db, { scopePath: "graduation-work", kind: "graduation", status: "open" }, adminPrincipalId);
+    expect(items).toHaveLength(1);
+    expect(items[0]?.payload).toMatchObject({
+      direction: "personal-to-scope",
+      fromScopePath: personal.scopePath,
+      fromSlug: "client-truth",
+      proposal: { slug: "client-truth", proposedMd: "Graduated target page only." },
+    });
+    expect(JSON.stringify(items[0]?.payload)).not.toContain("Graduation source personal note");
   });
 
   it("enforces token ceilings and reports partial runs with token counts", async () => {

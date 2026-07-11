@@ -16,6 +16,7 @@ import {
   assembleIntakeExternalPack,
   createRecord,
   createScope,
+  ensurePersonalScope,
   dismissIntakePacket,
   ensureDraftIntakeForScope,
   findRelatedHistory,
@@ -313,6 +314,31 @@ describe("intake creation wizard module", () => {
     const row = await getIntakePacket(db, draft.id, editor);
     expect(row.packSnapshot).toBe(pack.pasteBack);
     expect(row.relatedHistorySelections).toEqual(selected);
+  });
+
+  it("includes the actor's personal wiki pages in the external pack when present", async () => {
+    const slug = `personal-pack-${Date.now()}`;
+    await createScope(db, { slug, name: "Personal Pack", type: "project" }, admin);
+    await grantRole(db, { principalId: editor, scopePath: slug, role: "editor" }, admin);
+    const personal = await ensurePersonalScope(db, editor);
+    await saveDoc(db, {
+      scopePath: personal.scopePath,
+      slug: "defaulting-style",
+      title: "Defaulting Style",
+      bodyMd: [
+        "Use the compact intake defaulting cascade for this operator.",
+        ...Array.from({ length: 45 }, (_, index) => `line-${index + 1}`),
+      ].join("\n"),
+    }, editor);
+
+    const draft = await ensureDraftIntakeForScope(db, { scopePath: slug, reason: "Check personal defaults" }, editor);
+    const pack = await assembleIntakeExternalPack(db, { intakeId: draft.id }, editor);
+
+    expect(pack.pasteBack).toContain("## Personal context (actor)");
+    expect(pack.pasteBack).toContain("Defaulting Style (defaulting-style)");
+    expect(pack.pasteBack).toContain("compact intake defaulting cascade");
+    expect(pack.pasteBack).toContain("line-39");
+    expect(pack.pasteBack).not.toContain("line-45");
   });
 
   it("uses synced wizard framing templates before packaged defaults", async () => {

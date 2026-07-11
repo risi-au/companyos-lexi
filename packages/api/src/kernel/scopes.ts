@@ -12,6 +12,7 @@ import {
   DuplicatePathError,
   InvalidSlugError,
 } from "../errors";
+import { getPersonalScopePath } from "./personal-path";
 
 const SLUG_REGEX = /^[a-z0-9-]+$/;
 
@@ -78,11 +79,11 @@ export async function createScope(
     }
   }
 
-  // Enforce structure v2: top-level (under root) = project; nested = subproject. root special.
+  // Enforce structure v2: top-level (under root) = project/personal; nested = subproject. root special.
   if (type !== "root") {
     if (parentTypeForValidation === "root" || parentTypeForValidation === null) {
-      if (type !== "project") {
-        throw new Error(`Top-level scopes (children of root) must have type "project", got "${type}"`);
+      if (type !== "project" && type !== "personal") {
+        throw new Error(`Top-level scopes (children of root) must have type "project" or "personal", got "${type}"`);
       }
     } else if (parentTypeForValidation) {
       if (type !== "subproject") {
@@ -266,9 +267,10 @@ export async function getVisibleTree(db: DB, principalId: string): Promise<Scope
   const hasRootGrant = rootGrants.length > 0;
 
   if (hasRootGrant) {
-    // full access: return everything (root + all)
+    // Full access, except other principals' personal scopes.
+    const ownPersonalPath = getPersonalScopePath(principalId);
     const all = await db.select().from(scopes).orderBy(scopes.path);
-    return all as Scope[];
+    return (all as Scope[]).filter((scope) => scope.type !== "personal" || scope.path === ownPersonalPath);
   }
 
   // No root grant: collect visible top-level project subtrees

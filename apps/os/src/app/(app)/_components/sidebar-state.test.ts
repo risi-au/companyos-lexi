@@ -7,6 +7,7 @@ import {
   clampSidebarWidth,
   parseStoredModuleShortcut,
   parseStoredSidebarWidth,
+  isNewScopeParentOption,
   serializeStoredModuleShortcut,
   pathPrefixes,
   toggleAccordionPath,
@@ -45,6 +46,15 @@ describe("sidebar accordion state", () => {
 
     expect(paths(toggleAccordionPath(expanded, "airbuddy/marketing"))).toEqual(["airbuddy"]);
     expect(paths(toggleAccordionPath(expanded, "airbuddy"))).toEqual([]);
+  });
+});
+
+describe("new scope parent options", () => {
+  it("allows projects and subprojects but never personal scopes", () => {
+    expect(isNewScopeParentOption({ type: "project" })).toBe(true);
+    expect(isNewScopeParentOption({ type: "subproject" })).toBe(true);
+    expect(isNewScopeParentOption({ type: "personal" })).toBe(false);
+    expect(isNewScopeParentOption({ type: "root" })).toBe(false);
   });
 });
 

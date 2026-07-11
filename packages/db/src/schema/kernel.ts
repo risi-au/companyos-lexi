@@ -14,7 +14,7 @@ import {
 
 
 // Enums
-export const scopeTypeEnum = pgEnum("scope_type", ["root", "project", "subproject"]);
+export const scopeTypeEnum = pgEnum("scope_type", ["root", "project", "subproject", "personal"]);
 export const scopeStatusEnum = pgEnum("scope_status", ["active", "archived"]);
 export const principalKindEnum = pgEnum("principal_kind", ["human", "agent"]);
 export const principalStatusEnum = pgEnum("principal_status", ["active", "disabled"]);
@@ -126,7 +126,7 @@ export interface Scope {
   slug: string;
   path: string;
   name: string;
-  type: "root" | "project" | "subproject";
+  type: "root" | "project" | "subproject" | "personal";
   status: "active" | "archived";
   settings: Record<string, unknown>;
   createdAt: Date;

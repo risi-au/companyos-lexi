@@ -1,4 +1,4 @@
-﻿/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { and, desc, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
 import { documents, embeddings, intakePackets, scopes, skillsIndex, type IntakePacket } from "@companyos/db";
 import {
@@ -13,6 +13,7 @@ import {
 import { emitEvent, type DB } from "../../kernel/events";
 import { requireAccess, resolveAccess } from "../../kernel/grants";
 import { getScope, getVisibleTree } from "../../kernel/scopes";
+import { getPersonalScopePath } from "../../kernel/personal-path";
 import { ScopeNotFoundError } from "../../errors";
 import { getContextBundle } from "../../agent";
 import { createSystemRecord } from "../records/service";
@@ -613,6 +614,34 @@ async function rootFallbackContext(db: DB): Promise<string> {
   return rows.map((row) => `### ${row.title} (${row.slug})\n\n${row.bodyMd.trim()}`).join("\n\n");
 }
 
+function firstFortyLines(bodyMd: string): string {
+  const lines = bodyMd.trim().split(/\r?\n/);
+  const head = lines.slice(0, 40).join("\n").trim();
+  return lines.length > 40 ? `${head}\n...` : head;
+}
+
+async function personalContextForActor(db: DB, actorPrincipalId: string): Promise<string> {
+  const personalScopePath = getPersonalScopePath(actorPrincipalId);
+  const personalScope = await getScope(db, personalScopePath);
+  if (!personalScope) return "";
+  const role = await resolveAccess(db, actorPrincipalId, personalScopePath);
+  if (!canReadRole(role)) return "";
+
+  const rows = (await db
+    .select({ slug: documents.slug, title: documents.title, bodyMd: documents.bodyMd })
+    .from(documents)
+    .where(and(eq(documents.scopeId, personalScope.id), isNull(documents.archivedAt)))
+    .orderBy(desc(documents.updatedAt))
+    .limit(5)) as Array<{ slug: string; title: string; bodyMd: string }>;
+
+  if (!rows.length) return "";
+  return [
+    "## Personal context (actor)",
+    "",
+    ...rows.map((row) => `### ${row.title} (${row.slug})\n\n${firstFortyLines(row.bodyMd)}`),
+  ].join("\n\n");
+}
+
 async function structuralContextForIntake(db: DB, intake: IntakePacketView, actorPrincipalId: string): Promise<string> {
   const chain = parentChain(intake.scopePath);
   const lines = [
@@ -624,6 +653,8 @@ async function structuralContextForIntake(db: DB, intake: IntakePacketView, acto
   } else {
     lines.push("", "### Root fallback context", "", await rootFallbackContext(db));
   }
+  const personalContext = await personalContextForActor(db, actorPrincipalId);
+  if (personalContext) lines.push("", personalContext);
   return lines.join("\n");
 }
 

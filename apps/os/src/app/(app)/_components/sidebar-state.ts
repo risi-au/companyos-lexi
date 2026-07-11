@@ -52,6 +52,10 @@ export function toggleModuleShortcutPath(openPath: string | null, path: string):
   return openPath === path ? null : path;
 }
 
+export function isNewScopeParentOption(scope: { type: string }): boolean {
+  return scope.type === "project" || scope.type === "subproject";
+}
+
 export function clampSidebarWidth(value: number): number {
   if (!Number.isFinite(value)) return SIDEBAR_DEFAULT_WIDTH;
   return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(value)));

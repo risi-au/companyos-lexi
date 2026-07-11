@@ -12,9 +12,11 @@ Provides `recallMemory(db, { query, scopePath?, limit? }, actor)` for MCP/UI cli
 - Exports the shared `Citation` type used by agent messages and session wrap-ups: slug, scopePath, optional revisionId/title, and source (`scope`, `ancestor`, `root-pattern`, `critical-facts`, `personal`).
 - Effective scope is the requested scope when the actor can view it; otherwise a single narrower direct grant inside the requested subtree narrows the read.
 - Retrieval is structurally limited to:
+  - active docs in the acting principal's own personal scope,
   - active docs in the effective scope subtree,
   - active docs in the nearest ancestor wiki-owning scope from the existing wiki walk,
   - root docs with slug `critical-facts` or `pattern-*`.
+- Personal hits are returned with `source: "personal"` and are not boosted or re-ranked.
 - Root allowlist reads are mediated by service SQL predicates, not by granting root access.
 - Usage metadata must never store query text, snippets, markdown bodies, bearer tokens, or plaintext secrets.
 

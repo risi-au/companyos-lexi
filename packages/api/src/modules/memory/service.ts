@@ -1,9 +1,10 @@
-import { and, desc, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, like, ne, or, sql } from "drizzle-orm";
 import { documents, documentRevisions, embeddings, grants, scopes } from "@companyos/db";
 import { AccessDeniedError, ScopeNotFoundError } from "../../errors";
 import { type DB } from "../../kernel/events";
 import { resolveAccess } from "../../kernel/grants";
 import { getScope } from "../../kernel/scopes";
+import { getPersonalScopePath } from "../../kernel/personal-path";
 import { embedQuery, embeddingsConfigured, toVectorSql } from "../../lib/embeddings";
 import { estimateTokens, logUsageEventSafely } from "../usage/service";
 
@@ -28,7 +29,7 @@ export interface RecallMemoryHit {
   title: string;
   scopePath: string;
   revisionId: string | null;
-  source: "scope" | "ancestor" | "root-pattern" | "critical-facts";
+  source: "scope" | "ancestor" | "root-pattern" | "critical-facts" | "personal";
   updatedAt: Date;
   snippet: string;
   confidence: string | number | null;
@@ -63,7 +64,7 @@ function isAncestorOrSame(path: string, descendant: string): boolean {
 
 function subtreeCondition(scopePath: string) {
   return scopePath === "root"
-    ? like(scopes.path, "%")
+    ? and(like(scopes.path, "%"), ne(scopes.type, "personal"))
     : or(eq(scopes.path, scopePath), like(scopes.path, `${scopePath}/%`));
 }
 
@@ -152,7 +153,14 @@ function parseFrontmatter(body: string): Record<string, string | number | boolea
   return frontmatter;
 }
 
-function sourceFor(scopePath: string, slug: string, effectiveScopePath: string, ancestorWikiScopePath: string | null): RecallMemoryHit["source"] {
+function sourceFor(
+  scopePath: string,
+  slug: string,
+  effectiveScopePath: string,
+  ancestorWikiScopePath: string | null,
+  personalScopePath: string | null
+): RecallMemoryHit["source"] {
+  if (personalScopePath && scopePath === personalScopePath) return "personal";
   if (scopePath === "root" && slug === "critical-facts") return "critical-facts";
   if (scopePath === "root" && slug.startsWith("pattern-")) return "root-pattern";
   if (ancestorWikiScopePath && scopePath === ancestorWikiScopePath && !isAncestorOrSame(effectiveScopePath, scopePath)) return "ancestor";
@@ -179,6 +187,7 @@ function rowToCandidate(
   },
   effectiveScopePath: string,
   includeAncestorPath: string | null,
+  personalScopePath: string | null,
   retrieval: "keyword" | "semantic"
 ): CandidateMemoryHit {
   const frontmatter = parseFrontmatter(row.bodyMd || "");
@@ -190,7 +199,7 @@ function rowToCandidate(
     title: row.title,
     scopePath: row.scopePath,
     revisionId: null,
-    source: sourceFor(row.scopePath, row.slug, effectiveScopePath, includeAncestorPath),
+    source: sourceFor(row.scopePath, row.slug, effectiveScopePath, includeAncestorPath, personalScopePath),
     updatedAt: row.updatedAt,
     snippet: row.snippet,
     confidence: typeof confidence === "string" || typeof confidence === "number" ? confidence : null,
@@ -295,9 +304,15 @@ export async function recallMemory(
 
   const scopePredicate = subtreeCondition(effectiveScopePath);
   const rootAllowlistPredicate = and(eq(scopes.path, "root"), or(eq(documents.slug, "critical-facts"), like(documents.slug, "pattern-%")));
-  const predicates = includeAncestorPath
-    ? or(scopePredicate, eq(scopes.path, includeAncestorPath), rootAllowlistPredicate)
-    : or(scopePredicate, rootAllowlistPredicate);
+  const personalScopePath = getPersonalScopePath(actorPrincipalId);
+  const personalScope = await getScope(db, personalScopePath);
+  const predicates = personalScope
+    ? includeAncestorPath
+      ? or(eq(scopes.id, personalScope.id), scopePredicate, eq(scopes.path, includeAncestorPath), rootAllowlistPredicate)
+      : or(eq(scopes.id, personalScope.id), scopePredicate, rootAllowlistPredicate)
+    : includeAncestorPath
+      ? or(scopePredicate, eq(scopes.path, includeAncestorPath), rootAllowlistPredicate)
+      : or(scopePredicate, rootAllowlistPredicate);
 
   const vector = sql`to_tsvector('english', coalesce(${documents.title}, '') || ' ' || coalesce(${documents.bodyMd}, ''))`;
   const tsquery = sql`websearch_to_tsquery('english', ${query})`;
@@ -327,7 +342,7 @@ export async function recallMemory(
       rank: number;
     }>;
 
-  const keywordHits = keywordRows.map((row) => rowToCandidate(row, effectiveScopePath, includeAncestorPath, "keyword"));
+  const keywordHits = keywordRows.map((row) => rowToCandidate(row, effectiveScopePath, includeAncestorPath, personalScope ? personalScopePath : null, "keyword"));
   let hits = keywordOrdered(keywordHits, limit);
   let effectiveMode: "hybrid" | "keyword-fallback" = "keyword-fallback";
 
@@ -371,7 +386,7 @@ export async function recallMemory(
               snippet: string;
               rank: number;
             }>;
-          const semanticHits = semanticRows.map((row) => rowToCandidate(row, effectiveScopePath, includeAncestorPath, "semantic"));
+          const semanticHits = semanticRows.map((row) => rowToCandidate(row, effectiveScopePath, includeAncestorPath, personalScope ? personalScopePath : null, "semantic"));
           hits = rrfFuse(keywordHits, semanticHits, limit);
           effectiveMode = "hybrid";
         }

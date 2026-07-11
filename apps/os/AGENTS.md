@@ -60,6 +60,9 @@ Update this file when API surface or auth wiring changes. (canvas added M3-03)
 
 ## Navigation (UX-08 sidebar tree + fluid shell)
 - `Sidebar.tsx` is a scope-tree-only sidebar: top-level projects render as folder rows, chevron buttons toggle expansion without navigation, name clicks navigate, and `sidebar-state.ts` keeps strict one-branch accordion expansion for deep links and manual toggles. Every scope row has a stable chevron column plus a persisted plus/minus module shortcut toggle; `SIDEBAR_MODULES_STORAGE_KEY` now stores a JSON set of open scope paths while still migrating legacy `open`/`closed` values. Shortcut targets remain `/s/<path>?tab=<tab>`. The flat `system` group (Brain/Ops Health/Admin) remains gated on `rootRole` owner/admin.
+- Personal scopes returned by `getVisibleTree` render as normal top-level sidebar
+  entries, but the new-scope dialog parent filter only allows project/subproject
+  parents (`isNewScopeParentOption`), so personal scopes cannot be selected as parents.
 - Scope pages use the client `ScopeTabs` wrapper to pass Next `Link` into the shared `Tabs` primitive for soft tab navigation, wrap server-rendered tab content in the client `ScopeTabPanel` GSAP transition island, and render grant-aware linked breadcrumbs using display names rather than raw path segments.
 - The shell (`layout.tsx`) stays an async server component and passes the rendered `<Sidebar>`/`<UserMenu>` into `AppShellChrome.tsx`, a `"use client"` wrapper that owns the mobile-drawer state and desktop sidebar resize state. Desktop content is fluid with 22px padding, the sidebar width persists in `localStorage` and clamps to 220-420px with double-click reset to 264px; below `@media (max-width: 820px)` the drawer remains the fixed 264px slide-in branch behind an `--overlay` scrim with header burger toggle, scrim/nav-link/Esc close behavior, and no resize handle.
 

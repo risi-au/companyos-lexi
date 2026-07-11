@@ -29,6 +29,9 @@ already-created scopes.
   lexical fail-open behavior; never add chat-LLM calls to request paths.
 - Wizard framing/interview templates are read from synced `skills_index` template
   rows first, with packaged defaults only as fallback.
+- External packs append `## Personal context (actor)` with up to five recent pages from
+  the acting principal's personal wiki when available; missing/empty personal scopes
+  are skipped silently.
 - Provisioning writes a `source-refs` system note when related-history selections
   exist. It links source record/doc ids and scope paths; it does not migrate source
   content.

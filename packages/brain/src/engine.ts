@@ -6,6 +6,7 @@ import {
   getDoc,
   getSkill,
   getSubtree,
+  listHumanPersonalScopeTargets,
   listCapabilityRuns,
   listAttentionItems,
   listDocs,
@@ -18,6 +19,8 @@ import {
   saveDoc,
   search,
   type DB,
+  type PersonalScopeTarget,
+  type WikiProposalPayload,
   type ListedRecord,
   type SearchHit,
 } from "@companyos/api";
@@ -31,10 +34,11 @@ const DEFAULT_RUN_TOKEN_CEILING = 24_000;
 const DEFAULT_MONTHLY_TOKEN_BUDGET = 1_000_000;
 const MAX_RESPONSE_EXCERPT_CHARS = 2048;
 const WIKILINK_RE = /\[\[([^\]\n]+)\]\]/g;
+const PERSON_VS_WORK_ROUTING_RULE = "is the fact about the person or about the work? Person (tool prefs, folder conventions, schedules, working style) \u2192 that person's personal wiki. Client/project truth \u2192 scope wiki. Cross-client playbook \u2192 root pattern.";
 const JSON_ENVELOPE_INSTRUCTIONS: Record<BrainLlmRequest["purpose"], string> = {
-  "scope-ingest": "Return only one JSON object: {\"pages\":[{\"slug\":\"kebab-slug\",\"title\":\"Title\",\"bodyMd\":\"markdown\"}],\"recordsDistilled\":0}. No prose, no markdown fence.",
+  "scope-ingest": "Return only one JSON object: {\"pages\":[{\"slug\":\"kebab-slug\",\"title\":\"Title\",\"bodyMd\":\"markdown\",\"targetScopePath\":\"optional-valid-target\"}],\"recordsDistilled\":0}. No prose, no markdown fence.",
   "root-distill": "Return only one JSON object: {\"pages\":[{\"slug\":\"critical-facts|scope-map|pattern-name\",\"title\":\"Title\",\"bodyMd\":\"markdown\"}]}. No prose, no markdown fence.",
-  "lint-scope": "Return only one JSON object: {\"findings\":[{\"type\":\"contradiction\",\"severity\":\"warning\",\"message\":\"...\",\"slugs\":[\"slug\"],\"action\":\"flagged\"}]}. No prose, no markdown fence.",
+  "lint-scope": "Return only one JSON object with either {\"findings\":[{\"type\":\"contradiction\",\"severity\":\"warning\",\"message\":\"...\",\"slugs\":[\"slug\"],\"action\":\"flagged\"}]} or {\"graduations\":[{\"direction\":\"personal-to-scope|scope-to-personal\",\"targetScopePath\":\"target\",\"fromScopePath\":\"source\",\"fromSlug\":\"slug\",\"proposal\":{\"slug\":\"target-slug\",\"title\":\"Title\",\"proposedMd\":\"markdown\"}}]}. No prose, no markdown fence.",
   "code-docs": "Return only one JSON object: {\"pages\":[{\"slug\":\"code-architecture|code-stack|code-integrations|code-ops\",\"title\":\"Title\",\"bodyMd\":\"markdown\"}]}. No prose, no markdown fence.",
 };
 
@@ -84,6 +88,7 @@ export interface BrainRunResult {
   llmCalls: number;
   scopeRuns: ScopeRunSummary[];
   lintFindings: LintFinding[];
+  graduationProposals: GraduationProposal[];
 }
 
 export interface ScopeRunSummary {
@@ -147,6 +152,7 @@ interface IngestPageOutput {
   slug: string;
   title: string;
   bodyMd: string;
+  targetScopePath?: string;
 }
 
 interface IngestOutput {
@@ -178,8 +184,21 @@ interface LintOutput {
   findings: LintFinding[];
 }
 
+interface GraduationProposal {
+  direction: "personal-to-scope" | "scope-to-personal";
+  targetScopePath: string;
+  fromScopePath: string;
+  fromSlug: string;
+  proposal: WikiProposalPayload;
+}
+
+interface GraduationOutput {
+  graduations: GraduationProposal[];
+}
+
 interface LintScopeResult {
   findings: LintFinding[];
+  graduationProposals: GraduationProposal[];
   parseFailure?: ParseFailureFields;
 }
 
@@ -401,6 +420,7 @@ export async function runBrainEngine(
   };
   const scopeRuns: ScopeRunSummary[] = [];
   const lintFindings: LintFinding[] = [];
+  const graduationProposals: GraduationProposal[] = [];
   const runTokenCeiling = effectiveCeiling(input.tokenCeiling);
   const monthlyTokenBudget = effectiveMonthlyBudget(input.monthlyTokenBudget);
   await registerBrainCapability(db, actorPrincipalId);
@@ -412,6 +432,7 @@ export async function runBrainEngine(
         try {
           const lintResult = await lintScope(db, scope.path, actorPrincipalId, deps, counters, runTokenCeiling, monthlyTokenBudget);
           lintFindings.push(...lintResult.findings.map((finding) => ({ ...finding, scopePath: scope.path })));
+          graduationProposals.push(...lintResult.graduationProposals);
           scopeRuns.push({
             scopePath: scope.path,
             inputCount: lintResult.findings.length,
@@ -487,6 +508,7 @@ export async function runBrainEngine(
       llmCalls: counters.llmCalls,
       scopeRuns,
       lintFindings,
+      graduationProposals,
     };
     await reportBrainRun(db, input, actorPrincipalId, started, now, result);
     return result;
@@ -556,6 +578,7 @@ async function reportBrainRun(
   const durationMs = Math.max(0, Date.now() - started.getTime());
   const hasWarning = result.lintFindings.some((finding) => finding.severity === "warning");
   await createAttentionItemsForLintFindings(db, result.lintFindings, actorPrincipalId);
+  await createAttentionItemsForGraduationProposals(db, result.graduationProposals, actorPrincipalId);
   await reportRun(
     db,
     {
@@ -579,6 +602,7 @@ async function reportBrainRun(
         partial: result.partial,
         scopeRuns: result.scopeRuns,
         lintFindings: result.lintFindings,
+        graduationProposals: result.graduationProposals,
       },
       alert: hasWarning
         ? {
@@ -595,6 +619,10 @@ async function reportBrainRun(
 
 function lintFindingKey(finding: Pick<LintFinding, "type" | "slugs">): string {
   return `${finding.type}:${[...finding.slugs].sort().join(",")}`;
+}
+
+function graduationProposalKey(proposal: Pick<GraduationProposal, "direction" | "targetScopePath" | "fromScopePath" | "fromSlug" | "proposal">): string {
+  return `${proposal.direction}:${proposal.targetScopePath}:${proposal.fromScopePath}:${proposal.fromSlug}:${proposal.proposal.slug}`;
 }
 
 function payloadRecord(value: unknown): Record<string, unknown> {
@@ -640,6 +668,56 @@ async function createAttentionItemsForLintFindings(
   }
 }
 
+async function createAttentionItemsForGraduationProposals(
+  db: DB,
+  proposals: GraduationProposal[],
+  actorPrincipalId: string
+): Promise<void> {
+  const byTarget = new Map<string, GraduationProposal[]>();
+  for (const proposal of proposals) {
+    const bucket = byTarget.get(proposal.targetScopePath) ?? [];
+    bucket.push(proposal);
+    byTarget.set(proposal.targetScopePath, bucket);
+  }
+
+  for (const [scopePath, scopeProposals] of byTarget) {
+    const open = await listAttentionItems(db, { scopePath, kind: "graduation", status: "open", limit: 200 }, actorPrincipalId);
+    const existingKeys = new Set(open.map((item) => {
+      const payload = payloadRecord(item.payload);
+      const nested = payloadRecord(payload.proposal);
+      return graduationProposalKey({
+        direction: String(payload.direction ?? "") as GraduationProposal["direction"],
+        targetScopePath: item.scopePath,
+        fromScopePath: String(payload.fromScopePath ?? ""),
+        fromSlug: String(payload.fromSlug ?? ""),
+        proposal: {
+          slug: String(nested.slug ?? ""),
+          title: String(nested.title ?? ""),
+          proposedMd: String(nested.proposedMd ?? ""),
+        },
+      });
+    }));
+
+    for (const proposal of scopeProposals) {
+      const key = graduationProposalKey(proposal);
+      if (existingKeys.has(key)) continue;
+      await createAttentionItem(db, {
+        scopePath,
+        kind: "graduation",
+        title: proposal.direction === "personal-to-scope" ? "Graduate personal fact to scope wiki" : "Move person-specific fact to personal wiki",
+        summary: `${proposal.fromScopePath}:${proposal.fromSlug} -> ${scopePath}:${proposal.proposal.slug}`,
+        payload: {
+          direction: proposal.direction,
+          fromScopePath: proposal.fromScopePath,
+          fromSlug: proposal.fromSlug,
+          proposal: proposal.proposal,
+        },
+      }, actorPrincipalId);
+      existingKeys.add(key);
+    }
+  }
+}
+
 async function targetTopLevelScopes(db: DB, scopePath?: string): Promise<ScopeInfo[]> {
   const all = (await getSubtree(db, ROOT_SCOPE)) as ScopeInfo[];
   const root = all.find((scope) => scope.type === "root");
@@ -648,7 +726,11 @@ async function targetTopLevelScopes(db: DB, scopePath?: string): Promise<ScopeIn
     .filter((scope) => scope.type === "project" && scope.parentId === root.id)
     .sort((a, b) => a.path.localeCompare(b.path));
   if (!scopePath || scopePath === ROOT_SCOPE) return top;
+  const requested = all.find((scope) => scope.path === scopePath);
+  if (requested?.type === "personal") return [requested];
   const firstSegment = scopePath.split("/").filter(Boolean)[0] ?? scopePath;
+  const personalTop = all.find((scope) => scope.type === "personal" && scope.path === firstSegment);
+  if (personalTop) return [personalTop];
   return top.filter((scope) => scope.path === firstSegment);
 }
 
@@ -657,7 +739,9 @@ async function targetScopes(db: DB, scopePath?: string): Promise<ScopeInfo[]> {
     const subtree = (await getSubtree(db, scopePath)) as ScopeInfo[];
     return subtree.sort((a, b) => a.path.localeCompare(b.path));
   }
-  return ((await getSubtree(db, ROOT_SCOPE)) as ScopeInfo[]).sort((a, b) => a.path.localeCompare(b.path));
+  return ((await getSubtree(db, ROOT_SCOPE)) as ScopeInfo[])
+    .filter((scope) => scope.type !== "personal")
+    .sort((a, b) => a.path.localeCompare(b.path));
 }
 
 async function lastSuccessfulIngestAt(db: DB, scopePath: string, actorPrincipalId: string): Promise<Date | undefined> {
@@ -718,6 +802,14 @@ function recordToInput(record: ListedRecord): SourceInput {
   };
 }
 
+function routeIngestTarget(page: IngestPageOutput, ingestScopePath: string, personalTargetPaths: ReadonlySet<string>): string | null {
+  const requested = typeof page.targetScopePath === "string" ? page.targetScopePath.trim() : "";
+  if (!requested) return ingestScopePath;
+  if (requested === ingestScopePath) return ingestScopePath;
+  if (personalTargetPaths.has(requested)) return requested;
+  return null;
+}
+
 async function ingestScope(
   db: DB,
   scopePath: string,
@@ -736,6 +828,8 @@ async function ingestScope(
   const skill = await getSkill(db, { name: WIKI_MAINTENANCE_SKILL }, actorPrincipalId);
   const docs = await loadDocs(db, scopePath, actorPrincipalId);
   const candidates = await semanticCandidates(db, scopePath, inputs, actorPrincipalId);
+  const personalTargets = await listHumanPersonalScopeTargets(db);
+  const personalTargetPaths = new Set(personalTargets.map((target) => target.scopePath));
   const response = await callLlm(
     db,
     deps.llm,
@@ -746,6 +840,13 @@ async function ingestScope(
       prompt: promptWithJsonEnvelope("scope-ingest", {
         scopePath,
         wikiContract: "Update durable wiki pages in place with frontmatter, provenance-tagged Sources, and wikilinks.",
+        routingRule: PERSON_VS_WORK_ROUTING_RULE,
+        personalWikiTargets: personalTargets.map((target) => ({
+          principalId: target.principalId,
+          principalName: target.principalName,
+          scopePath: target.scopePath,
+        })),
+        validTargetScopePaths: [scopePath, ...personalTargets.map((target) => target.scopePath)],
         since: since?.toISOString() ?? null,
         inputs: inputs.map(compactSource),
         currentPages: docs.map(compactDoc),
@@ -769,10 +870,12 @@ async function ingestScope(
       : null;
   let pagesTouched = 0;
   for (const page of pages) {
-    const existing = await getDoc(db, { scopePath, slug: page.slug }, actorPrincipalId);
+    const targetScopePath = routeIngestTarget(page, scopePath, personalTargetPaths);
+    if (!targetScopePath) continue;
+    const existing = await getDoc(db, { scopePath: targetScopePath, slug: page.slug }, actorPrincipalId);
     const finalBody = ensureWikiPageBody(page.bodyMd, deps.now ?? new Date());
     if (existing?.bodyMd === finalBody && existing.title === page.title) continue;
-    await saveDoc(db, { scopePath, slug: page.slug, title: page.title, bodyMd: finalBody }, actorPrincipalId);
+    await saveDoc(db, { scopePath: targetScopePath, slug: page.slug, title: page.title, bodyMd: finalBody }, actorPrincipalId);
     pagesTouched += 1;
   }
   const recordsDistilled = parsed.value.recordsDistilled ?? inputs.filter((input) => input.kind === "record").length;
@@ -825,6 +928,127 @@ async function loadDocs(db: DB, scopePath: string, actorPrincipalId: string): Pr
     docs.push({ ...summary, bodyMd: doc.bodyMd || "" });
   }
   return docs;
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function wikiProposalFromValue(value: unknown): WikiProposalPayload | null {
+  const raw = recordValue(value);
+  if (!raw) return null;
+  const slug = String(raw.slug ?? "").trim();
+  const title = String(raw.title ?? "").trim();
+  if (!slug || !title || typeof raw.proposedMd !== "string") return null;
+  return {
+    slug,
+    title,
+    proposedMd: raw.proposedMd,
+    ...(typeof raw.baseRevisionId === "string" ? { baseRevisionId: raw.baseRevisionId } : {}),
+    ...(typeof raw.currentMd === "string" ? { currentMd: raw.currentMd } : {}),
+  };
+}
+
+function normalizeGraduationProposal(
+  value: unknown,
+  scopePath: string,
+  personalTargetPaths: ReadonlySet<string>
+): GraduationProposal | null {
+  const raw = recordValue(value);
+  if (!raw) return null;
+  const direction = raw.direction;
+  if (direction !== "personal-to-scope" && direction !== "scope-to-personal") return null;
+  const targetScopePath = String(raw.targetScopePath ?? "").trim();
+  const fromScopePath = String(raw.fromScopePath ?? "").trim();
+  const fromSlug = String(raw.fromSlug ?? "").trim();
+  const proposal = wikiProposalFromValue(raw.proposal);
+  if (!targetScopePath || !fromScopePath || !fromSlug || !proposal) return null;
+
+  const validPersonalToScope = direction === "personal-to-scope" &&
+    personalTargetPaths.has(fromScopePath) &&
+    (targetScopePath === scopePath || targetScopePath === ROOT_SCOPE);
+  const validScopeToPersonal = direction === "scope-to-personal" &&
+    fromScopePath === scopePath &&
+    personalTargetPaths.has(targetScopePath);
+  if (!validPersonalToScope && !validScopeToPersonal) return null;
+
+  return { direction, targetScopePath, fromScopePath, fromSlug, proposal };
+}
+
+async function loadPersonalDocsForGraduation(
+  db: DB,
+  targets: PersonalScopeTarget[],
+  actorPrincipalId: string
+): Promise<Array<{ principalName: string; scopePath: string; pages: ReturnType<typeof compactDoc>[] }>> {
+  const result: Array<{ principalName: string; scopePath: string; pages: ReturnType<typeof compactDoc>[] }> = [];
+  for (const target of targets.slice(0, 20)) {
+    const docs = await loadDocs(db, target.scopePath, actorPrincipalId);
+    const pages = docs
+      .filter((doc) => doc.slug !== "lint-report" && !doc.slug.startsWith("lint-report"))
+      .slice(0, 5)
+      .map(compactDoc);
+    if (pages.length > 0) {
+      result.push({ principalName: target.principalName, scopePath: target.scopePath, pages });
+    }
+  }
+  return result;
+}
+
+async function graduationProposalsForScope(
+  db: DB,
+  scopePath: string,
+  docs: LoadedDoc[],
+  actorPrincipalId: string,
+  deps: BrainDeps,
+  counters: EngineCounters,
+  runTokenCeiling: number,
+  monthlyTokenBudget: number
+): Promise<{ proposals: GraduationProposal[]; parseFailure?: ParseFailureFields }> {
+  const personalTargets = await listHumanPersonalScopeTargets(db);
+  if (personalTargets.length === 0) return { proposals: [] };
+  const personalTargetPaths = new Set(personalTargets.map((target) => target.scopePath));
+  const personalPages = await loadPersonalDocsForGraduation(db, personalTargets, actorPrincipalId);
+  const skill = await getSkill(db, { name: WIKI_MAINTENANCE_SKILL }, actorPrincipalId);
+  const response = await callLlm(
+    db,
+    deps.llm,
+    {
+      role: "analysis",
+      purpose: "lint-scope",
+      system: skill.body,
+      prompt: promptWithJsonEnvelope("lint-scope", {
+        scopePath,
+        instruction: "Flag graduation proposals only. Do not auto-pick winners. Return proposed target-page markdown as an embedded proposal.",
+        routingRule: PERSON_VS_WORK_ROUTING_RULE,
+        privacyGuard: "For personal-to-scope items, payloads must contain only the proposed target page content and source identifiers; do not include other personal pages.",
+        workTargets: [scopePath, ROOT_SCOPE],
+        personalWikiTargets: personalTargets.map((target) => ({
+          principalId: target.principalId,
+          principalName: target.principalName,
+          scopePath: target.scopePath,
+        })),
+        scopePages: docs.map(compactDoc),
+        personalPages,
+      }),
+      maxTokens: Math.max(1, runTokenCeiling - counters.tokens),
+    },
+    actorPrincipalId,
+    counters,
+    runTokenCeiling,
+    monthlyTokenBudget,
+    scopePath
+  );
+  const parsed = parseJsonObjectResult<GraduationOutput>(response.text, { graduations: [] });
+  const raw = Array.isArray(parsed.value.graduations) ? parsed.value.graduations : [];
+  const proposals = raw
+    .map((item) => normalizeGraduationProposal(item, scopePath, personalTargetPaths))
+    .filter((item): item is GraduationProposal => !!item);
+  const parseFailure = !parsed.ok
+    ? outputFailure(counters, parsed.reason ?? "invalid JSON", response.text)
+    : raw.length > 0 && proposals.length === 0
+      ? outputFailure(counters, "zero usable graduation proposals", response.text)
+      : undefined;
+  return { proposals, parseFailure };
 }
 
 function ensureWikiPageBody(bodyMd: string, now: Date): string {
@@ -952,7 +1176,7 @@ async function lintScope(
   monthlyTokenBudget: number
 ): Promise<LintScopeResult> {
   const docs = await loadDocs(db, scopePath, actorPrincipalId);
-  if (docs.length === 0) return { findings: [] };
+  if (docs.length === 0) return { findings: [], graduationProposals: [] };
   const findings: LintFinding[] = [];
   findings.push(...await fixIndexLinks(db, scopePath, docs, actorPrincipalId));
   findings.push(...await mergeExactDuplicates(db, scopePath, docs, actorPrincipalId));
@@ -990,12 +1214,22 @@ async function lintScope(
   const llmFindings = usableFindings
     .map((finding) => ({ ...finding, action: "flagged" as const, severity: "warning" as const }));
   findings.push(...llmFindings);
+  const graduation = await graduationProposalsForScope(
+    db,
+    scopePath,
+    docs,
+    actorPrincipalId,
+    deps,
+    counters,
+    runTokenCeiling,
+    monthlyTokenBudget
+  );
 
   if (findings.some((finding) => finding.action === "flagged" || finding.type === "orphan")) {
     await saveLintReport(db, scopePath, findings, actorPrincipalId, deps.now ?? new Date());
     counters.pagesTouched += 1;
   }
-  return { findings, parseFailure };
+  return { findings, graduationProposals: graduation.proposals, parseFailure: parseFailure ?? graduation.parseFailure };
 }
 
 async function fixIndexLinks(

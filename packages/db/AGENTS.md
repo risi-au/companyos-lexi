@@ -9,6 +9,7 @@ Drizzle schema package for CompanyOS. Owns table definitions, typed row interfac
 
 ## Current Schema Notes
 - Kernel tables live in `src/schema/kernel.ts`.
+- `scope_type` includes `personal` for per-human personal wikis; the migration is a plain enum value add.
 - Vertical module tables live in separate files such as `documents.ts`, `agent.ts`, `sessions.ts`, and are re-exported by `src/schema/index.ts`.
 - `agent_sessions` includes nullable wrap-up fields from M10-03: `summary` text and `citations` jsonb. `citations` stores an array shaped like API memory citations: slug, scopePath, optional revisionId/title, and source.
 

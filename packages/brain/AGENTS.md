@@ -9,6 +9,10 @@ Runs the wiki maintenance loops for M8:
 - update-in-place wiki page merges through `saveDoc`
 - root distillation for `critical-facts`, `scope-map`, and `pattern-*` pages
 - lint pass with safe auto-fixes and warning alerts
+- personal wiki routing: routine sweeps skip personal scopes, event-driven/explicit
+  personal targets are valid, and scope ingest prompts apply the person-vs-work test
+- graduation proposals: lint maintenance can file two-way personal<->scope wiki
+  proposals through attention items without auto-applying them
 - event-triggered targeted ingest using the same code path as scheduled/manual runs
 - code-docs pass (M8-06): per scope with a workbench, maintains the four `code-*`
   wiki pages (`code-architecture`, `code-stack`, `code-integrations`, `code-ops`)
@@ -29,6 +33,8 @@ Runs the wiki maintenance loops for M8:
   are not retried automatically.
 - Tests use fixture LLM clients only. No live calls and no `.env` reads in tests.
 - All OS reads/writes go through `@companyos/api` services: docs, records, events, search, skills, capabilities, usage, and scopes.
+- Brain access to personal scopes is mediated through the kernel rule for agent
+  principals with direct root admin/agent grants; do not add direct schema reads here.
 - The engine loads `wiki-maintenance` via the skills module at run time.
 
 ## Public functions

@@ -16,6 +16,7 @@ import {
   countOpenAttentionItems,
   createAttentionItem,
   createScope,
+  ensurePersonalScope,
   getDoc,
   grantRole,
   listAttentionItems,
@@ -146,6 +147,41 @@ describe("attention module (PGlite + migrations)", () => {
     await resolveAttentionItem(db, { id: item.id, resolution: "rejected", note: "Not accurate" }, adminPrincipalId);
     const doc = await getDoc(db, { scopePath, slug: "wiki" }, adminPrincipalId);
     expect(doc?.bodyMd).toBe("Keep this");
+  });
+
+  it("approves graduation proposals through the embedded target wiki proposal and rejects without applying", async () => {
+    const scopePath = await createProject("attention-graduation");
+    const item = await createAttentionItem(db, {
+      scopePath,
+      kind: "graduation",
+      title: "Graduate personal launch note",
+      payload: {
+        direction: "personal-to-scope",
+        fromScopePath: "personal-source",
+        fromSlug: "launch-note",
+        proposal: { slug: "launch-note", title: "Launch Note", proposedMd: "Graduated launch truth." },
+      },
+    }, editorPrincipalId);
+
+    await resolveAttentionItem(db, { id: item.id, resolution: "approved" }, adminPrincipalId);
+    const doc = await getDoc(db, { scopePath, slug: "launch-note" }, adminPrincipalId);
+    expect(doc?.bodyMd).toBe("Graduated launch truth.");
+
+    const personal = await ensurePersonalScope(db, adminPrincipalId);
+    const rejected = await createAttentionItem(db, {
+      scopePath: personal.scopePath,
+      kind: "graduation",
+      title: "Move scope note to personal wiki",
+      payload: {
+        direction: "scope-to-personal",
+        fromScopePath: scopePath,
+        fromSlug: "working-style",
+        proposal: { slug: "working-style", title: "Working Style", proposedMd: "Person-specific working style." },
+      },
+    }, adminPrincipalId);
+
+    await resolveAttentionItem(db, { id: rejected.id, resolution: "rejected" }, adminPrincipalId);
+    await expect(getDoc(db, { scopePath: personal.scopePath, slug: "working-style" }, adminPrincipalId)).resolves.toBeNull();
   });
 
   it("rejects double resolve and viewer resolve", async () => {

@@ -97,6 +97,31 @@ export async function resolveAccess(db: DB, principalId: string, scopePath: stri
   const target = await getScope(db, scopePath);
   if (!target) return null;
 
+  if (target.type === "personal") {
+    const directGrants = (await db
+      .select()
+      .from(grants)
+      .where(and(eq(grants.principalId, principalId), eq(grants.scopeId, target.id)))) as Grant[];
+    const directRole = getHighestRole(directGrants.map((grant) => grant.role));
+    if (directRole) return directRole;
+
+    const mediated = await db
+      .select({ id: grants.id })
+      .from(principals)
+      .innerJoin(grants, eq(grants.principalId, principals.id))
+      .innerJoin(scopes, eq(grants.scopeId, scopes.id))
+      .where(
+        and(
+          eq(principals.id, principalId),
+          eq(principals.kind, "agent"),
+          eq(scopes.type, "root"),
+          inArray(grants.role, ["admin", "agent"])
+        )
+      )
+      .limit(1);
+    return mediated.length > 0 ? "agent" : null;
+  }
+
   const ancestorIds: string[] = [target.id];
   let parentId: string | null = target.parentId;
   while (parentId) {
@@ -210,4 +235,3 @@ export async function revokeGrant(
     payload: { principalId, scopePath },
   });
 }
-
