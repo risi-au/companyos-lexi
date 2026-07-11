@@ -136,6 +136,24 @@ describe("ops health (M9-01)", () => {
     });
   });
 
+
+  it("returns 14 days of wiki contribution counts from doc events", async () => {
+    const [root] = await db.select({ id: schema.scopes.id }).from(schema.scopes).where(eq(schema.scopes.path, "root")).limit(1);
+    await db.insert(schema.events).values([
+      { type: "doc.saved", scopeId: root.id, principalId: rootAdminId, payload: {}, createdAt: new Date("2026-09-20T01:00:00.000Z") },
+      { type: "doc.saved", scopeId: root.id, principalId: rootAdminId, payload: {}, createdAt: new Date("2026-09-20T02:00:00.000Z") },
+      { type: "doc.verified", scopeId: root.id, principalId: rootAdminId, payload: {}, createdAt: new Date("2026-09-20T03:00:00.000Z") },
+      { type: "doc.saved", scopeId: root.id, principalId: rootAdminId, payload: {}, createdAt: new Date("2026-10-01T03:00:00.000Z") },
+      { type: "doc.saved", scopeId: root.id, principalId: rootAdminId, payload: {}, createdAt: new Date("2026-09-17T23:59:59.000Z") },
+    ]);
+
+    const health = await getOpsHealth(db, { now }, rootAdminId);
+    expect(health.wikiContributions).toHaveLength(14);
+    expect(health.wikiContributions[0]?.date).toBe("2026-09-18");
+    expect(health.wikiContributions[13]?.date).toBe("2026-10-01");
+    expect(health.wikiContributions.find((row) => row.date === "2026-09-20")).toEqual({ date: "2026-09-20", saves: 2, verifies: 1 });
+    expect(health.wikiContributions.find((row) => row.date === "2026-10-01")).toEqual({ date: "2026-10-01", saves: 1, verifies: 0 });
+  });
   it("emits one alert and one email on transition into warning/error", async () => {
     const sent: any[] = [];
     const [agent] = await db.insert(schema.principals).values({ kind: "agent", name: `Warn Token ${Date.now()}` }).returning();

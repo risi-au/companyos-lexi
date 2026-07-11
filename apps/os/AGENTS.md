@@ -30,6 +30,8 @@ Next.js (app router) tenant UI + thin HTTP API surface for agents/engines (n8n, 
 
 Auth helper: src/lib/agent-auth.ts (bearer → principal, consistent {error, requires?} JSON)
 
+Startup hook: `src/instrumentation.ts` runs on server start, skips when `DATABASE_URL` is unset, and fail-open seeds missing root `cos-*` self-doc wiki pages through `@companyos/api`.
+
 ## Files
 - src/app/api/v1/.../route.ts — thin handlers only
 - src/app/api/mcp/route.ts - thin mount for `@companyos/mcp` HTTP handler

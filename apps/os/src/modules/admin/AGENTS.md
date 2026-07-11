@@ -18,6 +18,7 @@ Render the `/admin` section for day-to-day instance operations: users, grants, a
   need `useConfirm` before destructive/admin-sensitive actions.
 - Admin pages should stay server components and compose shared `@companyos/ui`
   Tabs/Table/Card/EmptyState primitives for V2-native surfaces.
+- `/admin/health` renders `getOpsHealth().wikiContributions` as the compact "Wiki contributions (14d)" table and shows "No wiki activity yet." when all counts are zero.
 
 ## Tests
 - Service contract tests live in `packages/api/src/modules/admin/admin.test.ts`.

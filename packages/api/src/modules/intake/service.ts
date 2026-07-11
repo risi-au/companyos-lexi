@@ -17,7 +17,7 @@ import { getPersonalScopePath } from "../../kernel/personal-path";
 import { ScopeNotFoundError } from "../../errors";
 import { getContextBundle } from "../../agent";
 import { createSystemRecord } from "../records/service";
-import { saveDoc } from "../docs/service";
+import { getDoc, saveDoc } from "../docs/service";
 import { createTask } from "../tasks/service";
 import type { PlaneClient } from "../tasks/plane-client";
 import { provisionScope, type ProvisionDeps, type ProvisionResult, type ProvisionSpec } from "../provisioning/service";
@@ -789,6 +789,57 @@ function asSeedArray(value: unknown): Array<Record<string, unknown>> {
   return [];
 }
 
+
+function intakeSourceDate(intake: IntakePacketView): string {
+  return new Date(intake.submittedAt ?? intake.approvedAt ?? intake.updatedAt ?? intake.createdAt).toISOString().slice(0, 10);
+}
+
+function hasSourcesSection(bodyMd: string): boolean {
+  return /^## Sources\s*$/im.test(bodyMd);
+}
+
+function appendIntakeSources(bodyMd: string, intake: IntakePacketView): string {
+  if (hasSourcesSection(bodyMd)) return bodyMd;
+  return `${bodyMd.trimEnd()}\n\n## Sources\n\n- extracted: intake packet (${intakeSourceDate(intake)})`;
+}
+
+function firstPacketParagraph(packetMd: string | null): string {
+  if (!packetMd) return "";
+  const lines = packetMd.split(/\r?\n/);
+  const goalIndex = lines.findIndex((line) => /^##?\s+goal\s*$/i.test(line.trim()));
+  if (goalIndex >= 0) {
+    const goalLines: string[] = [];
+    for (const line of lines.slice(goalIndex + 1)) {
+      if (/^##?\s+/.test(line.trim())) break;
+      if (line.trim()) goalLines.push(line.trim());
+      else if (goalLines.length) break;
+    }
+    if (goalLines.length) return goalLines.join(" ");
+  }
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("```") || trimmed.startsWith("---")) continue;
+    return trimmed.replace(/^goal:\s*/i, "");
+  }
+  return "";
+}
+
+function overviewLede(intake: IntakePacketView): string {
+  const answersGoal = isJsonObject(intake.answers) && typeof intake.answers.goal === "string" ? intake.answers.goal.trim() : "";
+  return answersGoal || firstPacketParagraph(intake.packetMd) || reasonFromAnswers(intake.answers) || `This project was created from setup packet ${intake.id}.`;
+}
+
+function renderOverviewStub(intake: IntakePacketView): string {
+  return [
+    "# Overview",
+    "",
+    overviewLede(intake),
+    "",
+    "## Sources",
+    "",
+    `- extracted: intake packet (${intakeSourceDate(intake)})`,
+  ].join("\n");
+}
 function renderConnectionDoc(requiredCredentials: RequiredCredentialSpec[]): string {
   const credentialLines = requiredCredentials.length
     ? requiredCredentials.map((credential) => [
@@ -834,6 +885,7 @@ export async function provisionFromIntakePacket(
   for (const seed of asSeedArray(intake.proposedDocs)) {
     const title = String(seed.title ?? seed.slug ?? "Intake document");
     const bodyMd = String(seed.bodyMd ?? seed.body_md ?? "");
+    if (!bodyMd.trim()) continue;
     const slug = seed.slug ? String(seed.slug) : undefined;
     docs.push(await saveDoc(db, { scopePath: intake.scopePath, title, slug, bodyMd }, actorPrincipalId));
   }
@@ -850,9 +902,22 @@ export async function provisionFromIntakePacket(
   const wiki = [];
   for (const seed of asSeedArray(intake.proposedWikiUpdates)) {
     const title = String(seed.title ?? seed.slug ?? "Wiki update");
-    const bodyMd = String(seed.bodyMd ?? seed.body_md ?? "");
+    const rawBodyMd = String(seed.bodyMd ?? seed.body_md ?? "");
+    if (!rawBodyMd.trim()) continue;
+    const bodyMd = appendIntakeSources(rawBodyMd, intake);
     const slug = seed.slug ? String(seed.slug) : undefined;
     wiki.push(await saveDoc(db, { scopePath: intake.scopePath, title, slug, bodyMd }, actorPrincipalId));
+  }
+  const provisionedScope = await getScope(db, intake.scopePath);
+  if (provisionedScope?.type === "project" && !(await getDoc(db, { scopePath: intake.scopePath, slug: "overview" }, actorPrincipalId))) {
+    const overview = await saveDoc(db, {
+      scopePath: intake.scopePath,
+      slug: "overview",
+      title: "Overview",
+      bodyMd: renderOverviewStub(intake),
+    }, actorPrincipalId);
+    wiki.push(overview);
+    artifacts.overviewDoc = { id: overview.id, slug: overview.slug };
   }
   const tasks = [];
   for (const seed of asSeedArray(intake.proposedTasks)) {

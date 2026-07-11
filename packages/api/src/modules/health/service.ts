@@ -58,9 +58,16 @@ export interface OpsRunLogRow {
   href: string | null;
 }
 
+export interface WikiContributionDay {
+  date: string;
+  saves: number;
+  verifies: number;
+}
+
 export interface OpsHealthResult {
   checks: OpsHealthCheck[];
   runs: OpsRunLogRow[];
+  wikiContributions: WikiContributionDay[];
   alerts: Array<{
     checkKey: string;
     status: "warning" | "error";
@@ -591,6 +598,46 @@ async function maybeAlert(
   return alerts;
 }
 
+
+function utcDayStart(value: Date): Date {
+  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
+}
+
+function dateKey(value: Date): string {
+  return value.toISOString().slice(0, 10);
+}
+
+function numericCount(value: unknown): number {
+  const parsed = typeof value === "bigint" ? Number(value) : Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+async function wikiContributions(db: DB, now: Date): Promise<WikiContributionDay[]> {
+  const start = new Date(utcDayStart(now).getTime() - 13 * DAY_MS);
+  const end = new Date(start.getTime() + 14 * DAY_MS);
+  const result = await db.execute(sql`
+    select
+      to_char(created_at at time zone 'UTC', 'YYYY-MM-DD') as date,
+      count(*) filter (where type = 'doc.saved') as saves,
+      count(*) filter (where type = 'doc.verified') as verifies
+    from events
+    where type in ('doc.saved', 'doc.verified')
+      and created_at >= ${start.toISOString()}::timestamptz
+      and created_at < ${end.toISOString()}::timestamptz
+    group by 1
+  `);
+  const rows: Array<{ date: string; saves: unknown; verifies: unknown }> = Array.isArray(result?.rows)
+    ? result.rows
+    : Array.isArray(result)
+      ? result
+      : [];
+  const byDate = new Map(rows.map((row) => [row.date, { saves: numericCount(row.saves), verifies: numericCount(row.verifies) }]));
+  return Array.from({ length: 14 }, (_, index) => {
+    const date = dateKey(new Date(start.getTime() + index * DAY_MS));
+    const counts = byDate.get(date);
+    return { date, saves: counts?.saves ?? 0, verifies: counts?.verifies ?? 0 };
+  });
+}
 async function runLog(db: DB, status?: string): Promise<OpsRunLogRow[]> {
   const conditions: any[] = [inArray(capabilities.name, RUN_LOG_CAPABILITIES)];
   if (status) conditions.push(eq(capabilityRuns.status, status));
@@ -727,6 +774,7 @@ export async function getOpsHealth(
   return {
     checks: checks.sort((a, b) => severityRank(b.status) - severityRank(a.status) || a.component.localeCompare(b.component)),
     runs: await runLog(db, input.runStatus),
+    wikiContributions: await wikiContributions(db, now),
     alerts,
     generatedAt: now,
   };

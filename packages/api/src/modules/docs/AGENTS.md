@@ -1,6 +1,6 @@
 # packages/api/src/modules/docs — AGENTS.md
 
-Knowledge base/wiki module (M3-01 + M8-01 + M10-04A): per-scope documents with markdown as canonical body. Revisions preserved (last 50), soft archive, slug uniqueness per scope with auto-suffix on derived slugs. Agents + HTTP + UI all use the same service layer. M8-01 adds wikilink extraction/backlinks and deferred semantic embeddings. M10-04A adds alias-aware wikilinks, subtree wiki browsing rows, and human-only page verification state stored in frontmatter. M10-04B adds per-page following, human-only auto-follow on create/verify, and coalesced follower notifications through targeted attention items.
+Knowledge base/wiki module (M3-01 + M8-01 + M10-04A): per-scope documents with markdown as canonical body. Revisions preserved (last 50), soft archive, slug uniqueness per scope with auto-suffix on derived slugs. Agents + HTTP + UI all use the same service layer. M8-01 adds wikilink extraction/backlinks and deferred semantic embeddings. M10-04A adds alias-aware wikilinks, subtree wiki browsing rows, and human-only page verification state stored in frontmatter. M10-04B adds per-page following, human-only auto-follow on create/verify, and coalesced follower notifications through targeted attention items. M10-05 adds code-shipped `cos-*` root self-doc pages seeded only when missing.
 
 ## Purpose
 Markdown-canonical wiki pages for scopes. Supports save (upsert by slug), get, list (excludes archived), rename, archive (soft), revisions + revert, backlinks, and human verification. All mutations emit kernel events. Viewer/editor/agent grants control access; verification requires a human principal with editor access.
@@ -54,6 +54,7 @@ Slugify: lower, [a-z0-9-]+ only, collision suffix only on defaulted slug from ti
 ## Files
 - `src/modules/docs/service.ts`
 - `src/modules/docs/follows.ts`
+- `src/modules/docs/self-docs.ts` - exported `cos-*` product manual page constants plus `ensureSelfDocs(db)` seed-if-missing root wiki seeder
 - `src/modules/docs/AGENTS.md`
 - `src/modules/docs/docs.test.ts`
 - Semantic/link tables: `packages/db/src/schema/documents.ts`, migration `0018_semantic_layer.sql`
@@ -80,6 +81,7 @@ Tests cover: migrations, access matrix, save/get/list roundtrip (byte exact md),
 - Verification metadata is frontmatter-only; no schema migration is used for review state.
 - Followed page changes fan out inline after `doc.saved`, `doc.verified`, `doc.renamed`, `doc.archived`, and `doc.reverted`. Each follower except the actor gets one open targeted `page_update` attention item per page; later changes coalesce until dismissed.
 - Save/revert queues a deferred document embedding refresh through `lib/embeddings.ts`; LiteLLM failures must not fail document writes.
+- `ensureSelfDocs` creates the reserved root `cos-*` manual pages only when a slug is absent; it never refreshes or overwrites existing admin-edited pages.
 
 ## Do not
 - No UI editor (M3-02), no file sync, no attachments/embeds.

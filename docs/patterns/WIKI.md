@@ -67,6 +67,7 @@ still apply elsewhere; root wiki pages are root-admin territory.
   scopes. Pattern pages describe structure, playbook, pitfalls, and typical provision
   spec. They may cite scope references in Sources, but must not contain
   client-confidential specifics.
+- `cos-*`: shipped CompanyOS product-manual pages. They explain how this instance works for Ask OS and agents. Seeders create them only when missing and never overwrite admin edits.
 
 ## Links and backlinks
 

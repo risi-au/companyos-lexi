@@ -29,6 +29,9 @@ import {
   getBacklinks,
   getLinkGraph,
   listEvents,
+  ensureSelfDocs,
+  COS_SELF_DOCS,
+  recallMemory,
 } from "../../index";
 import {
   AccessDeniedError,
@@ -175,6 +178,30 @@ describe("docs module (PGlite + migrations)", () => {
       const got = await getDoc(db, { scopePath: sp, slug: "my-custom" }, rootPrincipalId);
       expect(got?.bodyMd).toBe("v2");
     });
+  });
+
+
+  it("seeds cos self-docs only when missing and recalls token guidance with citations", async () => {
+    await createScope(db, { slug: "root", name: "Root", type: "root" }, rootPrincipalId);
+    await grantRole(db, { principalId: rootPrincipalId, scopePath: "root", role: "admin" }, rootPrincipalId);
+
+    const first = await ensureSelfDocs(db);
+    expect(first.created.sort()).toEqual(COS_SELF_DOCS.map((page) => page.slug).sort());
+
+    const docs = await Promise.all(COS_SELF_DOCS.map((page) => getDoc(db, { scopePath: "root", slug: page.slug }, rootPrincipalId)));
+    expect(docs.every(Boolean)).toBe(true);
+    expect(docs.find((doc) => doc?.slug === "cos-tokens")?.bodyMd).toContain("Worker tokens");
+
+    const beforeRevisions = await db.select().from(schema.documentRevisions);
+    const second = await ensureSelfDocs(db);
+    expect(second.created).toEqual([]);
+    const afterRevisions = await db.select().from(schema.documentRevisions);
+    expect(afterRevisions.length).toBe(beforeRevisions.length);
+
+    const hits = await recallMemory(db, { scopePath: "root", query: "How do I mint a worker token?", limit: 10 }, rootPrincipalId);
+    const tokenHit = hits.find((hit) => hit.slug === "cos-tokens");
+    expect(tokenHit).toMatchObject({ slug: "cos-tokens", scopePath: "root", type: "page" });
+    expect(tokenHit?.revisionId).toEqual(expect.any(String));
   });
 
   describe("wikilinks, backlinks, and graph", () => {

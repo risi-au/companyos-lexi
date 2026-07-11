@@ -282,6 +282,43 @@ describe("intake creation wizard module", () => {
     ]));
   });
 
+
+  it("skips empty intake seeds, adds wiki provenance, and creates project overview stub", async () => {
+    const slug = `intake-seed-polish-${Date.now()}`;
+    await createScope(db, { slug, name: "Seed Polish", type: "project" }, admin);
+    const draft = await ensureDraftIntakeForScope(db, { scopePath: slug, reason: "Launch a polished project" }, admin);
+    await submitIntakePacket(db, {
+      id: draft.id,
+      packet: {
+        packet_md: "## Goal\n\nLaunch the project with a clean starting wiki.",
+        research_sources: [],
+        proposed_provision_spec: { scopePath: slug, modules: ["docs"] },
+        proposed_docs: [
+          { slug: "empty-doc", title: "Empty doc", bodyMd: "   \n" },
+          { slug: "brief", title: "Brief", bodyMd: "# Brief\n\nReady." },
+        ],
+        proposed_tasks: [],
+        proposed_wiki_updates: [
+          { slug: "empty-wiki", title: "Empty wiki", bodyMd: "\t" },
+          { slug: "starting-state", title: "Starting state", bodyMd: "# Starting state\n\nInitial fact." },
+        ],
+        required_credentials: [],
+        external_systems: [],
+        open_questions: [],
+        risk_notes: [],
+      },
+    }, admin);
+    await approveIntakePacket(db, { id: draft.id }, admin);
+    await provisionFromIntakePacket(db, { plane: planeMock(), github: null }, { id: draft.id }, admin);
+
+    expect(await getDoc(db, { scopePath: slug, slug: "empty-doc" }, admin)).toBeNull();
+    expect(await getDoc(db, { scopePath: slug, slug: "empty-wiki" }, admin)).toBeNull();
+    expect((await getDoc(db, { scopePath: slug, slug: "starting-state" }, admin))?.bodyMd).toContain("- extracted: intake packet (");
+    const overview = await getDoc(db, { scopePath: slug, slug: "overview" }, admin);
+    expect(overview?.title).toBe("Overview");
+    expect(overview?.bodyMd).toContain("Launch the project with a clean starting wiki.");
+    expect(overview?.bodyMd).toContain("## Sources");
+  });
   it("finds selectable related history, stores selections, snapshots the pack, and uses root fallback for top-level scopes", async () => {
     const sales = `sales-${Date.now()}`;
     const client = `history-client-${Date.now()}`;

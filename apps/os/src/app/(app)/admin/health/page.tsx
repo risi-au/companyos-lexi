@@ -4,7 +4,7 @@ import { Activity, AlertTriangle, CheckCircle2, CircleHelp, XCircle } from "luci
 import { api, getCurrentActorPrincipalId } from "@/lib/api";
 import { labelForHealthStatus } from "@/lib/labels";
 import { opsHealthDeps, opsHealthEnvironment } from "@/lib/ops-health";
-import type { HealthStatus, OpsHealthCheck, OpsRunLogRow } from "@companyos/api";
+import type { HealthStatus, OpsHealthCheck, OpsRunLogRow, WikiContributionDay } from "@companyos/api";
 import { EmptyState, Table } from "@companyos/ui";
 
 function isRootAdmin(role: string | null): boolean {
@@ -70,6 +70,13 @@ export default async function HealthPage({
           Component health
         </div>
         <HealthTable checks={health.checks} />
+      </section>
+
+      <section className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)]">
+        <div className="border-b border-[var(--border)] px-[var(--space-4)] py-[var(--space-3)] text-[var(--font-size-sm)] font-medium">
+          Wiki contributions (14d)
+        </div>
+        <WikiContributionsTable rows={health.wikiContributions} />
       </section>
 
       <section className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)]">
@@ -139,6 +146,25 @@ function HealthTable({ checks }: { checks: OpsHealthCheck[] }) {
   );
 }
 
+
+function WikiContributionsTable({ rows }: { rows: WikiContributionDay[] }) {
+  const hasActivity = rows.some((row) => row.saves > 0 || row.verifies > 0);
+  if (!hasActivity) {
+    return <div className="px-[var(--space-4)] py-[var(--space-3)] text-[var(--font-size-sm)] text-[var(--mutedfg)]">No wiki activity yet.</div>;
+  }
+  return (
+    <Table
+      rows={rows}
+      minWidth="420px"
+      getRowKey={(row) => row.date}
+      columns={[
+        { key: "date", header: "Date", className: "font-mono text-[var(--font-size-xs)]", cell: (row) => row.date },
+        { key: "saves", header: "Saves", className: "font-mono", cell: (row) => row.saves },
+        { key: "verifies", header: "Verifies", className: "font-mono", cell: (row) => row.verifies },
+      ]}
+    />
+  );
+}
 function RunTable({ runs }: { runs: OpsRunLogRow[] }) {
   return (
     <Table

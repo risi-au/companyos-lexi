@@ -3,12 +3,12 @@
 Root-admin operational health checks for unattended CompanyOS machinery.
 
 ## Purpose
-- Evaluate credential expiry, capability run liveness, LLM key probe state, webhook recency, and skills sync health.
+- Evaluate credential expiry, capability run liveness, LLM key probe state, webhook recency, skills sync health, and the last 14 days of wiki save/verify event volume.
 - Surface recent root capability runs for "is it alive" inspection.
 - Emit deduplicated alert events and optional email notifications when checks transition into warning/error.
 
 ## Contract
-- Service functions live in `service.ts` and are exported from `@companyos/api`.
+- Service functions live in `service.ts` and are exported from `@companyos/api`. `getOpsHealth` returns `wikiContributions` as 14 UTC date rows with doc save/verify counts.
 - Root-admin only: every public service requires `admin` on the `root` scope.
 - Tables live in `@companyos/db`: `external_credentials` and `ops_alert_state`.
 - External credential rows store metadata only; never store secret values.

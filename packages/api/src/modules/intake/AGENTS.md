@@ -35,7 +35,7 @@ already-created scopes.
 - Provisioning writes a `source-refs` system note when related-history selections
   exist. It links source record/doc ids and scope paths; it does not migrate source
   content.
-- Provisioning seeds a `connection` doc when required credentials exist. The doc
+- Provisioning skips empty proposed doc/wiki seeds, appends intake-packet Sources provenance to seeded wiki pages when missing, seeds a project `overview` stub when absent, and seeds a `connection` doc when required credentials exist. The doc
   contains `{{credential:name}}` references, what-for text, and login method notes;
   it never contains credential values.
 
