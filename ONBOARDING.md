@@ -43,7 +43,8 @@ nothing else, and stop.
 - **Browser verification**: Playwright MCP tools are available and may already have a
   signed-in session. Use accessibility snapshots + targeted `getComputedStyle` probes;
   screenshots only when judging visuals.
-- **Staging**: https://cos.risi.au (VPS, `ssh aios@159.13.38.87`, key-based, authorized).
+- **Staging**: https://cos-staging.risi.au (VPS, `ssh aios@159.13.38.87`, key-based,
+  authorized; `cos.risi.au` does not resolve — it's reserved for future live, see VPS.md).
   Deploy path is tag-based and staging-first — never deploy untagged code
   (docs/DEPLOYMENT.md + docs/VPS.md; credentials in gitignored `vps-login.txt`).
 - **Gates** (green before any merge, run from repo root):
