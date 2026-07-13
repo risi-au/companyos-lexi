@@ -65,6 +65,31 @@ function planeMock() {
   } as any;
 }
 
+function githubMock() {
+  const repos = new Set<string>();
+  const files = new Map<string, string>();
+  return {
+    org: "test-org",
+    repos,
+    files,
+    client: {
+      org: "test-org",
+      getRepo: vi.fn(async (repo: string) => repos.has(repo) ? { name: repo } : null),
+      createRepo: vi.fn(async (repo: string) => {
+        repos.add(repo);
+        return { name: repo };
+      }),
+      getFile: vi.fn(async (_repo: string, filePath: string) => {
+        const contentUtf8 = files.get(filePath);
+        return contentUtf8 ? { sha: `sha-${filePath}`, contentUtf8 } : null;
+      }),
+      putFile: vi.fn(async (_repo: string, filePath: string, content: string) => {
+        files.set(filePath, content);
+        return { written: true, sha: `sha-${filePath}` };
+      }),
+    } as any,
+  };
+}
 describe("intake creation wizard module", () => {
   let client: PGlite;
   let db: any;
@@ -105,6 +130,10 @@ describe("intake creation wizard module", () => {
 
     const updated = await updateIntakePacket(db, { id: draft.id, answers: { plane: "yes", workbench: false } }, editor);
     expect(updated.answers).toEqual({ plane: "yes", workbench: false });
+    expect(updated.proposedProvisionSpec).not.toMatchObject({ workbench: expect.anything() });
+
+    const codeDefault = await updateIntakePacket(db, { id: draft.id, answers: { plane: "yes", workbench: "yes" } }, editor);
+    expect(codeDefault.proposedProvisionSpec).toMatchObject({ workbench: { repo: slug } });
 
     const dismissed = await dismissIntakePacket(db, { id: draft.id }, admin);
     expect(dismissed.status).toBe("dismissed");
@@ -283,6 +312,35 @@ describe("intake creation wizard module", () => {
   });
 
 
+  it("defaults a workbench repo from framing answers when pasted provision JSON omits it", async () => {
+    const slug = `intake-workbench-default-${Date.now()}`;
+    await createScope(db, { slug, name: "Workbench Default", type: "project" }, admin);
+    const draft = await ensureDraftIntakeForScope(db, { scopePath: slug, reason: "Build code for this project" }, admin);
+    await updateIntakePacket(db, { id: draft.id, answers: { workbench: "yes", plane: "no" } }, admin);
+    const submitted = await submitIntakePacket(db, {
+      id: draft.id,
+      packet: {
+        packet_md: "Ready for code work.",
+        research_sources: [],
+        proposed_provision_spec: { scopePath: slug, modules: ["docs"] },
+        proposed_docs: [],
+        proposed_tasks: [],
+        proposed_wiki_updates: [],
+        required_credentials: [],
+        external_systems: [],
+        open_questions: [],
+        risk_notes: [],
+      },
+    }, admin);
+    expect(submitted.intake.proposedProvisionSpec).toMatchObject({ workbench: { repo: slug } });
+
+    await approveIntakePacket(db, { id: draft.id }, admin);
+    const github = githubMock();
+    const provisioned = await provisionFromIntakePacket(db, { plane: planeMock(), github: github.client }, { id: draft.id }, admin);
+
+    expect(github.client.createRepo).toHaveBeenCalledWith(slug, { private: true });
+    expect(provisioned.result.steps.find((step) => step.key === "github.repo")?.status).toBe("created");
+  });
   it("skips empty intake seeds, adds wiki provenance, and creates project overview stub", async () => {
     const slug = `intake-seed-polish-${Date.now()}`;
     await createScope(db, { slug, name: "Seed Polish", type: "project" }, admin);

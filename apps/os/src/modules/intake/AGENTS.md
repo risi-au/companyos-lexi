@@ -11,8 +11,9 @@ Creation wizard UI module. Thin client/server-action wrappers around
 - UX-05 presents the same flow as a 6-step rail (`Basics -> Framing -> History
   -> Interview -> Review -> Provision`) using `@companyos/ui` Stepper and the
   reusable completion reward for the review checklist.
-- Provisioning has local visual sequencing over the existing
-  `provisionIntakeAction`; do not move provisioning business logic into the UI.
+- Provisioning renders the real `ProvisionResult.steps` returned by
+  `provisionIntakeAction`, including `manual` steps and inline failures; do not
+  move provisioning business logic into the UI.
 - Review displays the stored pack snapshot and warns loudly when a return was
   markdown-only without a fenced JSON packet.
 - Root admin `/admin/intake` queue and template editor.

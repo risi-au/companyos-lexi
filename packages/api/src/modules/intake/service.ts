@@ -180,7 +180,28 @@ function skeletonSpec(scopePath: string, answers: unknown): ProvisionSpec {
     if (answers.plane === true || answers.plane === "yes") modules.push("tasks");
     if (answers.workbench === true || answers.workbench === "yes") modules.push("workbench");
   }
-  return { scopePath, modules: Array.from(new Set(modules)) };
+  const spec: ProvisionSpec = { scopePath, modules: Array.from(new Set(modules)) };
+  if (wantsWorkbench(answers)) spec.workbench = { repo: scopePath.split("/")[0]! };
+  return spec;
+}
+
+function wantsWorkbench(answers: unknown): boolean {
+  if (!isJsonObject(answers)) return false;
+  const value = answers.workbench;
+  if (value === true) return true;
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().toLowerCase();
+  // Framing answers are free text, so accept natural affirmatives like "Yes, TypeScript services".
+  return normalized.startsWith("yes") || ["y", "true", "1", "code"].includes(normalized);
+}
+
+function normalizeProvisionSpec(scopePath: string, spec: unknown, answers: unknown): ProvisionSpec {
+  const base = isJsonObject(spec) ? spec as unknown as ProvisionSpec : { scopePath };
+  const next: ProvisionSpec = { ...base, scopePath };
+  if (wantsWorkbench(answers) && !next.workbench) {
+    next.workbench = { repo: scopePath.split("/")[0]! };
+  }
+  return next;
 }
 
 export async function ensureDraftIntakeForScope(
@@ -391,6 +412,7 @@ export async function submitIntakePacket(
   await db.update(intakePackets).set({
     ...packetToUpdates(packet),
     answers: nextAnswers,
+    proposedProvisionSpec: normalizeProvisionSpec(intake.scopePath, packet.proposed_provision_spec, nextAnswers),
     sourceEngine: packet.source_engine ?? null,
     sourceModel: packet.source_model ?? null,
     status: "needs_review",

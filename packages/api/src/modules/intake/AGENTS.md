@@ -16,6 +16,9 @@ already-created scopes.
   `intake.provisioned`.
 - Delegate provisioning, docs, tasks, records, skills, and GitHub writes to existing
   service modules.
+- Normalize proposed provision specs from framing answers: when `answers.workbench`
+  indicates code will be written, default `workbench.repo` to the top-level scope
+  slug unless the project has opted out.
 
 ## Contract
 - All functions take `db` first.

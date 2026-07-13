@@ -86,6 +86,17 @@ function isWebhookUnavailable(error: unknown): boolean {
   return /failed:\s*(404|405)\b/.test(msg) || /\b(404|405)\b/.test(msg);
 }
 
+function githubFailureMessage(error: unknown, github: GitHubClient, repo: string, action: string): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  const status = /failed:\s*(\d{3})\b/.exec(raw)?.[1] || /\b(\d{3})\b/.exec(raw)?.[1];
+  const permissionDenied = status === "403" || /Resource not accessible by personal access token/i.test(raw);
+  if (permissionDenied) {
+    return `GitHub token cannot create repos in ${github.org} (403). Grant the token Administration: read/write + All repositories, then re-run setup.`;
+  }
+  const suffix = status ? ` (${status})` : "";
+  return `GitHub ${action} failed for ${github.org}/${repo}${suffix}. Re-run setup after fixing GitHub access.`;
+}
+
 async function getTopAuthPath(db: DB, scopePath: string): Promise<string> {
   const top = scopePath.split("/")[0]!;
   const existingTop = await getScope(db, top);
@@ -572,7 +583,8 @@ async function ensureWorkbenchWithRepo(
       addManual(steps, `create GitHub org ${error.org} manually`, "github.org");
       return;
     }
-    throw error;
+    addManual(steps, githubFailureMessage(error, github, repo, "repo setup"), "github.repo");
+    return;
   }
 
   const rowScopes = [target, ...subprojectScopes];
@@ -584,6 +596,10 @@ async function ensureWorkbenchWithRepo(
   syncScopes.set(topScope.path, topScope);
   for (const scope of rowScopes) syncScopes.set(scope.path, scope);
   for (const scope of syncScopes.values()) {
-    await syncAgentsFile(db, github, repo, scope, steps);
+    try {
+      await syncAgentsFile(db, github, repo, scope, steps);
+    } catch (error) {
+      addManual(steps, githubFailureMessage(error, github, repo, `AGENTS.md sync for ${scope.path}`), `github.file:${agentsPathFor(scope.path)}`);
+    }
   }
 }

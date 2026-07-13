@@ -5,7 +5,7 @@ Provisioning module (M4-04): deterministic onboarding through `provisionScope` a
 ## Purpose
 Create or refresh the deterministic part of onboarding in one idempotent call: scopes, module instances, optional agent principal and token, Plane workspace adoption/webhook attempt, and optional GitHub workbench skeleton.
 
-Manual steps are returned instead of thrown when an external system cannot automate the action, such as creating a GitHub org or Plane workspace.
+Manual steps are returned instead of thrown when an external system cannot automate the action, such as creating a GitHub org, creating/syncing a GitHub repo with insufficient token permissions, or registering a Plane workspace.
 
 ## Contract
 `provisionScope(db, { plane, github }, spec, actorPrincipalId)` accepts `ProvisionSpec` with `scopePath`, optional `name`, `subprojects`, `modules`, `agent`, `planeWorkspaceSlug`, and `workbench`.
@@ -13,7 +13,7 @@ Manual steps are returned instead of thrown when an external system cannot autom
 Returns `scopePath`, `topLevelScopePath`, `steps`, `manual`, and optional `agentToken` with plaintext token and `storeNow: true`. Never store plaintext server-side.
 
 ## Idempotency
-Running the same spec twice should produce only `existing` or `skipped` outcomes for already-provisioned resources. Shared `GitHubClient.putFile` reads current content first and skips byte-identical writes.
+Running the same spec twice should produce only `existing` or `skipped` outcomes for already-provisioned resources. Shared `GitHubClient.putFile` reads current content first and skips byte-identical writes. GitHub repo creation and AGENTS.md sync failures must degrade to `manual` steps with sanitized org/repo/status messages so scope/modules/docs/tasks provisioning can still complete.
 
 Managed `AGENTS.md` regeneration replaces only the block between `<!-- companyos:managed:start -->` and `<!-- companyos:managed:end -->`. Human content outside those markers must survive byte-for-byte. `estimateManagedSection` returns the rendered markdown with byte and estimated-token counts so template growth can be tested without storing rendered secrets.
 

@@ -103,13 +103,19 @@ const WIZARD_STEPS = [
 ];
 
 const PROVISION_ITEMS = [
-  { label: "Create project registry", tag: "scope" },
-  { label: "Attach default modules", tag: "modules" },
-  { label: "Generate starter records", tag: "records" },
-  { label: "Queue workbench sync", tag: "workbench" },
-];
+  { key: "scope", status: "pending", message: "Create project registry" },
+  { key: "modules", status: "pending", message: "Attach default modules" },
+  { key: "records", status: "pending", message: "Generate starter records" },
+  { key: "workbench", status: "pending", message: "Queue workbench sync" },
+] satisfies ProvisionDisplayStep[];
 
-type ProvisionStatus = "pending" | "running" | "done";
+type ProvisionStatus = "pending" | "running" | "created" | "existing" | "skipped" | "manual";
+
+type ProvisionDisplayStep = {
+  key: string;
+  status: ProvisionStatus;
+  message: string;
+};
 
 function pretty(value: unknown): string {
   return JSON.stringify(value ?? {}, null, 2);
@@ -182,9 +188,6 @@ function deriveCheckedQuestions(raw: unknown, texts: string[], status: string): 
   });
 }
 
-function delay(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
 
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
@@ -353,8 +356,9 @@ function WizardWorkspace({
     deriveCheckedQuestions(intake.openQuestions, parseOpenQuestions(pretty(intake.openQuestions)), intake.status),
   );
   const [burstQuestion, setBurstQuestion] = useState<number | null>(null);
-  const [provisionStatuses, setProvisionStatuses] = useState<ProvisionStatus[]>(() => PROVISION_ITEMS.map(() => intake.status === "provisioned" ? "done" : "pending"));
+  const [provisionSteps, setProvisionSteps] = useState<ProvisionDisplayStep[]>(() => PROVISION_ITEMS.map((item) => ({ ...item, status: intake.status === "provisioned" ? "existing" : "pending" })));
   const [provisionRunning, setProvisionRunning] = useState(false);
+  const [provisionError, setProvisionError] = useState<string | null>(null);
   const [scopeLive, setScopeLive] = useState(intake.status === "provisioned");
   const stageRef = useRef<HTMLDivElement | null>(null);
   const packButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -382,7 +386,14 @@ function WizardWorkspace({
     setLocalMaxStep((current) => Math.max(current, nextMax));
     setCurrentStep((current) => Math.min(Math.max(current, initialStep(intake.status)), Math.max(current, nextMax)));
     setScopeLive(intake.status === "provisioned");
-    if (intake.status === "provisioned") setProvisionStatuses(PROVISION_ITEMS.map(() => "done"));
+    // Only seed the placeholder summary when there are no real ProvisionResult steps
+    // to show — runProvision sets the real steps in the same commit as mergeIntake.
+    if (intake.status === "provisioned") {
+      setProvisionSteps((current) =>
+        current.some((step) => step.status !== "pending" && step.status !== "running")
+          ? current
+          : PROVISION_ITEMS.map((item) => ({ ...item, status: "existing" })));
+    }
   }, [intake.status]);
 
   useEffect(() => {
@@ -480,18 +491,22 @@ function WizardWorkspace({
   async function runProvision() {
     if (!canAdmin || intake.status !== "approved" || provisionRunning) return;
     setProvisionRunning(true);
+    setProvisionError(null);
     setScopeLive(false);
-    setProvisionStatuses(PROVISION_ITEMS.map(() => "pending"));
-    const actionPromise = provisionIntakeAction({ intakeId: intake.id, scopePath });
-    for (let index = 0; index < PROVISION_ITEMS.length; index += 1) {
-      setProvisionStatuses((current) => current.map((status, itemIndex) => itemIndex === index ? "running" : status));
-      await delay(620 * (rm() ? 0.3 : 1));
-      setProvisionStatuses((current) => current.map((status, itemIndex) => itemIndex === index ? "done" : status));
+    setProvisionSteps(PROVISION_ITEMS.map((item) => ({ ...item, status: "running" })));
+    try {
+      const result = await provisionIntakeAction({ intakeId: intake.id, scopePath });
+      mergeIntake(result.intake as Intake);
+      setProvisionSteps(result.result.steps as ProvisionDisplayStep[]);
+      setScopeLive(true);
+    } catch (error) {
+      const message = errorMessage(error, "Provisioning failed. Check the setup and try again.");
+      setProvisionError(message);
+      setProvisionSteps([{ key: "provision", status: "manual", message }]);
+      throw error;
+    } finally {
+      setProvisionRunning(false);
     }
-    const result = await actionPromise;
-    mergeIntake(result.intake as Intake);
-    setScopeLive(true);
-    setProvisionRunning(false);
   }
 
   function toggleQuestion(index: number) {
@@ -511,7 +526,7 @@ function WizardWorkspace({
         <span className="font-mono text-[13px] text-[var(--mutedfg)]">{scopePath}</span>
         <span className="inline-flex items-center gap-[6px] rounded-full bg-[var(--infobg)] px-[9px] py-[4px] text-[12px] font-medium text-[var(--info)]">
           <span aria-hidden="true" className="h-[6px] w-[6px] rounded-full bg-current" />
-          {scopeLive ? "Live" : currentStep === 6 ? "Creating" : labelForIntakeStatus(intake.status)}
+          {scopeLive ? "Live" : provisionRunning ? "Creating" : labelForIntakeStatus(intake.status)}
         </span>
         <div className="relative ml-auto flex items-center gap-[12px]">
           <span className="whitespace-nowrap text-[11.5px] text-[var(--mutedfg)]">Esc saves & closes</span>
@@ -667,8 +682,9 @@ function WizardWorkspace({
           ) : null}
           {currentStep === 6 ? (
             <ProvisionStep
-              statuses={provisionStatuses}
+              steps={provisionSteps}
               running={provisionRunning}
+              error={provisionError}
               live={scopeLive}
               canProvision={canAdmin && intake.status === "approved"}
               onProvision={() => runAction(runProvision, "Project is live.")}
@@ -1047,21 +1063,24 @@ function ReviewStep(props: {
   );
 }
 
-function ProvisionStep({ statuses, running, live, canProvision, onProvision }: { statuses: ProvisionStatus[]; running: boolean; live: boolean; canProvision: boolean; onProvision: () => void }) {
+function ProvisionStep({ steps, running, error, live, canProvision, onProvision }: { steps: ProvisionDisplayStep[]; running: boolean; error: string | null; live: boolean; canProvision: boolean; onProvision: () => void }) {
   return (
     <section className="space-y-[var(--space-4)]">
       <StepTitle title={live ? "Project is live" : "Create everything"} body="Run the setup sequence and watch each operation complete." />
       <div data-stage-item className="space-y-2">
-        {PROVISION_ITEMS.map((item, index) => (
-          <div key={item.tag} className="flex items-center justify-between rounded-[var(--radius-3)] bg-[var(--raised)] px-[var(--space-3)] py-[var(--space-2)]">
-            <div>
-              <div className="text-[var(--font-size-sm)] font-medium">{item.label}</div>
-              <div className="font-mono text-[var(--font-size-xs)] text-[var(--mutedfg)]">{item.tag}</div>
+        {steps.map((item) => (
+          <div key={item.key} className={`flex items-center justify-between gap-3 rounded-[var(--radius-3)] px-[var(--space-3)] py-[var(--space-2)] ${item.status === "manual" ? "bg-[var(--warnbg)] text-[var(--warn)]" : "bg-[var(--raised)]"}`}>
+            <div className="min-w-0">
+              <div className="text-[var(--font-size-sm)] font-medium">{item.message}</div>
+              <div className="font-mono text-[var(--font-size-xs)] text-[var(--mutedfg)]">{item.status}: {item.key}</div>
             </div>
-            <ProvisionStatusIcon status={statuses[index] ?? "pending"} />
+            <ProvisionStatusIcon status={item.status} />
           </div>
         ))}
       </div>
+      {error ? (
+        <div data-stage-item className="rounded-[var(--radius-4)] bg-[var(--errbg)] p-[var(--space-4)] text-[var(--err)]">{error}</div>
+      ) : null}
       {live ? (
         <div data-stage-item className="rounded-[var(--radius-4)] bg-[var(--okbg)] p-[var(--space-4)] text-[var(--ok)]">Project is live.</div>
       ) : null}
@@ -1073,8 +1092,10 @@ function ProvisionStep({ statuses, running, live, canProvision, onProvision }: {
 }
 
 function ProvisionStatusIcon({ status }: { status: ProvisionStatus }) {
-  if (status === "done") return <Check className="text-[var(--ok)]" size={16} />;
   if (status === "running") return <ProvisionSpinner />;
+  if (status === "manual") return <AlertTriangle className="text-[var(--warn)]" size={16} />;
+  if (status === "skipped") return <MoreHorizontal className="text-[var(--mutedfg)]" size={16} />;
+  if (status === "created" || status === "existing") return <Check className="text-[var(--ok)]" size={16} />;
   return <span className="h-4 w-4 rounded-full border border-[var(--borderstrong)]" />;
 }
 

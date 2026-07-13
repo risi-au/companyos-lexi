@@ -38,7 +38,7 @@ function jsonResponse(data: unknown, status = 200): Response {
   });
 }
 
-function makeMockGitHub(options: { orgMissing?: boolean } = {}) {
+function makeMockGitHub(options: { orgMissing?: boolean; createForbidden?: boolean; putForbidden?: boolean } = {}) {
   const repos = new Map<string, { private: boolean; files: Map<string, { content: string; sha: string }> }>();
   let shaCounter = 0;
   let writeCount = 0;
@@ -55,6 +55,7 @@ function makeMockGitHub(options: { orgMissing?: boolean } = {}) {
 
     if (method === "POST" && segments[0] === "orgs" && segments[2] === "repos") {
       if (options.orgMissing) return jsonResponse({ message: "org not found" }, 404);
+      if (options.createForbidden) return jsonResponse({ message: "Resource not accessible by personal access token" }, 403);
       const body = JSON.parse(init?.body || "{}");
       repos.set(body.name, { private: !!body.private, files: new Map() });
       return jsonResponse({ name: body.name, private: !!body.private }, 201);
@@ -75,6 +76,7 @@ function makeMockGitHub(options: { orgMissing?: boolean } = {}) {
         });
       }
       if (method === "PUT") {
+        if (options.putForbidden) return jsonResponse({ message: "Resource not accessible by personal access token" }, 403);
         const body = JSON.parse(init?.body || "{}");
         const content = Buffer.from(body.content, "base64").toString("utf8");
         const sha = `sha_${++shaCounter}`;
@@ -380,7 +382,7 @@ describe("provisioning module", () => {
     expect(await getScope(db, `${top}/nested-will-not-exist`)).toBeNull();
   });
 
-  it("reports manual steps for missing GitHub org, unavailable webhook API, and null GitHub dependency", async () => {
+  it("reports manual steps for missing GitHub org, GitHub permission failures, unavailable webhook API, and null GitHub dependency", async () => {
     const orgMissing = `prov-org-${Date.now()}`;
     const orgResult = await provisionScope(db, {
       plane: makeMockPlane(),
@@ -390,6 +392,34 @@ describe("provisioning module", () => {
       workbench: {},
     }, rootPrincipalId);
     expect(orgResult.manual.join("\n")).toMatch(/create GitHub org test-org manually/);
+
+    const forbidden = `prov-gh-403-${Date.now()}`;
+    const forbiddenResult = await provisionScope(db, {
+      plane: makeMockPlane(),
+      github: makeMockGitHub({ createForbidden: true }).client,
+    }, {
+      scopePath: forbidden,
+      modules: ["docs"],
+      workbench: {},
+    }, rootPrincipalId);
+    expect(forbiddenResult.scopePath).toBe(forbidden);
+    expect(forbiddenResult.steps.find((step) => step.key === "module:docs")?.status).toBe("created");
+    expect(forbiddenResult.steps.find((step) => step.key === "github.repo")).toMatchObject({
+      status: "manual",
+      message: "GitHub token cannot create repos in test-org (403). Grant the token Administration: read/write + All repositories, then re-run setup.",
+    });
+
+    const syncForbidden = `prov-gh-file-403-${Date.now()}`;
+    const syncGithub = makeMockGitHub({ putForbidden: true });
+    const syncResult = await provisionScope(db, {
+      plane: makeMockPlane(),
+      github: syncGithub.client,
+    }, {
+      scopePath: syncForbidden,
+      workbench: {},
+    }, rootPrincipalId);
+    expect(syncResult.steps.find((step) => step.key === `workbench:${syncForbidden}`)?.status).toBe("created");
+    expect(syncResult.steps.find((step) => step.key === "github.file:AGENTS.md")).toMatchObject({ status: "manual" });
 
     const webhookMissing = `prov-hook-${Date.now()}`;
     const webhookResult = await provisionScope(db, {
@@ -409,6 +439,20 @@ describe("provisioning module", () => {
     expect(noGithubResult.manual.join("\n")).toMatch(/configure GITHUB_TOKEN and GITHUB_ORG/);
   });
 
+  it("skips the workbench cleanly when no workbench is requested", async () => {
+    const slug = `prov-no-workbench-${Date.now()}`;
+    const result = await provisionScope(db, { plane: makeMockPlane(), github: null }, {
+      scopePath: slug,
+      modules: ["docs"],
+    }, rootPrincipalId);
+
+    expect(result.steps.find((step) => step.key === "workbench")).toMatchObject({
+      status: "skipped",
+      message: "No workbench requested",
+    });
+    const [scope] = await db.select().from(schema.scopes).where(eq(schema.scopes.path, slug)).limit(1);
+    expect(await countRows(schema.workbenches, eq(schema.workbenches.scopeId, scope.id))).toBe(0);
+  });
   it("creates workbench rows with repo root for projects and nested paths for subprojects", async () => {
     const slug = `prov-paths-${Date.now()}`;
     const github = makeMockGitHub();
