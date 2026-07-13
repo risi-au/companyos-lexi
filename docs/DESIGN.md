@@ -83,7 +83,7 @@ Agents and vendor tools are stateless workers. All durable state — tasks, chan
 - `packages/api` — the typed service layer (all business logic; UI and MCP both consume it)
 - `packages/mcp` — MCP server on the official TypeScript SDK (stdio + HTTP transports)
 - `packages/ui` — shared primitives + design tokens
-- **Better Auth** — sessions, orgs/roles, OIDC/SSO-ready, mobile token flows
+- **Better Auth** — sessions, orgs/roles, OIDC/SSO-ready, mobile token flows. Current tenant UI is email/password MVP (`/sign-in`, `/sign-up`, forced `/change-password`, sign-out); signed-in home is **`/s/root`** (middleware redirects `/` — do not reintroduce a pure server-only `(app)/page` home; see `apps/os/AGENTS.md`)
 - **Deployment:** Docker Compose (Caddy TLS + os + control-plane + Postgres + Plane + n8n + Flowise + LiteLLM), 12-factor env config, automated migrations + seed. One-command fresh-instance boot = the DR story and the SaaS install
 - **Mobile later:** Expo/React Native consuming `packages/api` client + tokens via NativeWind. PWA in the meantime
 

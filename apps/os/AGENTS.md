@@ -13,6 +13,11 @@ Next.js (app router) tenant UI + thin HTTP API surface for agents/engines (n8n, 
 - All logic delegated to @companyos/api services; routes only parse + authz + forward + error shape.
 - Agent tokens (cos_*) use kernel authenticateToken + requireAccess inside services.
 
+## Auth + home routing
+- Better Auth (email/password): `/sign-in`, `/sign-up`, `/change-password` (forced temp-password), sign-out in `UserMenu`. Session cookie gate in `src/middleware.ts`; real session check in `(app)/layout.tsx`.
+- **Home `/`:** middleware sends anonymous users to `/sign-in` and signed-in users to **`/s/root`**. Do not reintroduce `app/(app)/page.tsx` as a pure server `redirect("/s/root")` — Next.js 15.5.x can 500 those pages (`clientReferenceManifest` missing). Fallback only: `app/page.tsx` also redirects to `/s/root`.
+- Post-auth navigations must land on `/s/root` (or a safe same-origin `?redirect=` path from sign-in), not `/`.
+
 ## API surface (bearer cos_ token)
 - GET/POST/DELETE /api/mcp: remote streamable MCP HTTP transport. Requires `Authorization: Bearer cos_...` on every request; route delegates to `@companyos/mcp` `createHttpHandler` and `src/lib/agent-auth.ts`.
 - `/admin/mcp`: root-admin MCP connection console plus usage observability dashboard for estimated CompanyOS MCP/context overhead and context profile presets.

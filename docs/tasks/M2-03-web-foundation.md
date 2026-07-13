@@ -21,6 +21,10 @@ branch: task/M2-03
    - Overview: recent records list (kind badge, title, date — via listRecords) + open tasks list (via listTasks; handle Plane-unconfigured gracefully) as two token-styled cards.
    - Activity: recent events for the scope (listEvents) as a simple timeline.
 5. Home `/` : redirect to `/s/root` (root scope page works like any other).
+   **Follow-up (2026-07-13):** implement the signed-in home redirect in **middleware**
+   (and post-login `router.push("/s/root")`), not via `app/(app)/page.tsx`. A pure
+   server-only page under the `(app)` route group 500'd in production on Next 15.5.x
+   (`Expected clientReferenceManifest to be defined`). See `apps/os/AGENTS.md` § Auth + home routing.
 6. A tiny `+ New scope` affordance in the sidebar (dialog: name, slug, type, parent = current scope) calling createScope — the first write from the UI (owner/admin only; hide otherwise based on resolveAccess).
 7. Tests: auth-link unit tests (link-by-email, create-new, bootstrap-first-owner) in packages/api; component smoke tests are NOT required (UI verified by architect in browser).
 

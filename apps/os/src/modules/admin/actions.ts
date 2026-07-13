@@ -159,5 +159,5 @@ export async function completeTempPasswordChangeAction(formData: FormData) {
     },
   });
   await api.completeTempPasswordChange(actor);
-  redirect("/");
+  redirect("/s/root");
 }

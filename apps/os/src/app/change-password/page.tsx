@@ -10,7 +10,7 @@ export default async function ChangePasswordPage() {
   const actor = await getCurrentActorPrincipalId();
   if (!actor) redirect("/sign-in");
   const required = await api.isTempPasswordChangeRequired(actor);
-  if (!required) redirect("/");
+  if (!required) redirect("/s/root");
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[var(--background)] p-[var(--space-4)]">

@@ -28,9 +28,14 @@ export default function SignInPage() {
       return;
     }
 
-    // Successful sign in; middleware or server will have session.
-    // Simple redirect to root (which redirects to /s/root)
-    router.push("/");
+    // Successful sign in — land on root scope (or a safe same-origin ?redirect=).
+    // Do not push "/" : authenticated `/` is redirected in middleware to avoid a
+    // Next.js 15.5 server-only page 500 (missing clientReferenceManifest).
+    const params = new URLSearchParams(window.location.search);
+    const raw = params.get("redirect");
+    const dest =
+      raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : "/s/root";
+    router.push(dest);
     router.refresh();
   }
 

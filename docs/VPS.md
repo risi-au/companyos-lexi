@@ -2,7 +2,7 @@
 
 *Connection details, environment layout, and the strict local → staging → live promotion
 process. Maintained by the architect; update whenever an environment or step changes.*
-*Last updated: 2026-07-08.*
+*Last updated: 2026-07-13.*
 
 ## Environments
 
@@ -81,10 +81,10 @@ local dev  --merge-->  main  --build :main-->  staging fast path
    docker compose --env-file .env -f docker-compose.prod.yml logs migrate   # must end successfully
    ```
 5. **Staging smoke test** (minimum before any promotion):
-   - `https://cos-staging.risi.au` loads and login works
+   - `https://cos-staging.risi.au` loads: anonymous → `/sign-in`; after login → **`/s/root`** (not a 500 on `/`)
    - migrations completed (`logs migrate`), app healthy (`docker compose ps`)
    - one end-to-end flow of whatever the release changed (e.g. new MCP tool roundtrip)
-   - no error spam in `docker compose logs os --since 10m`
+   - no error spam in `docker compose logs os --since 10m` (watch for `clientReferenceManifest` / `InvariantError`)
 6. **Promote to live**: same tagged release images, same steps, live user's `~/app` with its
    own `.env`. Only `vX.Y.Z` tags that passed staging sign-off may be deployed live; the
    rolling `main` tag is never a live promotion artifact. (Live env not provisioned yet —

@@ -30,8 +30,9 @@ export default function SignUpPage() {
       return;
     }
 
-    // After sign up, go to app (bootstrap will link principal)
-    router.push("/");
+    // After sign up, land on root scope (bootstrap links principal on first app hit).
+    // Avoid "/" — middleware redirects it, and a pure server home page 500'd on Next 15.5.
+    router.push("/s/root");
     router.refresh();
   }
 
