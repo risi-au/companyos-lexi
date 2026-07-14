@@ -41,6 +41,10 @@ already-created scopes.
 - Provisioning skips empty proposed doc/wiki seeds, appends intake-packet Sources provenance to seeded wiki pages when missing, seeds a project `overview` stub when absent, and seeds a `connection` doc when required credentials exist. The doc
   contains `{{credential:name}}` references, what-for text, and login method notes;
   it never contains credential values.
+- Open questions are normalized to `{ t, tag, done, answer }` entries. During
+  provisioning, unresolved entries become idempotent `open_question` attention items
+  on the provisioned scope; answered and explicitly acknowledged entries are included
+  in the creation report. Attention conversion is retry-safe by intake ordinal.
 
 ## Tests
 - `intake.test.ts` covers state transitions, permission matrix, paste parsing,

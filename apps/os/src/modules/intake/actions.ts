@@ -3,6 +3,7 @@
 import { api, getCurrentActorPrincipalId } from "@/lib/api";
 import type { RelatedHistorySelection } from "@companyos/api";
 import { revalidatePath } from "next/cache";
+import type { OpenQuestionEntry } from "./open-questions";
 
 function requireActor(actor: string | null): string {
   if (!actor) throw new Error("Your session expired. Sign in again.");
@@ -25,7 +26,14 @@ export async function saveFramingAction(input: { intakeId: string; answersJson: 
 
 export async function saveFramingFieldsAction(input: { intakeId: string; answers: Record<string, string>; scopePath: string }) {
   const actor = requireActor(await getCurrentActorPrincipalId());
-  const updated = await api.updateIntakePacket({ id: input.intakeId, answers: input.answers }, actor);
+  // Merge over stored answers: the form only carries string framing fields, and
+  // a whole-object replace would drop system metadata written at submit time
+  // (required_credentials, external_systems, submission_markdown_only).
+  const current = await api.getIntakePacket(input.intakeId, actor);
+  const preserved = current.answers && typeof current.answers === "object" && !Array.isArray(current.answers)
+    ? Object.fromEntries(Object.entries(current.answers as Record<string, unknown>).filter(([, value]) => typeof value !== "string"))
+    : {};
+  const updated = await api.updateIntakePacket({ id: input.intakeId, answers: { ...preserved, ...input.answers } }, actor);
   revalidatePath(`/s/${input.scopePath}`);
   return updated;
 }
@@ -57,8 +65,25 @@ export async function acceptReusePatternAction(input: { intakeId: string; patter
 export async function externalPackAction(input: { intakeId: string; scopePath: string }) {
   const actor = requireActor(await getCurrentActorPrincipalId());
   const pack = await api.assembleIntakeExternalPack({ intakeId: input.intakeId }, actor);
+  const intake = await api.getIntakePacket(input.intakeId, actor);
   revalidatePath(`/s/${input.scopePath}`);
-  return pack;
+  return { pack, intake };
+}
+
+export async function getIntakeAction(input: { intakeId: string; scopePath: string }) {
+  const actor = requireActor(await getCurrentActorPrincipalId());
+  return api.getIntakePacket(input.intakeId, actor);
+}
+
+export async function saveOpenQuestionsAction(input: {
+  intakeId: string;
+  scopePath: string;
+  openQuestions: OpenQuestionEntry[];
+}) {
+  const actor = requireActor(await getCurrentActorPrincipalId());
+  const updated = await api.updateIntakePacket({ id: input.intakeId, openQuestions: input.openQuestions }, actor);
+  revalidatePath(`/s/${input.scopePath}`);
+  return updated;
 }
 
 export async function submitPasteAction(input: { intakeId: string; pasteText: string; scopePath: string }) {

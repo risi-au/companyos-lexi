@@ -16,18 +16,22 @@ import {
   assembleIntakeExternalPack,
   createRecord,
   createScope,
+  convertOpenQuestionsToAttention,
   ensurePersonalScope,
   dismissIntakePacket,
   ensureDraftIntakeForScope,
   findRelatedHistory,
   findReusePatterns,
   getDoc,
+  getRecord,
   getIntakePacket,
   grantRole,
   listEvents,
   listIntakePackets,
+  listAttentionItems,
   listWizardFramingQuestions,
   provisionFromIntakePacket,
+  normalizeOpenQuestions,
   reopenIntakePacket,
   saveDoc,
   saveWizardTemplate,
@@ -191,6 +195,9 @@ describe("intake creation wizard module", () => {
     const mdOnly = await submitIntakePacket(db, { scopePath: slug, pasteText: "Only markdown" }, agent);
     expect(mdOnly.markdownOnly).toBe(true);
     expect(mdOnly.intake.status).toBe("needs_review");
+    // Persisted so later row fetches (interview-step poll after MCP submit) can
+    // still show the markdown-only warning.
+    expect((mdOnly.intake.answers as Record<string, unknown>).submission_markdown_only).toBe(true);
 
     await expect(
       submitIntakePacket(db, { scopePath: other, pasteText: "Denied" }, agent)
@@ -310,7 +317,68 @@ describe("intake creation wizard module", () => {
       "intake.provisioned",
     ]));
   });
+  it("normalizes and provisions open questions with attention conversion and report details", async () => {
+    const slug = `intake-open-questions-${Date.now()}`;
+    await createScope(db, { slug, name: "Open Questions", type: "project" }, admin);
+    const draft = await ensureDraftIntakeForScope(db, { scopePath: slug, reason: "Resolve setup questions" }, admin);
+    const submitted = await submitIntakePacket(db, {
+      id: draft.id,
+      packet: {
+        packet_md: "Intake packet with open questions.",
+        research_sources: [],
+        proposed_provision_spec: { scopePath: slug, modules: ["docs"] },
+        proposed_docs: [],
+        proposed_tasks: [],
+        proposed_wiki_updates: [],
+        required_credentials: [],
+        external_systems: [],
+        open_questions: [
+          { question: "Which launch date is approved?", tag: "decision" },
+          { t: "Which answer was captured?", tag: "unknown", done: true, answer: "The operations lead approved it." },
+          { text: "Which item was acknowledged?", done: true },
+          { question: "   " },
+          "",
+          42,
+        ],
+        risk_notes: [],
+      },
+    }, admin);
+    expect(normalizeOpenQuestions(submitted.intake.openQuestions)).toEqual([
+      { t: "Which launch date is approved?", tag: "decision", done: false, answer: null },
+      { t: "Which answer was captured?", tag: "unknown", done: true, answer: "The operations lead approved it." },
+      { t: "Which item was acknowledged?", tag: null, done: true, answer: null },
+    ]);
 
+    await approveIntakePacket(db, { id: draft.id }, admin);
+    const provisioned = await provisionFromIntakePacket(db, { plane: planeMock(), github: null }, { id: draft.id }, admin);
+    expect(provisioned.artifacts.openQuestions).toEqual({ converted: 1, answered: 1, acknowledged: 1 });
+
+    const attention = await listAttentionItems(db, { scopePath: slug, status: "open", kind: "open_question" }, admin);
+    expect(attention).toHaveLength(1);
+    expect(attention[0]).toMatchObject({
+      title: "Which launch date is approved?",
+      payload: {
+        question: "Which launch date is approved?",
+        tag: "decision",
+        source: "intake",
+        intakeId: draft.id,
+        ordinal: 0,
+      },
+    });
+
+    const report = await getRecord(db, provisioned.recordId, admin);
+    expect(report?.bodyMd).toContain("## Open questions answered during review");
+    expect(report?.bodyMd).toContain("Question: Which answer was captured?");
+    expect(report?.bodyMd).toContain("Answer: The operations lead approved it.");
+    expect(report?.bodyMd).toContain("Question: Which item was acknowledged?");
+    expect(report?.bodyMd).toContain("Acknowledged without an answer");
+
+    const beforeRetry = await listAttentionItems(db, { scopePath: slug, kind: "open_question", status: "open" }, admin);
+    await expect(convertOpenQuestionsToAttention(db, provisioned.intake, admin)).resolves.toMatchObject({ converted: 0, existing: 1 });
+    await expect(convertOpenQuestionsToAttention(db, provisioned.intake, admin)).resolves.toMatchObject({ converted: 0, existing: 1 });
+    const afterRetry = await listAttentionItems(db, { scopePath: slug, kind: "open_question", status: "open" }, admin);
+    expect(afterRetry.map((item) => item.id)).toEqual(beforeRetry.map((item) => item.id));
+  });
 
   it("defaults a workbench repo from framing answers when pasted provision JSON omits it", async () => {
     const slug = `intake-workbench-default-${Date.now()}`;

@@ -41,14 +41,17 @@ import {
   externalPackAction,
   findRelatedHistoryAction,
   findReusePatternsAction,
+  getIntakeAction,
   provisionIntakeAction,
   rejectIntakeAction,
   reopenIntakeAction,
   saveFramingFieldsAction,
+  saveOpenQuestionsAction,
   saveRelatedHistoryAction,
   saveReviewAction,
   submitPasteAction,
 } from "./actions";
+import { parseOpenQuestionEntries, serializeOpenQuestionEntries, type OpenQuestionEntry } from "./open-questions";
 
 type Intake = {
   id: string;
@@ -125,8 +128,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+// Only string-valued answers are framing form fields. Non-string entries are
+// system metadata (required_credentials, external_systems,
+// submission_markdown_only) that must never round-trip through form state --
+// String() would mangle them into "[object Object]"/"true" garbage.
 function stringifyRecordValues(value: Record<string, unknown>): Record<string, string> {
-  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, typeof item === "string" ? item : String(item ?? "")]));
+  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
 }
 
 function normalizeHistory(value: unknown): RelatedHistoryHit[] {
@@ -155,42 +162,15 @@ function initialStep(status: string): number {
   return statusStep(status);
 }
 
-function openQuestionText(item: unknown): string {
-  if (typeof item === "string") return item;
-  if (isRecord(item)) return String(item.t ?? item.question ?? item.title ?? item.text ?? "");
-  return String(item ?? "");
-}
-
-function parseOpenQuestions(value: string): string[] {
-  try {
-    const parsed = JSON.parse(value);
-    if (Array.isArray(parsed)) {
-      return parsed.map(openQuestionText).filter(Boolean);
-    }
-    if (isRecord(parsed)) {
-      return Object.entries(parsed).map(([key, item]) => `${key}: ${typeof item === "string" ? item : JSON.stringify(item)}`);
-    }
-  } catch {
-    /* keep markdown/plain text fallback below */
-  }
-  return value.split(/\r?\n/).map((line) => line.replace(/^[-*]\s*/, "").trim()).filter(Boolean);
-}
-
-function deriveCheckedQuestions(raw: unknown, texts: string[], status: string): boolean[] {
-  if (status === "approved" || status === "provisioned") {
-    return texts.map(() => true);
-  }
-  if (!Array.isArray(raw)) return texts.map(() => false);
-  return texts.map((text, index) => {
-    const item = raw[index];
-    if (isRecord(item) && typeof item.done === "boolean") return item.done;
-    return raw.some((entry) => isRecord(entry) && openQuestionText(entry) === text && entry.done === true);
-  });
-}
-
-
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
+}
+
+// The service stamps answers.submission_markdown_only at submit time so the
+// warning survives fetch paths that bypass submitPasteAction (MCP submissions
+// picked up by the interview poll, reopened wizards).
+function submissionWasMarkdownOnly(intake: Pick<Intake, "answers">): boolean {
+  return isRecord(intake.answers) && intake.answers.submission_markdown_only === true;
 }
 
 export function IntakePanel({
@@ -215,9 +195,9 @@ export function IntakePanel({
   const canAdmin = access === "owner" || access === "admin";
   const canEdit = canAdmin || access === "editor" || access === "agent";
 
-  function mergeIntake(next: Intake) {
+  const mergeIntake = useCallback((next: Intake) => {
     setIntakes((rows) => rows.map((row) => row.id === next.id ? next : row));
-  }
+  }, []);
 
   const resume = useMemo(() => intakes.find((i) => ["draft", "awaiting_external", "needs_review", "approved"].includes(i.status)), [intakes]);
 
@@ -341,7 +321,7 @@ function WizardWorkspace({
   const [pack, setPack] = useState<{ pasteBack: string; mcp: string } | null>(null);
   const [paste, setPaste] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
-  const [markdownOnlyWarning, setMarkdownOnlyWarning] = useState(false);
+  const [markdownOnlyWarning, setMarkdownOnlyWarning] = useState(() => submissionWasMarkdownOnly(intake));
   const [spec, setSpec] = useState(pretty(intake.proposedProvisionSpec));
   const [docs, setDocs] = useState(pretty(intake.proposedDocs));
   const [tasks, setTasks] = useState(pretty(intake.proposedTasks));
@@ -352,9 +332,15 @@ function WizardWorkspace({
   const [currentStep, setCurrentStep] = useState(initialStep(intake.status));
   const [localMaxStep, setLocalMaxStep] = useState(initialStep(intake.status));
   const [menuOpen, setMenuOpen] = useState(false);
-  const [checkedQuestions, setCheckedQuestions] = useState<boolean[]>(() =>
-    deriveCheckedQuestions(intake.openQuestions, parseOpenQuestions(pretty(intake.openQuestions)), intake.status),
-  );
+  const initialOpenQuestionEntries = useMemo(() => parseOpenQuestionEntries(intake.openQuestions), [intake.openQuestions]);
+  const [openQuestionEntries, setOpenQuestionEntries] = useState<OpenQuestionEntry[]>(initialOpenQuestionEntries);
+  const openQuestionEntriesRef = useRef(initialOpenQuestionEntries);
+  const persistedOpenQuestionEntriesRef = useRef(initialOpenQuestionEntries);
+  const queuedOpenQuestionEntriesRef = useRef<OpenQuestionEntry[] | null>(null);
+  const openQuestionSavePromiseRef = useRef<Promise<void> | null>(null);
+  const openQuestionSaveErrorRef = useRef<Error | null>(null);
+  const [answeringQuestion, setAnsweringQuestion] = useState<number | null>(null);
+  const [answerDrafts, setAnswerDrafts] = useState<Record<number, string>>({});
   const [burstQuestion, setBurstQuestion] = useState<number | null>(null);
   const [provisionSteps, setProvisionSteps] = useState<ProvisionDisplayStep[]>(() => PROVISION_ITEMS.map((item) => ({ ...item, status: intake.status === "provisioned" ? "existing" : "pending" })));
   const [provisionRunning, setProvisionRunning] = useState(false);
@@ -367,8 +353,13 @@ function WizardWorkspace({
   const reasonText = answers.reason || "";
   const statusMaxStep = statusStep(intake.status);
   const maxReached = Math.max(localMaxStep, statusMaxStep);
-  const openQuestions = useMemo(() => parseOpenQuestions(questions), [questions]);
-  const remainingQuestions = openQuestions.filter((_, index) => !checkedQuestions[index]).length;
+  const openQuestions = useMemo(
+    () => intake.status === "approved" || intake.status === "provisioned"
+      ? openQuestionEntries.map((entry) => ({ ...entry, done: true }))
+      : openQuestionEntries,
+    [intake.status, openQuestionEntries],
+  );
+  const remainingQuestions = openQuestions.filter((entry) => !entry.done).length;
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -396,15 +387,122 @@ function WizardWorkspace({
     }
   }, [intake.status]);
 
-  useEffect(() => {
-    setCheckedQuestions((current) => {
-      const derived = deriveCheckedQuestions(intake.openQuestions, openQuestions, intake.status);
-      return openQuestions.map((text, index) => {
-        if (current[index] !== undefined && openQuestions[index] === text) return current[index];
-        return derived[index] ?? false;
+  // Every local edit bumps this; a save response may only be applied to client
+  // state when no newer mutation happened while it was in flight.
+  const openQuestionMutationRef = useRef(0);
+  // True once the user hand-edits the "Open questions JSON / notes" textarea;
+  // save responses then leave the textarea alone until an authoritative sync.
+  const questionsDirtyRef = useRef(false);
+
+  const applyOpenQuestionEntries = useCallback((next: OpenQuestionEntry[], preserveTextarea = false) => {
+    openQuestionEntriesRef.current = next;
+    setOpenQuestionEntries(next);
+    if (!preserveTextarea) {
+      questionsDirtyRef.current = false;
+      setQuestions(serializeOpenQuestionEntries(next));
+    }
+  }, []);
+
+  const drainOpenQuestionSaveQueue = useCallback(async () => {
+    while (queuedOpenQuestionEntriesRef.current) {
+      const next = queuedOpenQuestionEntriesRef.current;
+      queuedOpenQuestionEntriesRef.current = null;
+      const mutationAtSend = openQuestionMutationRef.current;
+      try {
+        const updated = await saveOpenQuestionsAction({
+          intakeId: intake.id,
+          scopePath,
+          openQuestions: next,
+        }) as Intake;
+        const saved = parseOpenQuestionEntries(updated.openQuestions);
+        persistedOpenQuestionEntriesRef.current = saved;
+        if (openQuestionMutationRef.current === mutationAtSend) {
+          applyOpenQuestionEntries(saved, questionsDirtyRef.current);
+        }
+        mergeIntake(updated);
+      } catch (error) {
+        const failure = error instanceof Error ? error : new Error("Could not save open questions.");
+        openQuestionSaveErrorRef.current = failure;
+        queuedOpenQuestionEntriesRef.current = null;
+        openQuestionMutationRef.current += 1;
+        applyOpenQuestionEntries(persistedOpenQuestionEntriesRef.current);
+        toast.error(failure.message);
+        throw failure;
+      }
+    }
+  }, [applyOpenQuestionEntries, intake.id, mergeIntake, scopePath, toast]);
+
+  const enqueueOpenQuestionSave = useCallback((next: OpenQuestionEntry[]) => {
+    openQuestionMutationRef.current += 1;
+    applyOpenQuestionEntries(next);
+    queuedOpenQuestionEntriesRef.current = next;
+    openQuestionSaveErrorRef.current = null;
+    if (!openQuestionSavePromiseRef.current) {
+      const promise = drainOpenQuestionSaveQueue().finally(() => {
+        openQuestionSavePromiseRef.current = null;
       });
-    });
-  }, [openQuestions, intake.openQuestions, intake.status]);
+      openQuestionSavePromiseRef.current = promise;
+    }
+    return openQuestionSavePromiseRef.current ?? Promise.resolve();
+  }, [applyOpenQuestionEntries, drainOpenQuestionSaveQueue]);
+
+  async function flushOpenQuestionSaves() {
+    const pending = openQuestionSavePromiseRef.current;
+    if (pending) await pending;
+    if (openQuestionSaveErrorRef.current) throw openQuestionSaveErrorRef.current;
+  }
+
+  const hydrateReview = useCallback((next: Intake, viaMcp = false) => {
+    setSpec(pretty(next.proposedProvisionSpec));
+    setDocs(pretty(next.proposedDocs));
+    setTasks(pretty(next.proposedTasks));
+    setWiki(pretty(next.proposedWikiUpdates));
+    const entries = parseOpenQuestionEntries(next.openQuestions);
+    openQuestionEntriesRef.current = entries;
+    persistedOpenQuestionEntriesRef.current = entries;
+    questionsDirtyRef.current = false;
+    setOpenQuestionEntries(entries);
+    setQuestions(serializeOpenQuestionEntries(entries));
+    setRisks(pretty(next.riskNotes));
+    setMarkdownOnlyWarning(submissionWasMarkdownOnly(next));
+    mergeIntake(next);
+    continueTo(5);
+    if (viaMcp) toast.success("Interview results received via MCP.");
+  }, [mergeIntake, toast]);
+
+  useEffect(() => {
+    // Skip while a save is queued OR in flight: merging an older save response
+    // into intake.openQuestions must not clobber newer local edits.
+    if (queuedOpenQuestionEntriesRef.current || openQuestionSavePromiseRef.current) return;
+    const next = parseOpenQuestionEntries(intake.openQuestions);
+    openQuestionEntriesRef.current = next;
+    persistedOpenQuestionEntriesRef.current = next;
+    questionsDirtyRef.current = false;
+    setOpenQuestionEntries(next);
+    setQuestions(serializeOpenQuestionEntries(next));
+  }, [intake.openQuestions]);
+
+  useEffect(() => {
+    if (intake.status !== "awaiting_external" || currentStep !== 4) return undefined;
+    let cancelled = false;
+    const poll = async () => {
+      if (cancelled || document.visibilityState === "hidden") return;
+      try {
+        const next = await getIntakeAction({ intakeId: intake.id, scopePath }) as Intake;
+        if (cancelled || next.status !== "needs_review") return;
+        cancelled = true;
+        window.clearInterval(timer);
+        hydrateReview(next, true);
+      } catch {
+        /* The next poll retries transient session or network failures. */
+      }
+    };
+    const timer = window.setInterval(() => void poll(), 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [currentStep, hydrateReview, intake.id, intake.status, scopePath]);
 
   useEffect(() => {
     if (burstQuestion === null || rm()) return;
@@ -510,13 +608,42 @@ function WizardWorkspace({
   }
 
   function toggleQuestion(index: number) {
-    setCheckedQuestions((current) => {
-      const next = [...current];
-      const wasDone = !!next[index];
-      next[index] = !wasDone;
-      if (!wasDone) setBurstQuestion(index);
-      return next;
+    if (!canEdit || intake.status === "approved" || intake.status === "provisioned") return;
+    const current = openQuestionEntriesRef.current;
+    const entry = current[index];
+    if (!entry) return;
+    const wasDone = entry.done;
+    // Reopening clears the answer too: provisioning treats an answered question
+    // as resolved, so a reopened-but-still-answered row would silently never
+    // become an attention item. The old answer is stashed as the draft.
+    const next = current.map((item, itemIndex) => {
+      if (itemIndex !== index) return item;
+      return wasDone ? { ...item, done: false, answer: null } : { ...item, done: true };
     });
+    if (wasDone && entry.answer) {
+      const previousAnswer = entry.answer;
+      setAnswerDrafts((drafts) => ({ ...drafts, [index]: previousAnswer }));
+    }
+    if (!wasDone) setBurstQuestion(index);
+    void enqueueOpenQuestionSave(next).catch(() => undefined);
+  }
+
+  function openAnswerEditor(index: number) {
+    if (!canEdit || intake.status === "approved" || intake.status === "provisioned") return;
+    const entry = openQuestionEntriesRef.current[index];
+    if (!entry) return;
+    setAnsweringQuestion(index);
+    setAnswerDrafts((current) => ({ ...current, [index]: current[index] ?? entry.answer ?? "" }));
+  }
+
+  function markQuestionAnswered(index: number) {
+    const answer = (answerDrafts[index] ?? "").trim();
+    if (!canEdit || !answer || intake.status === "approved" || intake.status === "provisioned") return;
+    const next = openQuestionEntriesRef.current.map((entry, itemIndex) => itemIndex === index
+      ? { ...entry, done: true, answer }
+      : entry);
+    setAnsweringQuestion(null);
+    void enqueueOpenQuestionSave(next).catch(() => undefined);
   }
 
   return (
@@ -638,13 +765,7 @@ function WizardWorkspace({
               setPack={setPack}
               mergeIntake={mergeIntake}
               setMarkdownOnlyWarning={setMarkdownOnlyWarning}
-              setSpec={setSpec}
-              setDocs={setDocs}
-              setTasks={setTasks}
-              setWiki={setWiki}
-              setQuestions={setQuestions}
-              setRisks={setRisks}
-              onReviewed={() => continueTo(5)}
+              hydrateReview={hydrateReview}
             />
           ) : null}
           {currentStep === 5 ? (
@@ -660,23 +781,31 @@ function WizardWorkspace({
               wiki={wiki}
               setWiki={setWiki}
               questions={questions}
-              setQuestions={setQuestions}
+              setQuestions={(value) => {
+                questionsDirtyRef.current = true;
+                setQuestions(value);
+              }}
               risks={risks}
               setRisks={setRisks}
               reason={reason}
               setReason={setReason}
               openQuestions={openQuestions}
-              checkedQuestions={checkedQuestions}
               remainingQuestions={remainingQuestions}
               burstQuestion={burstQuestion}
               setBurstQuestion={setBurstQuestion}
               toggleQuestion={toggleQuestion}
+              answeringQuestion={answeringQuestion}
+              answerDrafts={answerDrafts}
+              setAnswerDrafts={setAnswerDrafts}
+              openAnswerEditor={openAnswerEditor}
+              markQuestionAnswered={markQuestionAnswered}
               busy={busy}
               canEdit={canEdit}
               canAdmin={canAdmin}
               runAction={runAction}
               scopePath={scopePath}
               mergeIntake={mergeIntake}
+              flushOpenQuestionSaves={flushOpenQuestionSaves}
               onProvisionReady={() => continueTo(6)}
             />
           ) : null}
@@ -856,13 +985,7 @@ function InterviewStep(props: {
   setPack: (value: { pasteBack: string; mcp: string } | null) => void;
   mergeIntake: (next: Intake) => void;
   setMarkdownOnlyWarning: (value: boolean) => void;
-  setSpec: (value: string) => void;
-  setDocs: (value: string) => void;
-  setTasks: (value: string) => void;
-  setWiki: (value: string) => void;
-  setQuestions: (value: string) => void;
-  setRisks: (value: string) => void;
-  onReviewed: () => void;
+  hydrateReview: (next: Intake, viaMcp?: boolean) => void;
 }) {
   return (
     <section className="space-y-[var(--space-4)]">
@@ -870,7 +993,11 @@ function InterviewStep(props: {
       <div data-stage-item className="rounded-[var(--radius-3)] bg-[var(--warnbg)] p-[var(--space-3)] text-[var(--font-size-sm)] text-[var(--warn)]">
         Markdown-only results are accepted, but structured replies are checked first and reduce manual review.
       </div>
-      <button disabled={!props.canEdit || props.busy} onClick={() => props.runAction(async () => props.setPack(await externalPackAction({ intakeId: props.intake.id, scopePath: props.scopePath })), "Interview pack ready to copy.")} className="inline-flex min-h-[44px] cursor-pointer items-center gap-1 rounded-[var(--radius-3)] border border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] hover:bg-[var(--hover)] disabled:cursor-not-allowed disabled:opacity-50">
+      <button disabled={!props.canEdit || props.busy} onClick={() => props.runAction(async () => {
+        const result = await externalPackAction({ intakeId: props.intake.id, scopePath: props.scopePath });
+        props.setPack(result.pack);
+        props.mergeIntake(result.intake as Intake);
+      }, "Interview pack ready to copy.")} className="inline-flex min-h-[44px] cursor-pointer items-center gap-1 rounded-[var(--radius-3)] border border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] hover:bg-[var(--hover)] disabled:cursor-not-allowed disabled:opacity-50">
         <Clipboard size={14} /> Copy interview pack
       </button>
       {props.pack ? (
@@ -894,14 +1021,7 @@ function InterviewStep(props: {
         props.setErrors([]);
         props.setMarkdownOnlyWarning(!!result.markdownOnly);
         const next = result.intake as Intake;
-        props.setSpec(pretty(next.proposedProvisionSpec));
-        props.setDocs(pretty(next.proposedDocs));
-        props.setTasks(pretty(next.proposedTasks));
-        props.setWiki(pretty(next.proposedWikiUpdates));
-        props.setQuestions(pretty(next.openQuestions));
-        props.setRisks(pretty(next.riskNotes));
-        props.mergeIntake(next);
-        props.onReviewed();
+        props.hydrateReview(next);
       }, "Interview results submitted for review.")} className="min-h-[44px] cursor-pointer rounded-[var(--radius-3)] bg-[var(--primary)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] text-[var(--primaryfg)] hover:bg-[var(--primaryhover)] disabled:cursor-not-allowed disabled:opacity-50">
         Submit results
       </button>
@@ -970,18 +1090,23 @@ function ReviewStep(props: {
   setRisks: (value: string) => void;
   reason: string;
   setReason: (value: string) => void;
-  openQuestions: string[];
-  checkedQuestions: boolean[];
+  openQuestions: OpenQuestionEntry[];
   remainingQuestions: number;
   burstQuestion: number | null;
   setBurstQuestion: (value: number | null) => void;
   toggleQuestion: (index: number) => void;
+  answeringQuestion: number | null;
+  answerDrafts: Record<number, string>;
+  setAnswerDrafts: React.Dispatch<React.SetStateAction<Record<number, string>>>;
+  openAnswerEditor: (index: number) => void;
+  markQuestionAnswered: (index: number) => void;
   busy: boolean;
   canEdit: boolean;
   canAdmin: boolean;
   runAction: (fn: () => Promise<void>, success?: string) => void;
   scopePath: string;
   mergeIntake: (next: Intake) => void;
+  flushOpenQuestionSaves: () => Promise<void>;
   onProvisionReady: () => void;
 }) {
   return (
@@ -1009,32 +1134,84 @@ function ReviewStep(props: {
         ) : (
           <div className="space-y-1">
             {props.openQuestions.map((question, index) => {
-              const checked = !!props.checkedQuestions[index];
-              const remainingAfter = props.openQuestions.filter((_, itemIndex) => itemIndex !== index && !props.checkedQuestions[itemIndex]).length;
+              const checked = question.done;
+              const remainingAfter = props.openQuestions.filter((item, itemIndex) => itemIndex !== index && !item.done).length;
+              const editable = props.canEdit && props.intake.status !== "approved" && props.intake.status !== "provisioned";
+              const answerDraft = props.answerDrafts[index] ?? question.answer ?? "";
               return (
-                <button
-                  key={`${question}-${index}`}
-                  type="button"
-                  onClick={() => props.toggleQuestion(index)}
-                  className="flex w-full cursor-pointer items-start gap-3 rounded-[var(--radius-3)] px-[var(--space-2)] py-[var(--space-2)] text-left text-[var(--font-size-sm)] hover:bg-[var(--hover)]"
+                <div
+                  key={`${question.t}-${index}`}
+                  className="rounded-[var(--radius-3)] px-[var(--space-2)] py-[var(--space-2)] hover:bg-[var(--hover)]"
                 >
-                  <CompletionReward
-                    active={props.burstQuestion === index}
-                    checked={checked}
-                  />
-                  <span className={`inline-flex flex-wrap items-center gap-2 ${checked ? "text-[var(--mutedfg)] line-through" : "text-[var(--fg)]"}`}>
-                    {question}
-                    {props.burstQuestion === index && !rm() ? (
-                      <span className="completion-cheer pointer-events-none whitespace-nowrap font-mono text-[var(--font-size-xs)] text-[var(--ok)]">
-                        {remainingAfter === 0 ? "all clear ✓" : `${remainingAfter} to go`}
+                  <div className="flex items-start gap-3 text-left text-[var(--font-size-sm)]">
+                    {/* The hidden native input keeps keyboard/AT semantics; CompletionReward is the single visual indicator. */}
+                    <label className={`mt-1 ${editable && !props.busy ? "cursor-pointer" : "cursor-not-allowed"} has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[var(--primary)]`}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={!editable || props.busy}
+                        onChange={() => props.toggleQuestion(index)}
+                        className="sr-only"
+                        aria-label={`Mark question answered: ${question.t}`}
+                      />
+                      <CompletionReward active={props.burstQuestion === index} checked={checked} />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => props.openAnswerEditor(index)}
+                      disabled={!editable}
+                      className={`min-w-0 flex-1 text-left ${editable ? "cursor-pointer" : "cursor-default"} ${checked ? "text-[var(--mutedfg)] line-through" : "text-[var(--fg)]"}`}
+                    >
+                      <span className="inline-flex flex-wrap items-center gap-2">
+                        {question.t}
+                        {question.tag === "decision" ? (
+                          <span className="rounded-full bg-[var(--warnbg)] px-2 py-px text-[var(--font-size-xs)] text-[var(--warn)]">decision</span>
+                        ) : question.tag === "unknown" ? (
+                          <span className="rounded-full bg-[var(--muted)] px-2 py-px text-[var(--font-size-xs)] text-[var(--mutedfg)]">unknown</span>
+                        ) : null}
+                        {props.burstQuestion === index && !rm() ? (
+                          <span className="completion-cheer pointer-events-none whitespace-nowrap font-mono text-[var(--font-size-xs)] text-[var(--ok)]">
+                            {remainingAfter === 0 ? "all clear" : `${remainingAfter} to go`}
+                          </span>
+                        ) : null}
                       </span>
-                    ) : null}
-                  </span>
-                </button>
+                    </button>
+                  </div>
+                  {question.answer ? (
+                    <div className="ml-14 mt-1 text-[var(--font-size-xs)] text-[var(--mutedfg)]">Answer: {question.answer}</div>
+                  ) : null}
+                  {editable && props.answeringQuestion === index && !question.answer ? (
+                    <div className="ml-14 mt-2 flex flex-wrap items-center gap-2">
+                      <input
+                        value={answerDraft}
+                        onChange={(event) => props.setAnswerDrafts((current) => ({ ...current, [index]: event.target.value }))}
+                        placeholder="Answer..."
+                        aria-label={`Answer question: ${question.t}`}
+                        className="min-h-[36px] min-w-[220px] flex-1 rounded-[var(--radius-3)] border border-[var(--border)] bg-[var(--bg)] px-2 py-1 text-[var(--font-size-xs)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
+                      />
+                      <button
+                        type="button"
+                        disabled={!answerDraft.trim() || props.busy}
+                        onClick={() => props.markQuestionAnswered(index)}
+                        className="min-h-[36px] cursor-pointer rounded-[var(--radius-3)] bg-[var(--primary)] px-2 py-1 text-[var(--font-size-xs)] text-[var(--primaryfg)] hover:bg-[var(--primaryhover)] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Mark answered
+                      </button>
+                    </div>
+                  ) : null}
+                  {editable && !question.answer && props.answeringQuestion !== index ? (
+                    <button type="button" onClick={() => props.openAnswerEditor(index)} className="ml-14 mt-1 cursor-pointer text-[var(--font-size-xs)] text-[var(--primary)] hover:underline">
+                      Add answer
+                    </button>
+                  ) : null}
+                </div>
               );
             })}
           </div>
         )}
+        {props.openQuestions.length > 0 ? (
+          <div className="mt-2 text-[var(--font-size-xs)] text-[var(--mutedfg)]">Unresolved questions become Things to resolve items on this scope when setup is provisioned.</div>
+        ) : null}
       </div>
       <LabeledArea label="What will be created" value={props.spec} onChange={props.setSpec} />
       <LabeledArea label="Documents" value={props.docs} onChange={props.setDocs} />
@@ -1049,10 +1226,17 @@ function ReviewStep(props: {
         </label>
       ) : null}
       <div className="flex flex-wrap gap-2">
-        <button disabled={!props.canEdit || props.busy} onClick={() => props.runAction(async () => props.mergeIntake(await saveReviewAction({ intakeId: props.intake.id, scopePath: props.scopePath, specJson: props.spec, docsJson: props.docs, tasksJson: props.tasks, wikiJson: props.wiki, questionsJson: props.questions, risksJson: props.risks }) as Intake), "Review saved.")} className="min-h-[44px] cursor-pointer rounded-[var(--radius-3)] border border-[var(--border)] px-3 py-2 text-[var(--font-size-sm)] hover:bg-[var(--hover)] disabled:cursor-not-allowed disabled:opacity-50">
+        <button disabled={!props.canEdit || props.busy} onClick={() => props.runAction(async () => {
+          // Serialize behind the autosave queue: saveReviewAction also writes
+          // openQuestions, so racing an in-flight toggle save could persist
+          // whichever response lands last and lose the newer edit.
+          await props.flushOpenQuestionSaves();
+          props.mergeIntake(await saveReviewAction({ intakeId: props.intake.id, scopePath: props.scopePath, specJson: props.spec, docsJson: props.docs, tasksJson: props.tasks, wikiJson: props.wiki, questionsJson: props.questions, risksJson: props.risks }) as Intake);
+        }, "Review saved.")} className="min-h-[44px] cursor-pointer rounded-[var(--radius-3)] border border-[var(--border)] px-3 py-2 text-[var(--font-size-sm)] hover:bg-[var(--hover)] disabled:cursor-not-allowed disabled:opacity-50">
           Save review
         </button>
         <button disabled={!props.canAdmin || props.intake.status !== "needs_review" || props.busy} onClick={() => props.runAction(async () => {
+          await props.flushOpenQuestionSaves();
           props.mergeIntake(await approveIntakeAction({ intakeId: props.intake.id, scopePath: props.scopePath }) as Intake);
           props.onProvisionReady();
         }, "Setup approved.")} className="inline-flex min-h-[44px] cursor-pointer items-center gap-1 rounded-[var(--radius-3)] bg-[var(--primary)] px-3 py-2 text-[var(--font-size-sm)] text-[var(--primaryfg)] hover:bg-[var(--primaryhover)] disabled:cursor-not-allowed disabled:opacity-50">
@@ -1119,7 +1303,3 @@ function LabeledArea({ label, value, onChange }: { label: string; value: string;
     </label>
   );
 }
-
-
-
-

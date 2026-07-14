@@ -22,6 +22,12 @@ Creation wizard UI module. Thin client/server-action wrappers around
 - No direct DB access.
 - Server actions call `src/lib/api.ts` only.
 - All writes are persisted by `packages/api/src/modules/intake`.
+- Review open questions use the local normalized `{ t, tag, done, answer }` shape. Checkbox
+  and answer changes persist through `saveOpenQuestionsAction` one at a time; the JSON
+  review textarea remains a separate explicit Save review surface.
+- Unanswered questions may be deferred. The interview step refreshes an awaiting-external
+  intake through `getIntakeAction` every 5 seconds while the document is visible and
+  hydrates review fields when MCP submits the result.
 
 ## How to test
 - UI actions are typechecked through `@companyos/os`.

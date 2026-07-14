@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   uuid,
@@ -6,6 +7,7 @@ import {
   jsonb,
   pgEnum,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 import { scopes, principals } from "./kernel";
@@ -16,6 +18,7 @@ export const attentionKindEnum = pgEnum("attention_kind", [
   "graduation",
   "external_gate",
   "page_update",
+  "open_question",
 ]);
 
 export const attentionStatusEnum = pgEnum("attention_status", [
@@ -51,13 +54,16 @@ export const attentionItems = pgTable(
     scopeStatusCreatedIdx: index("attention_items_scope_status_created_idx").on(t.scopeId, t.status, t.createdAt),
     kindStatusIdx: index("attention_items_kind_status_idx").on(t.kind, t.status),
     targetStatusIdx: index("attention_items_target_status_idx").on(t.targetPrincipalId, t.status),
+    intakeOrdinalUniqueIdx: uniqueIndex("attention_items_intake_ordinal_idx")
+      .on(t.scopeId, sql`(${t.payload}->>'intakeId')`, sql`(${t.payload}->>'ordinal')`)
+      .where(sql`(${t.payload}->>'source') = 'intake' AND (${t.payload}->>'ordinal') IS NOT NULL`),
   })
 );
 
 export interface AttentionItem {
   id: string;
   scopeId: string;
-  kind: "wiki_proposal" | "lint_finding" | "graduation" | "external_gate" | "page_update";
+  kind: "wiki_proposal" | "lint_finding" | "graduation" | "external_gate" | "page_update" | "open_question";
   status: "open" | "approved" | "rejected" | "dismissed";
   title: string;
   summary: string | null;

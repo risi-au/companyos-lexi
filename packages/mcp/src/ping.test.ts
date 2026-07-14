@@ -379,6 +379,34 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     expect(doc?.bodyMd).toBe("New wiki");
   });
 
+  it("requires an answer note when MCP approves an open question", async () => {
+    await grantRole(db, { principalId: rootPrincipalId, scopePath: testScope, role: "admin" }, rootPrincipalId);
+    const item = await createAttentionItem(db, {
+      scopePath: testScope,
+      kind: "open_question",
+      title: "MCP open question",
+      payload: {
+        question: "Which owner approved this launch?",
+        tag: "decision",
+        source: "intake",
+        intakeId: "mcp-intake-1",
+        ordinal: 0,
+      },
+    }, agentPrincipalId);
+
+    const { mcpClient } = await makeRoundtrip(rootPrincipalId);
+    const missingNote = await mcpClient.callTool({ name: "resolve_attention_item", arguments: { id: item.id, resolution: "approved" } });
+    expect((missingNote as any).isError).toBe(true);
+    expect((missingNote as any).content?.[0]?.text || "").toContain("open_question approval requires a resolution note");
+
+    const resolved = await mcpClient.callTool({
+      name: "resolve_attention_item",
+      arguments: { id: item.id, resolution: "approved", note: "The operations lead approved it." },
+    });
+    expect((resolved as any).isError).toBeFalsy();
+    expect((resolved as any).content?.[0]?.text || "").toContain("approved");
+  });
+
   it("credential tools list metadata and return values only to agent-and-above principals", async () => {
     const previousVaultKey = process.env.COS_VAULT_KEY;
     process.env.COS_VAULT_KEY = Buffer.alloc(32, 9).toString("base64");

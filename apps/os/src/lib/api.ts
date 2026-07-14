@@ -76,6 +76,7 @@ import {
   assembleIntakeExternalPack,
   approveIntakePacket,
   listAttentionItems,
+  countOpenAttentionItems,
   resolveAttentionItem,
   rejectIntakePacket,
   dismissIntakePacket,
@@ -344,6 +345,8 @@ export const api = {
     approveIntakePacket(db, input, actorPrincipalId),
   listAttentionItems: (input: Parameters<typeof listAttentionItems>[1], actorPrincipalId: string) =>
     listAttentionItems(db, input, actorPrincipalId),
+  countOpenAttentionItems: (input: Parameters<typeof countOpenAttentionItems>[1], actorPrincipalId: string) =>
+    countOpenAttentionItems(db, input, actorPrincipalId),
   resolveAttentionItem: (input: Parameters<typeof resolveAttentionItem>[1], actorPrincipalId: string) =>
     resolveAttentionItem(db, input, actorPrincipalId),
   rejectIntakePacket: (input: Parameters<typeof rejectIntakePacket>[1], actorPrincipalId: string) =>

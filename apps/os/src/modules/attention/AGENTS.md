@@ -27,7 +27,9 @@ only expose Dismiss.
 
 ## Do Not
 
-- Do not add polling, notification settings, emails, comments, or chat behavior.
+- Do not add polling, notification settings, emails, comments, or chat behavior. The
+  owner-approved 2026-07-14 header `NotificationBell` is the sanctioned global notification
+  surface; it links back to this card, which remains poll-free.
 - Do not render full proposal bodies in context-like surfaces; overview may show only a
   compact preview.
 - Do not bypass server actions for mutations.

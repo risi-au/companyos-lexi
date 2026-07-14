@@ -31,6 +31,14 @@ export interface GraduationPayload {
   proposal: WikiProposalPayload;
 }
 
+export interface OpenQuestionPayload {
+  question: string;
+  tag: "decision" | "unknown" | null;
+  source: "intake";
+  intakeId: string;
+  ordinal: number;
+}
+
 export class AttentionNotFoundError extends Error {
   constructor(id: string) {
     super(`Attention item not found: ${id}`);
@@ -80,6 +88,26 @@ function graduationPayload(value: unknown): GraduationPayload {
     fromScopePath,
     fromSlug,
     proposal: wikiProposalPayload(value.proposal),
+  };
+}
+
+function openQuestionPayload(value: unknown): OpenQuestionPayload {
+  if (!isRecord(value)) throw new Error("open_question payload must be an object");
+  const question = String(value.question ?? "").trim();
+  const intakeId = String(value.intakeId ?? "").trim();
+  const ordinal = value.ordinal;
+  if (!question) throw new Error("open_question payload requires question");
+  if (value.source !== "intake") throw new Error("open_question payload requires source intake");
+  if (!intakeId) throw new Error("open_question payload requires intakeId");
+  if (typeof ordinal !== "number" || !Number.isInteger(ordinal) || ordinal < 0) {
+    throw new Error("open_question payload requires a non-negative integer ordinal");
+  }
+  return {
+    question,
+    tag: value.tag === "decision" || value.tag === "unknown" ? value.tag : null,
+    source: "intake",
+    intakeId,
+    ordinal,
   };
 }
 
@@ -147,6 +175,8 @@ export async function createAttentionItem(
   if (!scope) throw new ScopeNotFoundError(input.scopePath);
   await requireAccess(db, actorPrincipalId, input.scopePath, "editor");
 
+  const payload = input.kind === "open_question" ? openQuestionPayload(input.payload) : input.payload;
+
   const [created] = (await db
     .insert(attentionItems)
     .values({
@@ -154,7 +184,7 @@ export async function createAttentionItem(
       kind: input.kind,
       title: input.title,
       summary: input.summary ?? null,
-      payload: input.payload,
+      payload,
       createdBy: actorPrincipalId,
       targetPrincipalId: input.targetPrincipalId ?? null,
     })
@@ -259,11 +289,14 @@ function decisionBody(item: AttentionItemView, resolution: AttentionResolution, 
       ? graduationPayload(item.payload).proposal
       : null;
   const graduation = item.kind === "graduation" ? graduationPayload(item.payload) : null;
+  const openQuestion = item.kind === "open_question" ? openQuestionPayload(item.payload) : null;
   const lines = [
     `Resolution: ${resolution}`,
     "",
     item.summary ? `Summary: ${item.summary}` : "",
     note ? `Note: ${note}` : "",
+    openQuestion ? `Question: ${openQuestion.question}` : "",
+    openQuestion && resolution === "approved" && note ? `Answer: ${note}` : "",
     graduation ? `Graduation: ${graduation.direction} from ${graduation.fromScopePath}:${graduation.fromSlug}` : "",
     wiki ? `Wiki page: [[${wiki.slug}]]` : "",
     "",
@@ -309,6 +342,11 @@ export async function resolveAttentionItem(
     throw new AttentionStateError(`Attention item ${item.id} is ${item.status}; only open items can be resolved`);
   }
 
+  const note = input.note?.trim() || null;
+  if (item.kind === "open_question" && input.resolution === "approved" && !note) {
+    throw new AttentionStateError("open_question approval requires a resolution note containing the answer");
+  }
+
   if (input.resolution === "approved") {
     if (item.kind === "wiki_proposal") {
       await applyWikiProposal(db, item.scopePath, wikiProposalPayload(item.payload), actorPrincipalId);
@@ -325,7 +363,7 @@ export async function resolveAttentionItem(
       status: input.resolution,
       resolvedBy: actorPrincipalId,
       resolvedAt: now,
-      resolutionNote: input.note ?? null,
+      resolutionNote: note,
       updatedAt: now,
     })
     .where(and(eq(attentionItems.id, item.id), eq(attentionItems.status, "open")))
@@ -350,7 +388,7 @@ export async function resolveAttentionItem(
         scopePath: resolved.scopePath,
         kind: "decision",
         title: `Resolved: ${resolved.title}`,
-        bodyMd: decisionBody(resolved, input.resolution, input.note),
+        bodyMd: decisionBody(resolved, input.resolution, note),
         data: { attentionItemId: resolved.id, kind: resolved.kind, resolution: input.resolution },
       },
       actorPrincipalId

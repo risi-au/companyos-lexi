@@ -190,6 +190,13 @@
       "when": 1783753627285,
       "tag": "0026_following_notifications",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1784015963027,
+      "tag": "0027_open_questions_notifications",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { AttentionItemView } from "@companyos/api";
 import { resolveAttentionFormAction } from "./actions";
+import { OpenQuestionResolveForm } from "./OpenQuestionResolveForm";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -17,6 +18,7 @@ function ageLabel(value: Date | string): string {
 }
 
 function kindLabel(kind: AttentionItemView["kind"]): string {
+  if (kind === "open_question") return "open question";
   if (kind === "wiki_proposal") return "wiki proposal";
   if (kind === "lint_finding") return "lint finding";
   if (kind === "external_gate") return "external gate";
@@ -124,7 +126,11 @@ export function AttentionCard({ items, scopePath }: { items: AttentionItemView[]
                           </div>
                         )}
                       </div>
-                      {item.status === "open" && <ResolveButtons item={item} scopePath={scopePath} />}
+                      {item.status === "open" ? item.kind === "open_question" ? (
+                        <OpenQuestionResolveForm itemId={item.id} scopePath={scopePath} />
+                      ) : (
+                        <ResolveButtons item={item} scopePath={scopePath} />
+                      ) : null}
                     </div>
                   </li>
                 );

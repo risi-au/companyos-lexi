@@ -49,11 +49,12 @@ interface AppShellChromeProps {
   instanceName: string;
   sidebar: React.ReactNode;
   userMenu: React.ReactNode;
+  notifications?: React.ReactNode;
   alertCount?: number;
   children: React.ReactNode;
 }
 
-export function AppShellChrome({ instanceName, sidebar, userMenu, alertCount = 0, children }: AppShellChromeProps) {
+export function AppShellChrome({ instanceName, sidebar, userMenu, notifications, alertCount = 0, children }: AppShellChromeProps) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
@@ -254,6 +255,7 @@ export function AppShellChrome({ instanceName, sidebar, userMenu, alertCount = 0
               ) : null}
             </div>
             <div className="ml-auto flex items-center gap-[var(--space-3)]">
+              {notifications}
               <FontScaleControl />
               <ThemeControl />
             </div>

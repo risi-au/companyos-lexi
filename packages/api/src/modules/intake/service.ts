@@ -19,6 +19,7 @@ import { getContextBundle } from "../../agent";
 import { createSystemRecord } from "../records/service";
 import { getDoc, saveDoc } from "../docs/service";
 import { createTask } from "../tasks/service";
+import { createAttentionItem } from "../attention/service";
 import type { PlaneClient } from "../tasks/plane-client";
 import { provisionScope, type ProvisionDeps, type ProvisionResult, type ProvisionSpec } from "../provisioning/service";
 import { getSkill, syncSkills } from "../skills/service";
@@ -81,6 +82,109 @@ function normalizeRequiredCredentials(value: unknown): RequiredCredentialSpec[] 
     whatFor: String(item.whatFor ?? item.what_for ?? "").trim(),
     loginMethodNotes: String(item.loginMethodNotes ?? item.login_method_notes ?? "").trim(),
   })).filter((item) => item.name);
+}
+
+export interface NormalizedOpenQuestion {
+  t: string;
+  tag: "decision" | "unknown" | null;
+  done: boolean;
+  answer: string | null;
+}
+
+function normalizeOpenQuestionEntry(value: unknown): NormalizedOpenQuestion | null {
+  if (typeof value === "string") {
+    const t = value.trim();
+    return t ? { t, tag: null, done: false, answer: null } : null;
+  }
+  if (!isJsonObject(value)) return null;
+  const t = String(value.t ?? value.question ?? value.title ?? value.text ?? "").trim();
+  if (!t) return null;
+  const answer = typeof value.answer === "string" && value.answer.trim() ? value.answer.trim() : null;
+  return {
+    t,
+    tag: value.tag === "decision" || value.tag === "unknown" ? value.tag : null,
+    done: value.done === true,
+    answer,
+  };
+}
+
+export function normalizeOpenQuestions(value: unknown): NormalizedOpenQuestion[] {
+  if (typeof value === "string") {
+    return value.split(/\r?\n/).map((line) => line.replace(/^[-*]\s*/, "").trim()).filter(Boolean).map((t) => ({
+      t,
+      tag: null,
+      done: false,
+      answer: null,
+    }));
+  }
+  if (Array.isArray(value)) {
+    return value.map(normalizeOpenQuestionEntry).filter((item): item is NormalizedOpenQuestion => !!item);
+  }
+  if (isJsonObject(value)) {
+    const direct = normalizeOpenQuestionEntry(value);
+    if (direct) return [direct];
+    return Object.entries(value).flatMap(([key, item]) => {
+      const normalized = normalizeOpenQuestionEntry(item);
+      if (normalized) return [normalized];
+      if (typeof item === "string" && item.trim()) {
+        return [{ t: `${key}: ${item.trim()}`, tag: null, done: false, answer: null }];
+      }
+      return [];
+    });
+  }
+  return [];
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 3; depth += 1) {
+    if (!isJsonObject(current)) return false;
+    if (current.code === "23505") return true;
+    current = current.cause;
+  }
+  return false;
+}
+
+function attentionTitle(question: string): string {
+  return question.length > 140 ? `${question.slice(0, 137).trimEnd()}...` : question;
+}
+
+export interface OpenQuestionAttentionConversion {
+  converted: number;
+  existing: number;
+}
+
+export async function convertOpenQuestionsToAttention(
+  db: DB,
+  intake: Pick<IntakePacketView, "id" | "scopePath" | "openQuestions">,
+  actorPrincipalId: string
+): Promise<OpenQuestionAttentionConversion> {
+  const questions = normalizeOpenQuestions(intake.openQuestions);
+  let converted = 0;
+  let existing = 0;
+  for (const [ordinal, question] of questions.entries()) {
+    if (question.done || question.answer) continue;
+    try {
+      await createAttentionItem(db, {
+        scopePath: intake.scopePath,
+        kind: "open_question",
+        title: attentionTitle(question.t),
+        summary: `Unanswered from the setup interview for ${intake.scopePath}`,
+        payload: {
+          question: question.t,
+          tag: question.tag,
+          source: "intake",
+          intakeId: intake.id,
+          ordinal,
+        },
+      }, actorPrincipalId);
+      converted += 1;
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+      existing += 1;
+    }
+  }
+  return { converted, existing };
 }
 
 function requiredCredentialsFromAnswers(answers: unknown): RequiredCredentialSpec[] {
@@ -399,6 +503,9 @@ export async function submitIntakePacket(
 
   const nextAnswers = {
     ...(isJsonObject(intake.answers) ? intake.answers : {}),
+    // Persisted so clients that fetch the row later (e.g. the interview-step
+    // poll after an MCP submission) can still surface the markdown-only warning.
+    submission_markdown_only: markdownOnly,
     required_credentials: normalizeRequiredCredentials(packet.required_credentials),
     external_systems: Array.isArray(packet.external_systems)
       ? packet.external_systems.filter(isJsonObject).map((item) => ({
@@ -951,11 +1058,37 @@ export async function provisionFromIntakePacket(
   artifacts.wiki = wiki.map((doc) => ({ id: doc.id, slug: doc.slug }));
   artifacts.tasks = tasks;
 
+  const questions = normalizeOpenQuestions(intake.openQuestions);
+  const openQuestionConversion = await convertOpenQuestionsToAttention(db, intake, actorPrincipalId);
+  const answeredQuestions = questions.filter((question) => !!question.answer);
+  const acknowledgedQuestions = questions.filter((question) => question.done && !question.answer);
+  artifacts.openQuestions = {
+    converted: openQuestionConversion.converted + openQuestionConversion.existing,
+    answered: answeredQuestions.length,
+    acknowledged: acknowledgedQuestions.length,
+  };
+  const reviewedQuestionLines = [
+    ...answeredQuestions.flatMap((question) => [
+      `- Question: ${question.t}`,
+      `  Answer: ${question.answer}`,
+    ]),
+    ...acknowledgedQuestions.flatMap((question) => [
+      `- Question: ${question.t}`,
+      "  Acknowledged without an answer",
+    ]),
+  ];
+  const openQuestionReport = reviewedQuestionLines.length
+    ? ["## Open questions answered during review", "", ...reviewedQuestionLines].join("\n")
+    : "";
+  const reportBodyMd = [intake.packetMd || "Provisioned from creation wizard.", openQuestionReport]
+    .filter(Boolean)
+    .join("\n\n");
+
   const report = await createSystemRecord(db, {
     scopePath: intake.scopePath,
     kind: "report",
     title: "Creation wizard intake packet",
-    bodyMd: intake.packetMd || "Provisioned from creation wizard.",
+    bodyMd: reportBodyMd,
     data: { intakeId: intake.id, artifacts, provision: result },
   }, actorPrincipalId);
 
@@ -1081,9 +1214,9 @@ export async function saveWizardTemplate(
   return { written: write.written, sync };
 }
 
-export const DEFAULT_SCOPE_INTAKE_SKILL = "---\nname: scope-intake\ndescription: Operating guide for the external agent running a CompanyOS scope-intake interview.\nscope_pattern: \"**\"\ndomains: [intake, onboarding, wizard]\n---\n\n# scope-intake\n\nYou are conducting an intake interview for CompanyOS. Read this whole guide before\nasking your first question.\n\n## What CompanyOS is\n\nCompanyOS is the operating system a company's AI agents and people work inside. Work\nis organized into **scopes** \u2014 projects, clients, and sub-projects arranged in a\ntree. Every scope carries: **docs** (current truth), **records** (an append-only log\nof what happened), **tasks** (in Plane), optionally a **GitHub workbench** (code\nrepo), a **credential vault**, and a **wiki** that a nightly brain distills from\neverything above. Agents connect over MCP and read this context before working.\n\nCompanyOS sits on top of the company's existing tools \u2014 CRM, email, accounting stay\nwhere they are; their key events get mirrored into the OS so agents can always\nanswer \"what's the state of this?\" from inside.\n\n## Why this interview\n\nA new scope was just created and it is empty. Your interview produces its **intake\npacket** \u2014 the scope's starting DNA: what it exists to achieve, how it should be\nprovisioned, its first documents and tasks, its risks and unknowns. Everything you\nproduce will be reviewed by an admin before anything is provisioned, and the brain\nwill distill your packet into the scope's wiki. Quality here compounds; a lazy\npacket costs every future agent that touches this scope.\n\n## Who you are talking to\n\nAn internal person who will personally work on this scope. They know their\nrequirement \u2014 your job is to draw it out and structure it, not to educate them.\nMatch their depth: if they are brief, ask the follow-ups that matter; if they pour\nout detail, capture it and organize rather than interrupt.\n\n## How to conduct it\n\n- The pack you received contains the scope's position in the tree, why it was\n  created (the reason, verbatim), context from its parent scope, related history\n  the user selected (e.g. the sales trail for a converted client), and similar past\n  work (pattern pages). **Read all of it first and don't re-ask what it already\n  answers.**\n- Open-ended, one focused question at a time. Prefer specifics: names, numbers,\n  deadlines, URLs.\n- Separate **facts** (stated by the interviewee or a cited source) from\n  **assumptions** (yours). Label them in the packet.\n- When the interviewee doesn't know something, record it in `open_questions` \u2014\n  never guess and never pad.\n- Ask what **external systems** this scope touches (CRM, email tracking,\n  accounting, ads platforms, hosting) \u2014 capture them in `external_systems`.\n- Ask which **credentials** agents will need (VPS/SSH, admin logins, API keys) \u2014\n  capture **names and what each is for only**, in `required_credentials`.\n\n## Hard rules\n\n- **Never collect secret values.** No passwords, API keys, tokens \u2014 not even if\n  offered. Values are entered directly into the OS vault later; you collect only\n  the list of what will be needed.\n- **Do not invent scope structure.** Fill the intake for the existing scope only;\n  propose child scopes only inside the provision spec, and only if genuinely\n  needed.\n- Do not promise integrations or automation the packet can't specify; if desired,\n  record it in `external_systems` notes or `open_questions`.\n\n## Output format\n\nEnd your final message with the markdown packet summary followed by **one fenced\nJSON block** \u2014 the packet. Field guidance:\n\n- `packet_md` \u2014 the readable brief: goal, scope of work, key facts vs assumptions\n  (labelled), stakeholders, timeline. This becomes the scope's founding document.\n- `proposed_provision_spec` \u2014 modules the scope needs: `docs` always; `tasks` if\n  work will be tracked; `workbench` (+ repo name) only if code will be written.\n- `proposed_docs` \u2014 1\u20133 starting docs max, each with real content distilled from\n  the interview (not placeholders).\n- `proposed_tasks` \u2014 the first two weeks of concrete work, not the whole project.\n- `proposed_wiki_updates` \u2014 durable facts the brain should know from day one.\n- `required_credentials` \u2014 `[{name, whatFor, loginMethodNotes}]`, names only.\n- `external_systems` \u2014 `[{name, purpose, notes}]`.\n- `open_questions` \u2014 everything unresolved, phrased so a human can answer it.\n- `risk_notes` \u2014 what could sink this; be honest, not decorative.\n- `research_sources` \u2014 anything you cited.\n- `source_engine` / `source_model` \u2014 identify yourself.\n";
+export const DEFAULT_SCOPE_INTAKE_SKILL = "---\nname: scope-intake\ndescription: Operating guide for the external agent running a CompanyOS scope-intake interview.\nscope_pattern: \"**\"\ndomains: [intake, onboarding, wizard]\n---\n\n# scope-intake\n\nYou are conducting an intake interview for CompanyOS. Read this whole guide before\nasking your first question.\n\n## What CompanyOS is\n\nCompanyOS is the operating system a company's AI agents and people work inside. Work\nis organized into **scopes** \u2014 projects, clients, and sub-projects arranged in a\ntree. Every scope carries: **docs** (current truth), **records** (an append-only log\nof what happened), **tasks** (in Plane), optionally a **GitHub workbench** (code\nrepo), a **credential vault**, and a **wiki** that a nightly brain distills from\neverything above. Agents connect over MCP and read this context before working.\n\nCompanyOS sits on top of the company's existing tools \u2014 CRM, email, accounting stay\nwhere they are; their key events get mirrored into the OS so agents can always\nanswer \"what's the state of this?\" from inside.\n\n## Why this interview\n\nA new scope was just created and it is empty. Your interview produces its **intake\npacket** \u2014 the scope's starting DNA: what it exists to achieve, how it should be\nprovisioned, its first documents and tasks, its risks and unknowns. Everything you\nproduce will be reviewed by an admin before anything is provisioned, and the brain\nwill distill your packet into the scope's wiki. Quality here compounds; a lazy\npacket costs every future agent that touches this scope.\n\n## Who you are talking to\n\nAn internal person who will personally work on this scope. They know their\nrequirement \u2014 your job is to draw it out and structure it, not to educate them.\nMatch their depth: if they are brief, ask the follow-ups that matter; if they pour\nout detail, capture it and organize rather than interrupt.\n\n## How to conduct it\n\n- The pack you received contains the scope's position in the tree, why it was\n  created (the reason, verbatim), context from its parent scope, related history\n  the user selected (e.g. the sales trail for a converted client), and similar past\n  work (pattern pages). **Read all of it first and don't re-ask what it already\n  answers.**\n- Open-ended, one focused question at a time. Prefer specifics: names, numbers,\n  deadlines, URLs.\n- Separate **facts** (stated by the interviewee or a cited source) from\n  **assumptions** (yours). Label them in the packet.\n- When the interviewee doesn't know something, record it in `open_questions` \u2014\n  never guess and never pad.\n- Ask the interviewee once before recording an open question. Each entry must use\n  `{ \"question\": \"...\", \"tag\": \"decision\" | \"unknown\" }`: `decision` means a\n  CompanyOS reviewer or admin can answer it at review time; `unknown` means nobody\n  can answer it yet. Phrase every question so a human can act on it.\n- Ask what **external systems** this scope touches (CRM, email tracking,\n  accounting, ads platforms, hosting) \u2014 capture them in `external_systems`.\n- Ask which **credentials** agents will need (VPS/SSH, admin logins, API keys) \u2014\n  capture **names and what each is for only**, in `required_credentials`.\n\n## Hard rules\n\n- **Never collect secret values.** No passwords, API keys, tokens \u2014 not even if\n  offered. Values are entered directly into the OS vault later; you collect only\n  the list of what will be needed.\n- **Do not invent scope structure.** Fill the intake for the existing scope only;\n  propose child scopes only inside the provision spec, and only if genuinely\n  needed.\n- Do not promise integrations or automation the packet can't specify; if desired,\n  record it in `external_systems` notes or `open_questions`.\n\n## Output format\n\nEnd your final message with the markdown packet summary followed by **one fenced\nJSON block** \u2014 the packet. Field guidance:\n\n- `packet_md` \u2014 the readable brief: goal, scope of work, key facts vs assumptions\n  (labelled), stakeholders, timeline. This becomes the scope's founding document.\n- `proposed_provision_spec` \u2014 modules the scope needs: `docs` always; `tasks` if\n  work will be tracked; `workbench` (+ repo name) only if code will be written.\n- `proposed_docs` \u2014 1\u20133 starting docs max, each with real content distilled from\n  the interview (not placeholders).\n- `proposed_tasks` \u2014 the first two weeks of concrete work, not the whole project.\n- `proposed_wiki_updates` \u2014 durable facts the brain should know from day one.\n- `required_credentials` \u2014 `[{name, whatFor, loginMethodNotes}]`, names only.\n- `external_systems` \u2014 `[{name, purpose, notes}]`.\n- `open_questions` \u2014 everything unresolved, phrased so a human can answer it.\n- `risk_notes` \u2014 what could sink this; be honest, not decorative.\n- `research_sources` \u2014 anything you cited.\n- `source_engine` / `source_model` \u2014 identify yourself.\n";
 
-const DEFAULT_INTERVIEW_TEMPLATE = bodyWithoutFrontmatter("---\nslug: external-interview\ntitle: External interview\nkind: interview\napplies_to: any\nversion: \"2\"\ndomains: [onboarding]\n---\n\n## Interview guide\n\nWork through these areas in whatever order the conversation flows; skip what the\npack already answers. Depth follows the interviewee \u2014 brief answers get follow-ups,\ndetailed answers get structured.\n\n1. **Outcome** \u2014 what does success look like for this scope, concretely? By when?\n   How will it be measured (metrics, deliverables, revenue)?\n2. **The work** \u2014 what actually gets done here, by whom, how often? One-off build\n   or ongoing operation?\n3. **History** \u2014 if the pack included related history (e.g. a sales trail), confirm\n   what was promised/quoted and what carries over as commitments.\n4. **Systems** \u2014 which external tools does this scope touch (CRM, email, hosting,\n   ads, accounting, analytics)? What already exists vs needs setting up?\n5. **Access** \u2014 which credentials will agents need (names + what-for only, never\n   values)? Who currently holds them? Any access do's/don'ts worth writing into a\n   connection doc?\n6. **Provisioning** \u2014 does this scope need task tracking (Plane)? A code workbench\n   (repo)? An agent token from day one?\n7. **Starting state** \u2014 what should exist the moment the scope is provisioned:\n   first documents, first two weeks of tasks, facts the wiki should know.\n8. **Risks & unknowns** \u2014 what could sink this? What couldn't the interviewee\n   answer?\n\n## Packet instructions\n\nReturn your markdown brief, then end with the single fenced JSON packet exactly as\nspecified in the operating guide. Facts labelled as facts, assumptions as\nassumptions, unknowns in `open_questions`. No secret values anywhere.\n");
+const DEFAULT_INTERVIEW_TEMPLATE = bodyWithoutFrontmatter("---\nslug: external-interview\ntitle: External interview\nkind: interview\napplies_to: any\nversion: \"2\"\ndomains: [onboarding]\n---\n\n## Interview guide\n\nWork through these areas in whatever order the conversation flows; skip what the\npack already answers. Depth follows the interviewee \u2014 brief answers get follow-ups,\ndetailed answers get structured.\n\n1. **Outcome** \u2014 what does success look like for this scope, concretely? By when?\n   How will it be measured (metrics, deliverables, revenue)?\n2. **The work** \u2014 what actually gets done here, by whom, how often? One-off build\n   or ongoing operation?\n3. **History** \u2014 if the pack included related history (e.g. a sales trail), confirm\n   what was promised/quoted and what carries over as commitments.\n4. **Systems** \u2014 which external tools does this scope touch (CRM, email, hosting,\n   ads, accounting, analytics)? What already exists vs needs setting up?\n5. **Access** \u2014 which credentials will agents need (names + what-for only, never\n   values)? Who currently holds them? Any access do's/don'ts worth writing into a\n   connection doc?\n6. **Provisioning** \u2014 does this scope need task tracking (Plane)? A code workbench\n   (repo)? An agent token from day one?\n7. **Starting state** \u2014 what should exist the moment the scope is provisioned:\n   first documents, first two weeks of tasks, facts the wiki should know.\n8. **Risks & unknowns** \u2014 what could sink this? What couldn't the interviewee\n   answer?\n\n## Packet instructions\n\nReturn your markdown brief, then end with the single fenced JSON packet exactly as\nspecified in the operating guide. Facts labelled as facts, assumptions as\nassumptions, unknowns in `open_questions`. Ask once before recording each open\nquestion and tag it `decision` or `unknown`. No secret values anywhere.\n");
 
 export const DEFAULT_TEMPLATE_FILES = [
   {
@@ -1100,6 +1233,6 @@ export const DEFAULT_TEMPLATE_FILES = [
   },
   {
     path: "scope-intake/templates/interview.md",
-    body: "---\nslug: external-interview\ntitle: External interview\nkind: interview\napplies_to: any\nversion: \"2\"\ndomains: [onboarding]\n---\n\n## Interview guide\n\nWork through these areas in whatever order the conversation flows; skip what the\npack already answers. Depth follows the interviewee \u2014 brief answers get follow-ups,\ndetailed answers get structured.\n\n1. **Outcome** \u2014 what does success look like for this scope, concretely? By when?\n   How will it be measured (metrics, deliverables, revenue)?\n2. **The work** \u2014 what actually gets done here, by whom, how often? One-off build\n   or ongoing operation?\n3. **History** \u2014 if the pack included related history (e.g. a sales trail), confirm\n   what was promised/quoted and what carries over as commitments.\n4. **Systems** \u2014 which external tools does this scope touch (CRM, email, hosting,\n   ads, accounting, analytics)? What already exists vs needs setting up?\n5. **Access** \u2014 which credentials will agents need (names + what-for only, never\n   values)? Who currently holds them? Any access do's/don'ts worth writing into a\n   connection doc?\n6. **Provisioning** \u2014 does this scope need task tracking (Plane)? A code workbench\n   (repo)? An agent token from day one?\n7. **Starting state** \u2014 what should exist the moment the scope is provisioned:\n   first documents, first two weeks of tasks, facts the wiki should know.\n8. **Risks & unknowns** \u2014 what could sink this? What couldn't the interviewee\n   answer?\n\n## Packet instructions\n\nReturn your markdown brief, then end with the single fenced JSON packet exactly as\nspecified in the operating guide. Facts labelled as facts, assumptions as\nassumptions, unknowns in `open_questions`. No secret values anywhere.\n",
+    body: "---\nslug: external-interview\ntitle: External interview\nkind: interview\napplies_to: any\nversion: \"2\"\ndomains: [onboarding]\n---\n\n## Interview guide\n\nWork through these areas in whatever order the conversation flows; skip what the\npack already answers. Depth follows the interviewee \u2014 brief answers get follow-ups,\ndetailed answers get structured.\n\n1. **Outcome** \u2014 what does success look like for this scope, concretely? By when?\n   How will it be measured (metrics, deliverables, revenue)?\n2. **The work** \u2014 what actually gets done here, by whom, how often? One-off build\n   or ongoing operation?\n3. **History** \u2014 if the pack included related history (e.g. a sales trail), confirm\n   what was promised/quoted and what carries over as commitments.\n4. **Systems** \u2014 which external tools does this scope touch (CRM, email, hosting,\n   ads, accounting, analytics)? What already exists vs needs setting up?\n5. **Access** \u2014 which credentials will agents need (names + what-for only, never\n   values)? Who currently holds them? Any access do's/don'ts worth writing into a\n   connection doc?\n6. **Provisioning** \u2014 does this scope need task tracking (Plane)? A code workbench\n   (repo)? An agent token from day one?\n7. **Starting state** \u2014 what should exist the moment the scope is provisioned:\n   first documents, first two weeks of tasks, facts the wiki should know.\n8. **Risks & unknowns** \u2014 what could sink this? What couldn't the interviewee\n   answer?\n\n## Packet instructions\n\nReturn your markdown brief, then end with the single fenced JSON packet exactly as\nspecified in the operating guide. Facts labelled as facts, assumptions as\nassumptions, unknowns in `open_questions`. Ask once before recording each open\nquestion and tag it `decision` or `unknown`. No secret values anywhere.\n",
   },
 ];

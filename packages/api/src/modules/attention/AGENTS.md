@@ -6,7 +6,7 @@ Generic attention and approval primitive for CompanyOS. User-facing surfaces cal
 ## Purpose
 
 Stores human-resolvable items such as wiki edit proposals, brain lint findings,
-graduation suggestions, external gates, and targeted followed-page updates. The
+graduation suggestions, external gates, open questions, and targeted followed-page updates. The
 primitive is generic, with typed JSON payloads per `kind`. Wiki proposals can be
 approved into docs; followed-page updates are dismiss-only notifications for exactly
 one principal.
@@ -15,7 +15,7 @@ one principal.
 
 - `attention_items`
   - `id`, `scope_id`
-  - `kind`: `wiki_proposal | lint_finding | graduation | external_gate | page_update`
+  - `kind`: `wiki_proposal | lint_finding | graduation | external_gate | page_update | open_question`
   - `status`: `open | approved | rejected | dismissed`
   - `title`, `summary`, `payload`
   - `created_by`, nullable `target_principal_id`, `resolved_by`, `resolved_at`, `resolution_note`
@@ -35,10 +35,11 @@ one principal.
 - `resolveAttentionItem(db, input, actor)`: requires admin/owner for approval items,
   only resolves open items. Approval of `wiki_proposal` calls `saveDoc` as the
   approving human; approval of `graduation` applies the embedded target wiki proposal
-  the same way. `page_update` items are target-principal-only and may only be dismissed
-  by that principal with viewer access; they emit `attention.resolved` but do not
-  create decision records. Other resolutions emit `attention.resolved` and create a
-  `decision` record.
+  the same way. `open_question` approval requires a non-empty resolution note; the
+  note is the answer and is included in the decision record. `page_update` items are
+  target-principal-only and may only be dismissed by that principal with viewer access;
+  they emit `attention.resolved` but do not create decision records. Other resolutions
+  emit `attention.resolved` and create a `decision` record.
 
 ## Payloads
 
@@ -58,6 +59,16 @@ item is self-contained.
 ```
 
 The item's own scope is the target scope for the embedded proposal.
+
+`open_question` payload:
+
+```ts
+{ question: string; tag: "decision" | "unknown" | null; source: "intake"; intakeId: string; ordinal: number }
+```
+
+Open-question payloads are normalized at creation. `question` must be non-empty and
+`ordinal` must be a non-negative integer; invalid tags become null. Intake ordinals
+are unique per scope and intake for retry-safe provisioning.
 
 `page_update` payload:
 

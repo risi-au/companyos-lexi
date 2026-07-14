@@ -6,6 +6,7 @@ import { Sidebar } from "./_components/Sidebar";
 import { UserMenu } from "./_components/UserMenu";
 import { FeedbackProviders } from "./_components/FeedbackProviders";
 import { AppShellChrome } from "./_components/AppShellChrome";
+import { NotificationBell } from "./_components/NotificationBell";
 import type { Scope } from "@companyos/db";
 
 export default async function AppLayout({
@@ -61,12 +62,23 @@ export default async function AppLayout({
 
   const instanceName = process.env.INSTANCE_NAME || "CompanyOS";
   const alertCount = rootRole === "owner" || rootRole === "admin" ? (await api.listAdminAlerts(actorId)).length : 0;
+  const [notificationItems, notificationTotal] = await Promise.all([
+    api.listAttentionItems({ status: "open", limit: 15 }, actorId),
+    api.countOpenAttentionItems({ scopePath: "root", includeDescendants: true }, actorId),
+  ]);
 
   return (
     <FeedbackProviders>
       <AppShellChrome
         instanceName={instanceName}
         alertCount={alertCount}
+        notifications={<NotificationBell initialItems={notificationItems.map((item) => ({
+          id: item.id,
+          title: item.title,
+          kind: item.kind,
+          scopePath: item.scopePath,
+          createdAt: item.createdAt instanceof Date ? item.createdAt.toISOString() : String(item.createdAt),
+        }))} initialTotal={notificationTotal} />}
         sidebar={
           <Sidebar
             tree={tree}

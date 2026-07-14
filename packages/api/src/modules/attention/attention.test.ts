@@ -236,4 +236,59 @@ describe("attention module (PGlite + migrations)", () => {
     await resolveAttentionItem(db, { id: item.id, resolution: "dismissed" }, adminPrincipalId);
     await expect(resolveAttentionItem(db, { id: item.id, resolution: "rejected" }, adminPrincipalId)).rejects.toBeInstanceOf(AttentionStateError);
   });
+
+  it("validates open questions and requires an answer when approving", async () => {
+    const scopePath = await createProject("attention-open-question");
+    const payload = {
+      question: "Which launch date is approved?",
+      tag: "decision",
+      source: "intake",
+      intakeId: "intake-open-question-1",
+      ordinal: 0,
+    };
+
+    await expect(createAttentionItem(db, {
+      scopePath,
+      kind: "open_question",
+      title: "Invalid question",
+      payload: { ...payload, question: "   " },
+    }, editorPrincipalId)).rejects.toThrow("requires question");
+
+    const item = await createAttentionItem(db, {
+      scopePath,
+      kind: "open_question",
+      title: "Which launch date is approved?",
+      payload: { ...payload, tag: "unexpected" },
+    }, editorPrincipalId);
+    expect(item.payload).toMatchObject({ question: payload.question, tag: null, ordinal: 0 });
+
+    await expect(resolveAttentionItem(db, { id: item.id, resolution: "approved" }, adminPrincipalId))
+      .rejects.toThrow("open_question approval requires a resolution note containing the answer");
+    const resolved = await resolveAttentionItem(db, {
+      id: item.id,
+      resolution: "approved",
+      note: "Launch on 2026-08-01.",
+    }, adminPrincipalId);
+    expect(resolved.status).toBe("approved");
+
+    const decisions = await listRecords(db, { scopePath, kind: "decision", limit: 10 }, adminPrincipalId);
+    expect(decisions[0]?.bodyMd).toContain("Question: Which launch date is approved?");
+    expect(decisions[0]?.bodyMd).toContain("Answer: Launch on 2026-08-01.");
+
+    const rejected = await createAttentionItem(db, {
+      scopePath,
+      kind: "open_question",
+      title: "Rejectable question",
+      payload: { ...payload, question: "Rejectable question", ordinal: 1 },
+    }, editorPrincipalId);
+    await expect(resolveAttentionItem(db, { id: rejected.id, resolution: "rejected" }, adminPrincipalId)).resolves.toMatchObject({ status: "rejected" });
+
+    const dismissed = await createAttentionItem(db, {
+      scopePath,
+      kind: "open_question",
+      title: "Dismissable question",
+      payload: { ...payload, question: "Dismissable question", ordinal: 2 },
+    }, editorPrincipalId);
+    await expect(resolveAttentionItem(db, { id: dismissed.id, resolution: "dismissed" }, adminPrincipalId)).resolves.toMatchObject({ status: "dismissed" });
+  });
 });
