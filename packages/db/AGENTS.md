@@ -17,6 +17,9 @@ Drizzle schema package for CompanyOS. Owns table definitions, typed row interfac
 
 ## Migrations
 - Generate migrations with `pnpm --filter @companyos/db db:generate` from repo root.
+- Migrations are produced only by that command; hand-adjusting generated SQL is allowed, but keep the generated snapshot and journal entry.
+- The meta-chain test enforces drizzle SQL, snapshot, and journal consistency; never extend its historical allowlist.
+- KNOWN LANDMINE (issue #56): `drizzle-kit generate` diffs against the timestamp-named `20260710083235_attention_items` snapshot (it sorts above every `00NN` prefix), so every generate re-emits already-applied 0024+ objects and writes a colliding `prevId`. Until that migration is renamed into the `00NN` sequence: trim the generated `.sql` to only your genuinely-new statements and hand-linearize the new snapshot's `prevId` to the true predecessor's snapshot `id` (the repair #55/#59 applied).
 - Do not hand-edit `drizzle/meta/_journal.json`; let Drizzle update it.
 - Do not run migrations against the dev database during implementation briefs unless the brief explicitly says to.
 - M10-04B migration `0026_following_notifications.sql` was hand-written after `drizzle-kit generate` failed on the existing snapshot parent collision; existing journal entries were left semantically unchanged and a new entry was appended.
