@@ -16,6 +16,22 @@ function requireActor(actor: string | null): string {
   return actor;
 }
 
+const CONNECTION_EXPIRY_SWEEP_THROTTLE_MS = 5 * 60 * 1000;
+let lastConnectionExpirySweepAt = 0;
+
+function triggerConnectionExpirySweep(): void {
+  const now = Date.now();
+  if (now - lastConnectionExpirySweepAt < CONNECTION_EXPIRY_SWEEP_THROTTLE_MS) return;
+  lastConnectionExpirySweepAt = now;
+  try {
+    void api.ensureConnectionExpiryAttention().catch(() => {
+      /* The bell must stay available even if the sweep fails. */
+    });
+  } catch {
+    /* The bell must stay available even if the sweep fails. */
+  }
+}
+
 function toNotificationItem(item: AttentionItemView): NotificationItem {
   return {
     id: item.id,
@@ -28,6 +44,7 @@ function toNotificationItem(item: AttentionItemView): NotificationItem {
 
 export async function refreshNotificationsAction(): Promise<{ items: NotificationItem[]; total: number }> {
   const actor = requireActor(await getCurrentActorPrincipalId());
+  triggerConnectionExpirySweep();
   const [items, total] = await Promise.all([
     api.listAttentionItems({ status: "open", limit: 15 }, actor),
     api.countOpenAttentionItems({ scopePath: "root", includeDescendants: true }, actor),

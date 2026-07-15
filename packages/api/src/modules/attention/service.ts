@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { and, count, desc, eq, inArray, isNull, like, or } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
 import { attentionItems, scopes, type AttentionItem } from "@companyos/db";
 import { emitEvent, type DB } from "../../kernel/events";
 import { requireAccess } from "../../kernel/grants";
@@ -201,6 +201,98 @@ export async function createAttentionItem(
   return getAttentionRow(db, created.id);
 }
 
+export interface CreateSystemAttentionItemInput {
+  scopeId: string;
+  kind: AttentionKind;
+  title: string;
+  summary?: string | null;
+  payload: Record<string, unknown>;
+  createdBy: string;
+}
+
+export async function createSystemAttentionItem(
+  db: DB,
+  input: CreateSystemAttentionItemInput
+): Promise<AttentionItemView> {
+  const [scope] = (await db
+    .select({ id: scopes.id, path: scopes.path })
+    .from(scopes)
+    .where(eq(scopes.id, input.scopeId))
+    .limit(1)) as Array<{ id: string; path: string }>;
+  if (!scope) throw new ScopeNotFoundError(input.scopeId);
+
+  const [created] = (await db
+    .insert(attentionItems)
+    .values({
+      scopeId: input.scopeId,
+      kind: input.kind,
+      title: input.title,
+      summary: input.summary ?? null,
+      payload: input.payload,
+      createdBy: input.createdBy,
+      targetPrincipalId: null,
+    })
+    .returning()) as AttentionItem[];
+  if (!created) throw new Error("Failed to create attention item");
+
+  await emitEvent(db, {
+    type: "attention.created",
+    scopePath: scope.path,
+    principalId: input.createdBy,
+    payload: { attentionItemId: created.id, kind: created.kind, title: created.title, targetPrincipalId: created.targetPrincipalId },
+  });
+
+  return getAttentionRow(db, created.id);
+}
+
+export async function dismissAttentionItemsInternal(
+  db: DB,
+  input: { kind: AttentionKind; payloadTokenId: string; note?: string | null }
+): Promise<number> {
+  const rows = (await db
+    .select({
+      id: attentionItems.id,
+      kind: attentionItems.kind,
+      createdBy: attentionItems.createdBy,
+      targetPrincipalId: attentionItems.targetPrincipalId,
+      scopePath: scopes.path,
+    })
+    .from(attentionItems)
+    .innerJoin(scopes, eq(attentionItems.scopeId, scopes.id))
+    .where(and(
+      eq(attentionItems.kind, input.kind),
+      eq(attentionItems.status, "open"),
+      sql`${attentionItems.payload}->>'tokenId' = ${input.payloadTokenId}`
+    ))) as Array<{ id: string; kind: AttentionKind; createdBy: string; targetPrincipalId: string | null; scopePath: string }>;
+
+  const note = input.note?.trim() || null;
+  let dismissed = 0;
+  for (const row of rows) {
+    const now = new Date();
+    const [updated] = (await db
+      .update(attentionItems)
+      .set({
+        status: "dismissed",
+        resolvedBy: row.createdBy,
+        resolvedAt: now,
+        resolutionNote: note,
+        updatedAt: now,
+      })
+      .where(and(eq(attentionItems.id, row.id), eq(attentionItems.status, "open")))
+      .returning()) as AttentionItem[];
+    if (!updated) continue;
+    dismissed += 1;
+    await emitEvent(db, {
+      type: "attention.resolved",
+      scopePath: row.scopePath,
+      principalId: row.createdBy,
+      payload: { attentionItemId: row.id, kind: row.kind, resolution: "dismissed", targetPrincipalId: row.targetPrincipalId },
+    });
+  }
+
+  return dismissed;
+}
+
 export interface ListAttentionItemsInput {
   scopePath?: string | null;
   status?: AttentionStatus;
@@ -335,6 +427,11 @@ export async function resolveAttentionItem(
       throw new AttentionStateError("page_update attention items can only be dismissed");
     }
     await requireAccess(db, actorPrincipalId, item.scopePath, "viewer");
+  } else if (item.kind === "connection_expiry") {
+    if (input.resolution !== "dismissed") {
+      throw new AttentionStateError("connection_expiry attention items can only be dismissed");
+    }
+    await requireAccess(db, actorPrincipalId, item.scopePath, "admin");
   } else {
     await requireAccess(db, actorPrincipalId, item.scopePath, "admin");
   }
@@ -381,7 +478,7 @@ export async function resolveAttentionItem(
     payload: { attentionItemId: resolved.id, kind: resolved.kind, resolution: input.resolution, targetPrincipalId: resolved.targetPrincipalId },
   });
 
-  if (resolved.kind !== "page_update") {
+  if (resolved.kind !== "page_update" && resolved.kind !== "connection_expiry") {
     await createRecord(
       db,
       {

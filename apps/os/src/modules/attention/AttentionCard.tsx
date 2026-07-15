@@ -23,6 +23,7 @@ function kindLabel(kind: AttentionItemView["kind"]): string {
   if (kind === "lint_finding") return "lint finding";
   if (kind === "external_gate") return "external gate";
   if (kind === "page_update") return "page update";
+  if (kind === "connection_expiry") return "worker token";
   return "graduation";
 }
 
@@ -128,6 +129,8 @@ export function AttentionCard({ items, scopePath }: { items: AttentionItemView[]
                       </div>
                       {item.status === "open" ? item.kind === "open_question" ? (
                         <OpenQuestionResolveForm itemId={item.id} scopePath={scopePath} />
+                      ) : item.kind === "connection_expiry" ? (
+                        <DismissButton item={item} scopePath={scopePath} />
                       ) : (
                         <ResolveButtons item={item} scopePath={scopePath} />
                       ) : null}

@@ -18,6 +18,8 @@ import {
   getScope,
   grantRole,
   issueToken,
+  ensureConnectionExpiryAttention,
+  listAttentionItems,
   listConnections,
   listConnectionTokens,
   listEvents,
@@ -193,6 +195,101 @@ describe("connect module", () => {
     await expect(listConnectionTokens(db, { scopePath: otherScopePath }, editorId)).rejects.toThrow(AccessDeniedError);
   });
 
+  it("derives all worker token statuses", async () => {
+    const active = await mintConnectionToken(db, {
+      scopePath,
+      name: "Active token",
+      role: "viewer",
+      expiresAt: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000),
+    }, editorId);
+    const expired = await mintConnectionToken(db, {
+      scopePath,
+      name: "Expired token",
+      role: "viewer",
+      expiresAt: new Date(Date.now() - 60_000),
+    }, editorId);
+    const neverUsed = await mintConnectionToken(db, { scopePath, name: "Never used token", role: "viewer" }, editorId);
+    const revoked = await mintConnectionToken(db, {
+      scopePath,
+      name: "Revoked token",
+      role: "viewer",
+      expiresAt: new Date(Date.now() - 60_000),
+    }, editorId);
+
+    await db.update(schema.tokens).set({ lastUsedAt: new Date() }).where(eq(schema.tokens.id, active.tokenId));
+    await db.update(schema.tokens).set({ lastUsedAt: new Date() }).where(eq(schema.tokens.id, expired.tokenId));
+    await revokeConnectionToken(db, { tokenId: revoked.tokenId }, editorId);
+
+    const rows = await listConnectionTokens(db, { scopePath }, editorId);
+    const statusByToken = new Map(rows.map((row) => [row.tokenId, row.status]));
+    expect(statusByToken.get(active.tokenId)).toBe("active");
+    expect(statusByToken.get(expired.tokenId)).toBe("expired");
+    expect(statusByToken.get(neverUsed.tokenId)).toBe("never_used");
+    expect(statusByToken.get(revoked.tokenId)).toBe("revoked");
+    await revokeConnectionToken(db, { tokenId: expired.tokenId }, editorId);
+  });
+
+  it("sweeps expiring connection tokens once and emits attention.created", async () => {
+    await ensureConnectionExpiryAttention(db);
+    const expiring = await mintConnectionToken(db, {
+      scopePath,
+      name: "Expiry sweep token",
+      role: "viewer",
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    }, editorId);
+
+    await expect(ensureConnectionExpiryAttention(db)).resolves.toEqual({ created: 1, superseded: 0 });
+    await expect(ensureConnectionExpiryAttention(db)).resolves.toEqual({ created: 0, superseded: 0 });
+
+    const openItems = await listAttentionItems(db, { scopePath, kind: "connection_expiry", status: "open" }, adminId);
+    const tokenItems = openItems.filter((item: any) => item.payload?.tokenId === expiring.tokenId);
+    expect(tokenItems).toHaveLength(1);
+    expect(tokenItems[0]?.payload).toMatchObject({ tokenId: expiring.tokenId, state: "expiring", scopePath });
+
+    const events = await listEvents(db, { scopePath, type: "attention.created", limit: 20 });
+    expect(events.filter((event: any) => event.payload?.attentionItemId === tokenItems[0]?.id)).toHaveLength(1);
+  });
+
+  it("supersedes expiring attention when the token expires", async () => {
+    await ensureConnectionExpiryAttention(db);
+    const token = await mintConnectionToken(db, {
+      scopePath,
+      name: "Supersede token",
+      role: "viewer",
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    }, editorId);
+
+    await expect(ensureConnectionExpiryAttention(db)).resolves.toEqual({ created: 1, superseded: 0 });
+    await db.update(schema.tokens).set({ expiresAt: new Date(Date.now() - 60_000) }).where(eq(schema.tokens.id, token.tokenId));
+    await expect(ensureConnectionExpiryAttention(db)).resolves.toEqual({ created: 1, superseded: 1 });
+    await expect(ensureConnectionExpiryAttention(db)).resolves.toEqual({ created: 0, superseded: 0 });
+
+    const openItems = await listAttentionItems(db, { scopePath, kind: "connection_expiry", status: "open" }, adminId);
+    const tokenItems = openItems.filter((item: any) => item.payload?.tokenId === token.tokenId);
+    expect(tokenItems).toHaveLength(1);
+    expect(tokenItems[0]?.payload?.state).toBe("expired");
+
+    const resolvedEvents = await listEvents(db, { scopePath, type: "attention.resolved", limit: 20 });
+    expect(resolvedEvents.some((event: any) => event.payload?.kind === "connection_expiry")).toBe(true);
+  });
+
+  it("dismisses open expiry attention when revoking a token", async () => {
+    await ensureConnectionExpiryAttention(db);
+    const token = await mintConnectionToken(db, {
+      scopePath,
+      name: "Revoke expiry token",
+      role: "viewer",
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    }, editorId);
+    await ensureConnectionExpiryAttention(db);
+
+    await revokeConnectionToken(db, { tokenId: token.tokenId }, editorId);
+
+    const openItems = await listAttentionItems(db, { scopePath, kind: "connection_expiry", status: "open" }, adminId);
+    expect(openItems.some((item: any) => item.payload?.tokenId === token.tokenId)).toBe(false);
+    const resolvedEvents = await listEvents(db, { scopePath, type: "attention.resolved", limit: 20 });
+    expect(resolvedEvents.some((event: any) => event.payload?.kind === "connection_expiry")).toBe(true);
+  });
   it("enforces revoke matrix and emits connection.revoked", async () => {
     const own = await mintConnectionToken(db, { scopePath, name: "Own token", role: "viewer" }, editorId);
     const others = await mintConnectionToken(db, { scopePath, name: "Others token", role: "viewer" }, otherEditorId);
@@ -297,11 +394,15 @@ describe("connect module", () => {
   });
 
   it("bulk-revokes a subtree only, leaves siblings active, and emits one connection.bulk_revoked", async () => {
-    const parent = await mintConnectionToken(db, { scopePath, name: "Parent revoke", role: "viewer" }, editorId);
+    const parent = await mintConnectionToken(db, { scopePath, name: "Parent revoke", role: "viewer", expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) }, editorId);
     const child = await mintConnectionToken(db, { scopePath: childPath, name: "Child revoke", role: "viewer" }, editorId);
     const sibling = await mintConnectionToken(db, { scopePath: otherScopePath, name: "Sibling safe", role: "viewer" }, rootPrincipalId);
+    await ensureConnectionExpiryAttention(db);
 
     const result = await revokeScopeAccess(db, { scopePath }, adminId);
+
+    const openExpiryItems = await listAttentionItems(db, { scopePath, kind: "connection_expiry", status: "open" }, adminId);
+    expect(openExpiryItems.some((item: any) => item.payload?.tokenId === parent.tokenId)).toBe(false);
     expect(result.revokedCount).toBe(2);
     expect(result.scopePaths).toEqual([childPath, scopePath].sort());
 

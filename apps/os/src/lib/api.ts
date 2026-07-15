@@ -49,6 +49,7 @@ import {
   getConversationMessages,
   mintConnectionToken,
   listConnectionTokens,
+  ensureConnectionExpiryAttention,
   listConnections,
   listOAuthConnections,
   revokeConnectionToken,
@@ -283,6 +284,7 @@ export const api = {
     listConnectionTokens(db, input, actorPrincipalId),
   revokeConnectionToken: (input: Parameters<typeof revokeConnectionToken>[1], actorPrincipalId: string) =>
     revokeConnectionToken(db, input, actorPrincipalId),
+  ensureConnectionExpiryAttention: () => ensureConnectionExpiryAttention(db),
   listConnections: (input: Parameters<typeof listConnections>[1], actorPrincipalId: string) =>
     listConnections(db, input, actorPrincipalId),
   listOAuthConnections: (input: Parameters<typeof listOAuthConnections>[1], actorPrincipalId: string) =>

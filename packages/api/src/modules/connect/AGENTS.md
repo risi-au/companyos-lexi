@@ -23,6 +23,11 @@ All functions take `db: DB` first and are re-exported from `@companyos/api`.
 - `revokeScopeAccess(db, { scopePath }, actor)`: admin/owner on `scopePath`. Revokes all non-revoked connection tokens minted for that scope or descendants in one transaction and emits one `connection.bulk_revoked` event.
 - `revokePrincipalAccess(db, { principalId }, actor)`: offboards one principal by revoking every non-revoked token for that principal. The actor must be admin/owner on every scope where that principal has a grant. Emits one `connection.bulk_revoked` event.
 
+## Expiry attention and status
+
+- `listConnectionTokens` derives `status` in TypeScript after fetch with precedence `revoked > expired > never_used > active`; `revoked` remains for UI compatibility.
+- `ensureConnectionExpiryAttention(db)` has no actor. It creates idempotent `connection_expiry` attention items for non-revoked worker tokens expired or expiring within 7 days, supersedes expiring items when they become expired, emits attention events through the attention service helpers, and returns `{ created, superseded }`.
+- `revokeConnectionToken` dismisses open `connection_expiry` attention items for the token in the revoke flow before emitting `connection.revoked`.
 ## Files
 - `service.ts`
 - `connect.test.ts`

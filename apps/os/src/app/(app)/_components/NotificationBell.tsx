@@ -12,6 +12,7 @@ const KIND_LABELS: Record<string, string> = {
   lint_finding: "Lint finding",
   page_update: "Page update",
   external_gate: "External gate",
+  connection_expiry: "Worker token",
 };
 
 function ageLabel(value: string): string {
@@ -27,6 +28,11 @@ function ageLabel(value: string): string {
 
 function kindLabel(kind: string): string {
   return KIND_LABELS[kind] ?? kind.replaceAll("_", " ");
+}
+
+function itemHref(item: NotificationItem): string {
+  const tab = item.kind === "connection_expiry" ? "connect" : "overview";
+  return `/s/${item.scopePath}?tab=${tab}`;
 }
 
 export function NotificationBell({ initialItems, initialTotal }: { initialItems: NotificationItem[]; initialTotal: number }) {
@@ -136,7 +142,7 @@ export function NotificationBell({ initialItems, initialTotal }: { initialItems:
                 <Link
                   key={item.id}
                   ref={index === 0 ? firstItemRef : undefined}
-                  href={`/s/${item.scopePath}?tab=overview`}
+                  href={itemHref(item)}
                   onClick={() => setOpen(false)}
                   className="block rounded-[var(--radius-3)] px-[var(--space-2)] py-[var(--space-2)] hover:bg-[var(--hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--primary)]"
                 >

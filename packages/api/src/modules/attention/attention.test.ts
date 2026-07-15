@@ -15,7 +15,9 @@ import {
   AttentionStateError,
   countOpenAttentionItems,
   createAttentionItem,
+  createSystemAttentionItem,
   createScope,
+  dismissAttentionItemsInternal,
   ensurePersonalScope,
   getDoc,
   grantRole,
@@ -107,6 +109,41 @@ describe("attention module (PGlite + migrations)", () => {
     await expect(countOpenAttentionItems(db, { scopePath, includeDescendants: false }, viewerPrincipalId)).resolves.toBe(1);
   });
 
+  it("internal helpers create and dismiss items without grants while emitting events", async () => {
+    const scopePath = await createProject("attention-internal");
+    const [scope] = await db.select().from(schema.scopes).where(eq(schema.scopes.path, scopePath)).limit(1);
+    const [ungranted] = await db.insert(schema.principals).values({ kind: "agent", name: `Ungrant ${Date.now()}` }).returning();
+
+    const item = await createSystemAttentionItem(db, {
+      scopeId: scope.id,
+      kind: "connection_expiry",
+      title: "Worker token expires soon",
+      summary: "Expires on 2026-07-20T00:00:00.000Z.",
+      payload: { tokenId: "token-internal-1", name: "Worker", scopePath, state: "expiring", expiresAt: "2026-07-20T00:00:00.000Z" },
+      createdBy: ungranted.id,
+    });
+
+    expect(item.status).toBe("open");
+    expect(item.createdBy).toBe(ungranted.id);
+    const createdEvents = await listEvents(db, { scopePath, type: "attention.created", limit: 10 });
+    expect(createdEvents.some((event: any) => event.payload?.attentionItemId === item.id)).toBe(true);
+
+    await expect(dismissAttentionItemsInternal(db, {
+      kind: "connection_expiry",
+      payloadTokenId: "token-internal-1",
+      note: "token revoked",
+    })).resolves.toBe(1);
+
+    const [dismissed] = await db.select().from(schema.attentionItems).where(eq(schema.attentionItems.id, item.id)).limit(1);
+    expect(dismissed.status).toBe("dismissed");
+    expect(dismissed.resolvedBy).toBe(ungranted.id);
+    expect(dismissed.resolutionNote).toBe("token revoked");
+
+    const resolvedEvents = await listEvents(db, { scopePath, type: "attention.resolved", limit: 10 });
+    expect(resolvedEvents.some((event: any) => event.payload?.attentionItemId === item.id)).toBe(true);
+    const decisions = await listRecords(db, { scopePath, kind: "decision", limit: 10 }, adminPrincipalId);
+    expect(decisions.some((record: any) => record.data?.attentionItemId === item.id)).toBe(false);
+  });
   it("approves a wiki proposal, applies the doc, writes decision record, and emits events", async () => {
     const scopePath = await createProject("attention-approve");
     await saveDoc(db, { scopePath, slug: "wiki", title: "Wiki", bodyMd: "Old body" }, adminPrincipalId);

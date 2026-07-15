@@ -23,6 +23,7 @@ interface AdminConnectionRow {
   expiresAt: string | Date | null;
   lastUsedAt: string | Date | null;
   revoked: boolean;
+  status: "active" | "expired" | "revoked" | "never_used";
   scopePath: string;
 }
 
@@ -299,7 +300,7 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
                   </td>
                   <td className="px-[var(--space-3)] py-[var(--space-2)] tabular-nums">{formatDate(row.expiresAt)}</td>
                   <td className="px-[var(--space-3)] py-[var(--space-2)] tabular-nums">{formatDate(row.lastUsedAt)}</td>
-                  <td className="px-[var(--space-3)] py-[var(--space-2)]">{labelForConnectionStatus(row.revoked)}</td>
+                  <td className="px-[var(--space-3)] py-[var(--space-2)]">{labelForConnectionStatus(row.status)}</td>
                 </tr>
               ))
             )}
@@ -368,7 +369,7 @@ export function McpManagerView({ initialConnections }: { initialConnections: Adm
                       {labelForRole(row.role)}
                     </td>
                     <td className="px-[var(--space-3)] py-[var(--space-2)]">{row.name}</td>
-                    <td className="px-[var(--space-3)] py-[var(--space-2)]">{labelForConnectionStatus(row.revoked)}</td>
+                    <td className="px-[var(--space-3)] py-[var(--space-2)]">{labelForConnectionStatus(row.status)}</td>
                   </tr>
                 ))}
               </tbody>

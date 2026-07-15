@@ -81,8 +81,13 @@ export function labelForScopeStatus(status: string | null | undefined): string {
   return status ? fallbackTitle(status) : "-";
 }
 
-export function labelForConnectionStatus(revoked: boolean): string {
-  return revoked ? "Revoked" : "Active";
+export function labelForConnectionStatus(status: string | boolean | null | undefined): string {
+  if (typeof status === "boolean") return status ? "Revoked" : "Active";
+  if (status === "active") return "Active";
+  if (status === "expired") return "Expired";
+  if (status === "revoked") return "Revoked";
+  if (status === "never_used") return "Never used";
+  return status ? fallbackTitle(status) : "-";
 }
 
 

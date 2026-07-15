@@ -7,12 +7,12 @@ attention module.
 
 Render open attention items on scope overview pages and let users resolve the items they
 can act on from the OS. Approval items show compact context plus approve/reject buttons
-for admins. Targeted `page_update` items render in a separate "Following" section and
+for admins. `connection_expiry` items render in the main decisions section with Dismiss only. Targeted `page_update` items render in a separate "Following" section and
 only expose Dismiss.
 
 ## Files
 
-- `AttentionCard.tsx`: server component rendered by `apps/os/src/app/(app)/s/[...path]/page.tsx`; splits ordinary decision items from `page_update` following notifications.
+- `AttentionCard.tsx`: server component rendered by `apps/os/src/app/(app)/s/[...path]/page.tsx`; splits ordinary decision items from `page_update` following notifications and renders `connection_expiry` as dismiss-only.
 - `actions.ts`: server action wrapper for `api.resolveAttentionItem`.
 - `AGENTS.md`: this contract.
 
@@ -21,6 +21,7 @@ only expose Dismiss.
 - Fetch data through `@/lib/api` wrappers only.
 - Resolve writes go through `resolveAttentionItem`; the service applies wiki proposals,
   writes events/decision records for approval items, and dismisses targeted page updates.
+- `connection_expiry` rows show title/summary and only the Dismiss action; approve/reject buttons must not render for them.
 - `page_update` rows link back to the wiki page, show the last event and coalesced change
   count, and never render approve/reject affordances.
 - Use design tokens only. Keep this as an operational card, not a chat/thread surface.

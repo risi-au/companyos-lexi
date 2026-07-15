@@ -19,6 +19,7 @@ export const attentionKindEnum = pgEnum("attention_kind", [
   "external_gate",
   "page_update",
   "open_question",
+  "connection_expiry",
 ]);
 
 export const attentionStatusEnum = pgEnum("attention_status", [
@@ -63,7 +64,7 @@ export const attentionItems = pgTable(
 export interface AttentionItem {
   id: string;
   scopeId: string;
-  kind: "wiki_proposal" | "lint_finding" | "graduation" | "external_gate" | "page_update" | "open_question";
+  kind: "wiki_proposal" | "lint_finding" | "graduation" | "external_gate" | "page_update" | "open_question" | "connection_expiry";
   status: "open" | "approved" | "rejected" | "dismissed";
   title: string;
   summary: string | null;

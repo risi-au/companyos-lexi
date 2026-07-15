@@ -1,7 +1,7 @@
 # packages/api/src/modules/attention - AGENTS.md
 
 Generic attention and approval primitive for CompanyOS. User-facing surfaces call this
-"Things to resolve"; internal schema and events use `attention`.
+"Things to resolve"; internal schema and events use `attention`. It also provides internal system helpers for module-owned notification rows that must emit attention events without a human actor grant check.
 
 ## Purpose
 
@@ -15,7 +15,7 @@ one principal.
 
 - `attention_items`
   - `id`, `scope_id`
-  - `kind`: `wiki_proposal | lint_finding | graduation | external_gate | page_update | open_question`
+  - `kind`: `wiki_proposal | lint_finding | graduation | external_gate | page_update | open_question | connection_expiry`
   - `status`: `open | approved | rejected | dismissed`
   - `title`, `summary`, `payload`
   - `created_by`, nullable `target_principal_id`, `resolved_by`, `resolved_at`, `resolution_note`
@@ -32,11 +32,13 @@ one principal.
   the viewing principal.
 - `countOpenAttentionItems(db, input, actor)`: count-only helper for context banners
   with the same target-principal visibility filter as list.
+- `createSystemAttentionItem(db, input)`: internal helper for system-created rows. Inserts without grant checks using the provided `createdBy` principal and emits `attention.created`.
+- `dismissAttentionItemsInternal(db, input)`: internal helper for dismissing open rows by kind and `payload.tokenId`. Uses each item's `created_by` as `resolved_by`, emits `attention.resolved`, and creates no decision records.
 - `resolveAttentionItem(db, input, actor)`: requires admin/owner for approval items,
   only resolves open items. Approval of `wiki_proposal` calls `saveDoc` as the
   approving human; approval of `graduation` applies the embedded target wiki proposal
   the same way. `open_question` approval requires a non-empty resolution note; the
-  note is the answer and is included in the decision record. `page_update` items are
+  note is the answer and is included in the decision record. `connection_expiry` items are admin/owner dismiss-only and create no decision records. `page_update` items are
   target-principal-only and may only be dismissed by that principal with viewer access;
   they emit `attention.resolved` but do not create decision records. Other resolutions
   emit `attention.resolved` and create a `decision` record.
@@ -70,6 +72,13 @@ Open-question payloads are normalized at creation. `question` must be non-empty 
 `ordinal` must be a non-negative integer; invalid tags become null. Intake ordinals
 are unique per scope and intake for retry-safe provisioning.
 
+`connection_expiry` payload:
+
+```ts
+{ tokenId: string; name: string; scopePath: string; state: "expiring" | "expired"; expiresAt: string }
+```
+
+Connection expiry items are created by the connect service sweep for worker tokens only.
 `page_update` payload:
 
 ```ts

@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { and, desc, eq, gte, inArray, isNotNull, isNull, like, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, like, lt, lte, or, sql } from "drizzle-orm";
 import {
+  attentionItems,
   connections,
   grants,
   oauthClient,
@@ -16,8 +17,10 @@ import { grantRole, resolveAccess } from "../../kernel/grants";
 import { getScope } from "../../kernel/scopes";
 import { issueToken, revokeToken } from "../../kernel/tokens";
 import { AccessDeniedError, ScopeNotFoundError, TokenNotFoundError } from "../../errors";
+import { createSystemAttentionItem, dismissAttentionItemsInternal } from "../attention/service";
 
 export type ConnectionRole = "agent" | "viewer";
+export type ConnectionTokenStatus = "active" | "expired" | "revoked" | "never_used";
 
 const ROLE_RANK: Record<Grant["role"], number> = {
   owner: 5,
@@ -55,6 +58,7 @@ export interface ListedConnectionToken {
   expiresAt: Date | null;
   lastUsedAt: Date | null;
   revoked: boolean;
+  status: ConnectionTokenStatus;
   canRevoke: boolean;
 }
 
@@ -117,6 +121,20 @@ function subtreeCondition(scopePath: string) {
   return scopePath === "root"
     ? like(scopes.path, "%")
     : or(eq(scopes.path, scopePath), like(scopes.path, `${scopePath}/%`));
+}
+
+function connectionTokenStatus(
+  row: { revokedAt: Date | null; expiresAt: Date | null; lastUsedAt: Date | null },
+  now: Date
+): ConnectionTokenStatus {
+  if (row.revokedAt) return "revoked";
+  if (row.expiresAt && row.expiresAt.getTime() < now.getTime()) return "expired";
+  if (!row.lastUsedAt) return "never_used";
+  return "active";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 // Auth-boundary bookkeeping like authenticateTokenWithMetadata: no actor param because
@@ -303,6 +321,8 @@ export async function listConnectionTokens(
     if (mintedByIds.includes(row.id)) minterNames.set(row.id, row.name);
   }
 
+  const now = new Date();
+
   return (rows as any[])
     .filter((row) => row.role === "agent" || row.role === "viewer")
     .map((row) => ({
@@ -318,8 +338,91 @@ export async function listConnectionTokens(
       expiresAt: row.expiresAt,
       lastUsedAt: row.lastUsedAt,
       revoked: !!row.revokedAt,
+      status: connectionTokenStatus(row, now),
       canRevoke: !row.revokedAt && (actorIsAdmin || (actorIsEditor && row.mintedBy === actorPrincipalId)),
     }));
+}
+
+export async function ensureConnectionExpiryAttention(db: DB): Promise<{ created: number; superseded: number }> {
+  return db.transaction(async (tx: DB) => {
+    // Serialize concurrent sweeps (multi-instance deployments): the in-process
+    // throttle only guards one process, and check-then-insert would duplicate items.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('connection_expiry_sweep'))`);
+    const now = new Date();
+    const threshold = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    let created = 0;
+    let superseded = 0;
+
+    const candidates = (await tx
+      .select({
+        tokenId: tokens.id,
+        name: tokens.name,
+        expiresAt: tokens.expiresAt,
+        scopeId: connections.scopeId,
+        scopePath: scopes.path,
+        mintedBy: connections.mintedBy,
+      })
+      .from(connections)
+      .innerJoin(tokens, eq(connections.tokenId, tokens.id))
+      .innerJoin(scopes, eq(connections.scopeId, scopes.id))
+      .where(and(
+        isNotNull(connections.tokenId),
+        isNull(tokens.revokedAt),
+        isNotNull(tokens.expiresAt),
+        lt(tokens.expiresAt, threshold)
+      ))) as Array<{
+        tokenId: string;
+        name: string;
+        expiresAt: Date;
+        scopeId: string;
+        scopePath: string;
+        mintedBy: string;
+      }>;
+
+    for (const candidate of candidates) {
+      const state = candidate.expiresAt.getTime() < now.getTime() ? "expired" : "expiring";
+      const [openItem] = (await tx
+        .select({ id: attentionItems.id, payload: attentionItems.payload })
+        .from(attentionItems)
+        .where(and(
+          eq(attentionItems.kind, "connection_expiry"),
+          eq(attentionItems.status, "open"),
+          sql`${attentionItems.payload}->>'tokenId' = ${candidate.tokenId}`
+        ))
+        .limit(1)) as Array<{ id: string; payload: Record<string, unknown> }>;
+
+      if (openItem) {
+        const existingState = isRecord(openItem.payload) ? openItem.payload.state : null;
+        if (existingState === "expiring" && state === "expired") {
+          const dismissed = await dismissAttentionItemsInternal(tx, {
+            kind: "connection_expiry",
+            payloadTokenId: candidate.tokenId,
+            note: "superseded: token expired",
+          });
+          if (dismissed > 0) superseded += 1;
+        } else {
+          continue;
+        }
+      }
+
+      const expiresAt = candidate.expiresAt.toISOString();
+      await createSystemAttentionItem(tx, {
+        scopeId: candidate.scopeId,
+        kind: "connection_expiry",
+        title: state === "expired"
+          ? `Worker token "${candidate.name}" has expired`
+          : `Worker token "${candidate.name}" expires soon`,
+        summary: state === "expired"
+          ? `Expired on ${expiresAt}.`
+          : `Expires on ${expiresAt}.`,
+        payload: { tokenId: candidate.tokenId, name: candidate.name, scopePath: candidate.scopePath, state, expiresAt },
+        createdBy: candidate.mintedBy,
+      });
+      created += 1;
+    }
+
+    return { created, superseded };
+  });
 }
 
 export async function revokeConnectionToken(
@@ -353,6 +456,7 @@ export async function revokeConnectionToken(
 
   await db.transaction(async (tx: DB) => {
     await revokeToken(tx, row.tokenId, actorPrincipalId);
+    await dismissAttentionItemsInternal(tx, { kind: "connection_expiry", payloadTokenId: row.tokenId, note: "token revoked" });
     await emitEvent(tx, {
       type: "connection.revoked",
       scopePath: row.scopePath,
@@ -423,6 +527,8 @@ export async function listConnections(
 
   const minterNames = await listMinterNames(db, Array.from(new Set((rows as any[]).map((row) => row.mintedBy))));
 
+  const now = new Date();
+
   return (rows as any[])
     .filter((row) => row.role === "agent" || row.role === "viewer")
     .map((row) => ({
@@ -438,6 +544,7 @@ export async function listConnections(
       expiresAt: row.expiresAt,
       lastUsedAt: row.lastUsedAt,
       revoked: !!row.revokedAt,
+      status: connectionTokenStatus(row, now),
       scopePath: row.scopePath,
     }));
 }
@@ -470,6 +577,7 @@ export async function revokeScopeAccess(
 
     for (const row of rows) {
       await revokeToken(tx, row.tokenId, actorPrincipalId);
+      await dismissAttentionItemsInternal(tx, { kind: "connection_expiry", payloadTokenId: row.tokenId, note: "token revoked" });
     }
 
     const scopePaths = Array.from(new Set(rows.map((row) => row.scopePath))).sort();
@@ -523,6 +631,7 @@ export async function revokePrincipalAccess(
 
     for (const row of tokenRows) {
       await revokeToken(tx, row.tokenId, actorPrincipalId);
+      await dismissAttentionItemsInternal(tx, { kind: "connection_expiry", payloadTokenId: row.tokenId, note: "token revoked" });
     }
 
     const fallbackScopePaths = principalGrantScopes.map((row) => ({ scopePath: row.scopePath }));

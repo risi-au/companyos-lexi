@@ -13,7 +13,7 @@ Drizzle schema package for CompanyOS. Owns table definitions, typed row interfac
 - Vertical module tables live in separate files such as `documents.ts`, `agent.ts`, `sessions.ts`, and are re-exported by `src/schema/index.ts`.
 - `agent_sessions` includes nullable wrap-up fields from M10-03: `summary` text and `citations` jsonb. `citations` stores an array shaped like API memory citations: slug, scopePath, optional revisionId/title, and source.
 - `doc_follows` stores per-document/principal follows with a unique `(document_id, principal_id)` index and `principal_id` index.
-- `attention_kind` includes `page_update` and `open_question`; `attention_items.target_principal_id` scopes targeted attention rows to a single principal and is indexed with status. Intake-sourced open questions use a partial unique expression index on scope, intake id, and ordinal for idempotent provisioning.
+- `attention_kind` includes `page_update`, `open_question`, and `connection_expiry`; `attention_items.target_principal_id` scopes targeted attention rows to a single principal and is indexed with status. Intake-sourced open questions use a partial unique expression index on scope, intake id, and ordinal for idempotent provisioning.
 
 ## Migrations
 - Generate migrations with `pnpm --filter @companyos/db db:generate` from repo root.

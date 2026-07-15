@@ -24,6 +24,7 @@ interface ConnectionRow {
   expiresAt: string | Date | null;
   lastUsedAt: string | Date | null;
   revoked: boolean;
+  status: "active" | "expired" | "revoked" | "never_used";
   canRevoke: boolean;
 }
 
@@ -39,6 +40,12 @@ function canRevoke(access: AccessRole | null, row: ConnectionRow): boolean {
 
 function formatDate(value: string | Date | null | undefined): string {
   return value ? new Date(value).toLocaleString() : "-";
+}
+
+function statusClassName(status: ConnectionRow["status"]): string {
+  if (status === "expired" || status === "revoked") return "text-[var(--destructive)]";
+  if (status === "never_used") return "text-[var(--muted-foreground)]";
+  return "";
 }
 
 export function ConnectPanel({ scopePath, initialAccess }: { scopePath: string; initialAccess: AccessRole | null }) {
@@ -124,7 +131,7 @@ export function ConnectPanel({ scopePath, initialAccess }: { scopePath: string; 
                     <td className="py-[var(--space-2)] tabular-nums">{formatDate(row.createdAt)}</td>
                     <td className="py-[var(--space-2)] tabular-nums">{formatDate(row.expiresAt)}</td>
                     <td className="py-[var(--space-2)] tabular-nums">{formatDate(row.lastUsedAt)}</td>
-                    <td className="py-[var(--space-2)]">{labelForConnectionStatus(row.revoked)}</td>
+                    <td className={`py-[var(--space-2)] ${statusClassName(row.status)}`}>{labelForConnectionStatus(row.status)}</td>
                     <td className="py-[var(--space-2)]">{canRevoke(initialAccess, row) && !row.revoked ? <button type="button" aria-label={"Revoke " + row.name} title={"Revoke " + row.name} onClick={() => void onRevoke(row.tokenId)} className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--destructive)] text-[var(--destructive)] hover:bg-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"><Trash2 size={15} /></button> : <span className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">-</span>}</td>
                   </tr>
                 ))}
