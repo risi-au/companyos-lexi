@@ -82,6 +82,12 @@ Optional Claude Code path for Codex review: `docs/OPTIONAL-CLAUDE-CODEX.md`. Any
 1. Orchestrator commits on the task branch.
 2. PR to `main` with `Fixes #N` / `Closes #N`.
 3. **Owner merges.** Deploy via existing tag/staging path -- not untagged main.
+4. **Stacked PRs (base = another PR's branch): merge strictly bottom-up, one at a
+   time, letting each base branch auto-delete BEFORE merging the next** -- GitHub only
+   retargets a stacked PR to `main` when its base branch is deleted. Merging a stacked
+   PR while its base branch still exists lands it on that BRANCH, not `main` (bitten
+   2026-07-15: #60 "merged" 17s after #59 and never reached main; re-landed as #62).
+   Orchestrator verifies each landed commit is on `origin/main` before calling it merged.
 
 ## Rules for implementers
 
