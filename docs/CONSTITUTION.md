@@ -53,3 +53,26 @@
 
 - Each module tests its own service functions and MCP tools. The kernel has the deepest coverage (grants resolution, event emission, tree operations).
 - A task brief's acceptance criteria become tests. No green tests, no merge.
+
+## 11. Lean ladder (prefer less code)
+
+Before writing anything new, stop at the first rung that holds:
+
+1. Does this need to exist? If no, skip (YAGNI).
+2. Already in this codebase? Reuse it; do not rewrite.
+3. Stdlib / platform / framework feature? Use it.
+4. Already an installed dependency? Use it.
+5. Only then: the **minimum** that solves the stated problem.
+
+Never cut: grant checks, event emission on writes, tests for new logic, security boundaries, or accessibility for UI you touch. Lean is not negligence.
+
+## 12. Agent conduct (reduce LLM failure modes)
+
+Adapted from Karpathy-style coding guidelines (MIT). Bias: caution over speed; trivial tasks still use judgment.
+
+1. **Think before coding** -- State assumptions. If multiple interpretations exist, present them; do not pick silently. If unclear, stop and ask. Push back when a simpler approach exists.
+2. **Simplicity first** -- No features beyond the ask. No abstractions for single-use code. No speculative configurability. If it could be a third the size, rewrite.
+3. **Surgical changes** -- Touch only what the task requires. No drive-by refactors, comment rewrites, or "improvements" to adjacent code. Match existing style. Remove only orphans *your* change created; mention pre-existing dead code, do not delete it unless asked.
+4. **Goal-driven execution** -- Turn work into verifiable checks (failing test then fix; gate commands). Weak goals ("make it work") are not enough.
+
+Process loop (TRIP), models, and dispatch live in `ONBOARDING.md`, `docs/ORCHESTRATION.md`, and `docs/MODEL-POLICY.md` -- not a parallel constitution.

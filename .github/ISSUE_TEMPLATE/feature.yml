@@ -1,0 +1,52 @@
+name: Feature request
+description: Propose a new feature or improvement for CompanyOS
+title: "feat: "
+labels: ["feature", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        File product/tech features here. Agents pick these up via ONBOARDING.md (TRIP).
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What should exist after this ships?
+      placeholder: One short paragraph.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: User or business problem this solves.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Testable checklist items.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: dropdown
+    id: size-guess
+    attributes:
+      label: Size guess (optional)
+      options:
+        - unknown
+        - trivial
+        - standard
+        - heavy
+    validations:
+      required: false
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes / links
+      description: Design refs, related issues, modules you think are involved.
+    validations:
+      required: false

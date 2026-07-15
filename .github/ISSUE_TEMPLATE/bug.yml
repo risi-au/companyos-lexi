@@ -1,0 +1,51 @@
+name: Bug report
+description: Report a defect in CompanyOS
+title: "fix: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Prefer a reliable repro. Agents diagnose via ONBOARDING.md (TRIP bug path).
+  - type: textarea
+    id: symptom
+    attributes:
+      label: Symptom
+      description: What did you see?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+      description: What should have happened?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Repro steps
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: env
+    attributes:
+      label: Environment
+      options:
+        - local
+        - staging
+        - production
+        - unknown
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes / logs
+      description: No secrets. Paste redacted logs or screenshots descriptions only.
+    validations:
+      required: false

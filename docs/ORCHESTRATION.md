@@ -1,53 +1,138 @@
-# Build Orchestration Protocol
+# Build Orchestration Protocol (TRIP)
 
-*How this repo gets built: Claude (Fable) orchestrates and reviews; Grok implements. Coordination happens through files in this repo — never through chat memory.*
+*How work gets done in this repo. Coordination happens through files and GitHub Issues -- never through chat memory alone. Platform-agnostic: Orca, Claude Code, Codex, Grok, or others.*
+
+Entry for new agents: **`ONBOARDING.md`**. Hard rules: **`docs/CONSTITUTION.md`**. Models: **`docs/MODEL-POLICY.md`**. CLI recipes: **`docs/SUBAGENTS.md`**.
 
 ## Roles
 
-- **Architect/Reviewer (Claude Fable, in Claude Code):** writes task briefs, reviews every diff against the brief + CONSTITUTION.md, runs tests, merges or writes fix lists. Owns kernel contracts, architecture decisions, and anything an implementer circles on twice.
-- **Implementer (Grok, headless; Codex as fallback/for harder tasks):** executes exactly one task brief per run. Invoked as:
-  ```
-  grok -p "Read docs/ORCHESTRATION.md, then implement docs/tasks/<BRIEF>.md exactly. Respect docs/CONSTITUTION.md." --cwd <repo> --permission-mode acceptEdits --check
-  ```
-  See **docs/SUBAGENTS.md** for known CLI failure modes (do NOT pass `--effort high` to grok; close stdin for codex), the codex invocation template, and the mandatory post-run verification checklist.
-- **Owner (Rishi):** approves milestones, makes product calls, provides credentials/accounts when needed.
+| Role | Who | Owns |
+|---|---|---|
+| **Owner** | Rishi | Product calls, merges to main, credentials, expensive-model approval |
+| **Orchestrator** | Chat agent (often Claude Fable / frontier) | Triage, plans, briefs, dispatch, verify, commit, PR |
+| **Implementer** | Headless/worker agent (codex, grok, ...) | Exactly one brief; no commit by default |
+| **Reviewer** | Fresh session/model for non-trivial work | Diff vs plan + constitution; verdict only |
 
-## The loop
+Default: **coordinator commits; implementers never commit** unless the dispatch prompt explicitly says they own commits.
 
-1. Architect writes `docs/tasks/M<x>-<nn>-<slug>.md` (template below) and creates a branch `task/M<x>-<nn>`.
-2. Implementer runs on that branch. Commits with message `M<x>-<nn>: <summary>`.
-3. Architect reviews: diff vs brief, constitution compliance, tests pass.
-   - **Pass** → merge to main, mark brief `status: done`, next brief.
-   - **Fail** → write `docs/tasks/<BRIEF>.review.md` with a concrete numbered fix list; implementer re-runs with the review file as input; repeat (max 2 cycles, then architect takes over the task).
-4. Milestone complete → owner walkthrough → tag release.
+## TRIP loop
+
+```text
+INTAKE -> TRIAGE -> PLAN (if non-trivial) -> IMPLEMENT -> GATE -> REVIEW -> RELEASE
+```
+
+### 1. Intake
+
+Work starts as a **GitHub Issue** on `risi-au/companyos` (`feature` or `bug` template), or the owner pastes an equivalent request. Prefer an issue so the board stays the queue.
+
+### 2. Triage (decide self vs orchestrate)
+
+| Class | Criteria | Who codes | Plan file? |
+|---|---|---|---|
+| **Trivial** | Few lines, obvious, low risk, single module | Same agent may implement | Optional |
+| **Standard** | Multi-file or behavior change | Plan + implementer dispatch | **Required** |
+| **Heavy** | Schema/API/kernel, multi-module, security | Plan + mid/expensive lane per MODEL-POLICY | **Required** |
+
+State the class and assumptions out loud. If unclear, stop and ask the owner (Karpathy: think before coding).
+
+### 3. Plan (non-trivial)
+
+Write under `docs/tasks/` using:
+
+- `docs/tasks/_TEMPLATE-feature.plan.md` or
+- `docs/tasks/_TEMPLATE-bugfix.plan.md`
+
+Naming: `FEAT-<slug>.plan.md` / `FIX-<slug>.plan.md` (or legacy `M<x>-...` for milestones).
+
+Plan contains: overview, file-level steps, files-to-modify, test impact, phased to-dos, acceptance criteria. **No production code in the plan.**
+
+### 4. Implement
+
+- Branch: `task/<slug>` (feature) or `fix/<slug>` (bug). Never push directly to `main`.
+- Implementer brief (below) pins paths so workers do not re-explore.
+- Dispatch: `docs/SUBAGENTS.md` / `scripts/dispatch-codex.ps1`. Models: `docs/MODEL-POLICY.md`.
+- Surgical changes only; lean ladder in CONSTITUTION.
+
+### 5. Gate (before claiming done)
+
+From repo root, all green, no exceptions:
+
+```bash
+pnpm typecheck && pnpm lint && pnpm test
+```
+
+New logic needs tests (service tests in `packages/api`, helper tests near the code). Orchestrator re-runs gates; never trust implementer "green" alone.
+
+### 6. Review (non-trivial)
+
+Fresh session/model reviews the **diff against the plan** + CONSTITUTION.
+
+Verdicts:
+
+- `APPROVED`
+- `REQUEST_CHANGES` (concrete fix list; re-run implementer)
+- `NEEDS_REWORK` (plan or approach wrong; re-plan)
+
+Cap **5** review rounds. Critical/Major findings block release. Flag drive-by edits and overbuild as Major.
+
+Optional Claude Code path for Codex review: `docs/OPTIONAL-CLAUDE-CODEX.md`. Any fresh model is valid.
+
+### 7. Release
+
+1. Orchestrator commits on the task branch.
+2. PR to `main` with `Fixes #N` / `Closes #N`.
+3. **Owner merges.** Deploy via existing tag/staging path -- not untagged main.
 
 ## Rules for implementers
 
-- Touch only files the brief names or that live inside the brief's module.
-- Never modify: `docs/DESIGN.md`, `docs/CONSTITUTION.md`, kernel schema, MCP tool signatures — flag instead if the brief seems to require it.
-- Update the module's `AGENTS.md` in the same commit.
-- Acceptance criteria → tests, in the same commit. If a criterion can't be met, say so in the commit body; don't fake it.
+- Touch only files the brief/plan names or that live inside the brief's module.
+- Never modify without flagging: `docs/DESIGN.md`, `docs/CONSTITUTION.md`, kernel schema, MCP tool signatures (if the brief seems to require it, stop and report).
+- Update the module's `AGENTS.md` in the same change set when the contract changes.
+- Acceptance criteria become tests. If a criterion cannot be met, say so; do not fake it.
+- Do not commit unless the dispatch prompt says you own commits.
+- On usage limits: print `LIMIT-ALERT:` and stop.
 
-## Task brief template
+## Implementer brief template
 
 ```markdown
-# M<x>-<nn>: <title>
+# <slug>: <title>
 status: todo | in-progress | done
 module: <kernel | module name | infra>
-branch: task/M<x>-<nn>
+branch: task/<slug> | fix/<slug>
+issue: #<n>
+plan: docs/tasks/<plan-file>.md
 
 ## Goal
-<one paragraph — what exists after this task that didn't before>
+<one paragraph>
 
 ## Context
-<pointers to DESIGN.md sections, existing files, prior tasks>
+<pointers to plan, DESIGN.md, module AGENTS.md, pinned paths>
 
 ## Do
-<numbered, concrete steps>
+1. ...
 
 ## Don't
-<explicit exclusions and files not to touch>
+- Drive-by refactors
+- Commit (unless dispatch says otherwise)
+- Touch USER DATA/, legacy/, .env*, vps-login.txt
 
 ## Acceptance criteria
-<checklist — each one testable>
+- [ ] ...
+- [ ] Gates: pnpm typecheck && pnpm lint && pnpm test
 ```
+
+## Finish report (required when claiming done)
+
+```text
+Files changed:
+- path -- one line why
+Deviations from plan: <none | rationale>
+Left undone: <none | list>
+Gate: lint: <ok|fail> | typecheck: <ok|fail> | tests: N passed
+```
+
+Never claim done with a failing gate. Never mark a plan checkbox the diff does not satisfy.
+
+## Historical note
+
+Older milestone briefs (`M1-...`, `UX-...`) remain valid historical records. New work uses GitHub Issues + FEAT/FIX plans (or milestone overviews when the owner opens a new M-series).

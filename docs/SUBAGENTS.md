@@ -1,27 +1,28 @@
 # Subagent Dispatch Guide (grok / codex)
 
-*Companion to ORCHESTRATION.md. That doc defines roles and the review loop; this one is the operational manual for invoking the headless implementer CLIs without tripping over their known failure modes. Update it whenever a new failure mode is discovered.*
+*Companion to ORCHESTRATION.md (TRIP). That doc defines roles and the review loop; this one is the operational manual for invoking the headless implementer CLIs without tripping over their known failure modes. Update it whenever a new failure mode is discovered.*
+
+**Entry:** `ONBOARDING.md` (triage: self vs orchestrate). **Models:** `docs/MODEL-POLICY.md` (confirm expensive with owner). Optional Claude Code Codex plugin: `docs/OPTIONAL-CLAUDE-CODEX.md`.
 
 ## Orchestrator role & token budget (read this first)
 
-The orchestrator is a frontier Claude model (e.g. Opus) — **the single most token-expensive
-resource in the loop, and its context window is the scarce thing to protect.** It must not
-do the implementation itself. Its entire job is four cheap steps:
+The orchestrator is often a frontier model (e.g. Claude Opus) -- **the single most token-expensive
+resource in the loop, and its context window is the scarce thing to protect.** For non-trivial
+work it must not do the bulk of implementation itself. Its job is:
 
-1. **Brief** — write a tight task brief (Do / Don't / Acceptance criteria). Pin exact file
-   paths so implementers don't have to re-explore.
-2. **Dispatch** — hand the actual coding to a cheaper, capable implementer (codex, grok, or
-   a Claude Agent subagent — see below). One implementer owns one module in one worktree.
-3. **Verify** — confirm the work is correct: re-run `pnpm typecheck && lint && test`
-   yourself and review the **diff** against the brief. Never trust an implementer's "green"
-   claim.
-4. **Merge** — commit (implementers often can't) and merge the PR to `main` (staging). This
-   is a couple of `git`/`gh` calls — keep it that cheap.
+1. **Triage** -- trivial vs standard vs heavy; self-implement only when trivial is clearly cheaper.
+2. **Brief** -- tight task brief (Do / Don't / Acceptance criteria). Pin exact file paths so
+   implementers don't have to re-explore. Link the plan for standard/heavy.
+3. **Dispatch** -- hand coding to a cheaper capable implementer (codex, grok, or another
+   worker). One implementer owns one module in one worktree. Model tier: MODEL-POLICY.md.
+4. **Verify** -- re-run `pnpm typecheck && pnpm lint && pnpm test` yourself and review the
+   **diff** against the brief/plan. Never trust an implementer's "green" claim.
+5. **Commit + PR** -- implementers do not commit by default; orchestrator commits; owner merges.
 
 Token discipline (do all of these):
 
-- **Delegate implementation always.** Only edit code inline for a genuinely trivial
-  one-liner where dispatching would cost more than the edit. Anything substantial → dispatch.
+- **Delegate non-trivial implementation.** Only edit code inline for genuinely trivial
+  work where dispatching would cost more than the edit. Anything substantial -> dispatch.
 - **Don't read whole codebases into orchestrator context.** To gather the structural map a
   brief needs, spawn an `Explore` or general-purpose subagent and consume its *summary* —
   don't open twenty files yourself.
