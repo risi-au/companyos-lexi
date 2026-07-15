@@ -5,6 +5,13 @@ deliverable is ONE portable MCP surface that arms any MCP-capable client in-band
 per-platform "integrations" are thin recipes + conformance tests, never bespoke builds.
 Claude (Max) is the reference integration; Hermes Agent is the second, proving
 tool-agnosticism. Queued after M10.
+**Amended 2026-07-16 after the #53 arc (PRs #55/#59/#62, all merged + staging-deployed):
+M11-01's headline server-side auth build shipped early — OAuth 2.1 AS (DCR + PKCE +
+JWKS + consent) dual-mode with `cos_` bearer on `/api/mcp`, an in-product connect
+wizard for 7 platforms (OAuth-first, token lane behind an explicit action), truthful
+token status, `oauth_connections` first/last-use tracking, and expiry bell
+notifications. Decisions 2/4/12 and the brief breakdown below carry per-item DONE /
+remaining annotations; unannotated scope is untouched.**
 depends on: M10-01 (attention/approval primitive), M10-02 (personal wikis),
 M10-03 (citations/wrap-up contract). Serves the assistants direction
 (`C:\dev\Feature Requests\2026-07-08-META-ADS-AUTOMATION-AND-ASSISTANTS-SESSION-RECORD.md`).
@@ -43,21 +50,27 @@ exists; the OS session is the only shared state.
 1. **One MCP surface, any platform.** No kernel code, endpoints, or tool variants per
    client. If a platform "integration" needs server-side special-casing, the design is
    broken — fix the shared surface instead.
-2. **Auth meets every client where it is:** static bearer `cos_` tokens (config-file
-   tools: Hermes, Claude Code, n8n) AND OAuth 2.1 with dynamic client registration +
-   PKCE (strict hosted clients: claude.ai custom connectors, ChatGPT). Both paths mint
-   the same principal/grant semantics. Streamable HTTP transport. This is the main new
-   server-side build in M11.
+2. **Auth meets every client where it is:** static bearer `cos_` tokens AND OAuth 2.1
+   with dynamic client registration + PKCE. Both paths mint the same principal/grant
+   semantics. Streamable HTTP transport. **DONE 2026-07-15 (#55, issue #53 PR1)** —
+   this was "the main new server-side build in M11" and it exists: AS metadata + DCR +
+   authorize/token/consent + JWKS in-process via better-auth `@better-auth/oauth-provider`,
+   dual-mode bearer on `/api/mcp`, RFC 9728 protected-resource metadata, spec-correct
+   401 `WWW-Authenticate`. One wording update: Claude Code is now an OAuth client too
+   (`claude mcp add` + `claude mcp login`); static bearer remains the lane for
+   Hermes, n8n, and headless workers only.
 3. **The ritual is a server property** (server instructions + prompts, decision above).
    Per-tool context files (Claude Project instructions, Hermes profile context,
    CLAUDE.md) become thin reinforcement — one pointer line — not the carrier.
 4. **Claude (Max) is the reference daily driver.** claude.ai Project per CoS project
    (custom instructions = reinforcement line), project-partitioned memory is a
    well-behaved cache, connectors on web/desktop/mobile/Claude Code under one sub,
-   frontier models flat-rate. **Account-level token model documented:** hosted clients
-   connect once per account with one personal token (grants span the user's projects;
-   scope resolves server-side per session) — correct for human principals, bigger
-   blast radius, noted in the recipe.
+   frontier models flat-rate. **Identity model updated 2026-07-16 (supersedes the
+   "account-level personal token" language, which predated the OAuth provider):**
+   hosted clients connect once per account via OAuth — the connection authenticates as
+   the human principal with that user's grants; **no personal token is minted at all**
+   (grants span the user's projects; scope resolves server-side per session). Personal
+   `cos_` tokens for humans are no longer part of any recipe.
 5. **Hermes Agent is the second integration** (profile-per-project, per-profile scoped
    bearer tokens, self-hosted on the owner's VPS). Its job in M11 is proving the
    surface is tool-agnostic: two very different clients, zero server difference.
@@ -91,25 +104,32 @@ exists; the OS session is the only shared state.
     all apps; the credential is what distinguishes them. Terminal agents launched via
     a multiplexer (e.g. Orca) inherit the host tool's token and are told apart by
     session, not credential.
+    **Substrate DONE 2026-07-15 (#59/#62):** `oauth_connections` records per-app
+    first/last authenticated use per (oauth client, principal); `listOAuthConnections`
+    exposes a self-view; worker tokens show truthful derived status
+    (Active/Expired/Revoked/Never used) + last-used. **Remaining:** the unified
+    connected-apps list UI (OAuth apps alongside tokens), per-app OAuth revoke
+    (refresh-token/consent revocation), and sessions-started counts.
 
 ## Brief breakdown
 
-- **M11-01 universal MCP surface:** OAuth 2.1 + DCR + PKCE alongside static bearer
-  (same principal semantics); streamable HTTP hardening; server instructions carrying
-  the ritual; `start_task`/`wrap_up` MCP prompts; tool-surface audit (names, counts,
-  descriptions written for any model — some clients degrade with large tool lists);
-  **conformance matrix**: claude.ai (web/desktop/mobile), Claude Code, Hermes, Codex,
-  Cursor — connect, list tools, run the ritual, join a session, answer an attention
-  item. First checkpoint (do this week, gates everything): verify the current
-  endpoint from claude.ai's custom-connector flow.
-  Includes a **Connect-panel legibility fix** — at scope level the panel must
-  distinguish three different things that currently blur: (a) "you're already
-  connected" (humans ride account-level grants; no per-scope connect ritual),
-  (b) "connect this scope's platforms" (Meta/Shopify/etc. → vault credentials, the
-  connect-once promise), (c) "mint a worker token" (narrow tokens for non-human
-  principals only). Scope-level OS-token minting for humans with existing grants is
-  redundant and the UI should say so.
-- **M11-02 reference integrations:** Claude Max recipe (Projects, account-level token,
+- **M11-01 universal MCP surface** *(re-scoped 2026-07-16 — the auth half shipped via
+  issue #53)*:
+  - **DONE:** OAuth 2.1 + DCR + PKCE alongside static bearer, same principal semantics
+    (#55). Connect-panel legibility largely fixed by the wizard (#59): (a) humans
+    default to OAuth — no token minted or shown; (c) worker tokens are an explicit
+    "Use a worker token instead" lane for non-human principals. Remaining sliver:
+    (b) platform/vault credentials still live in the separate Credentials tab, not
+    unified into the connect surface.
+  - **REMAINING:** streamable HTTP hardening; server instructions carrying the ritual;
+    `start_task`/`wrap_up` MCP prompts; tool-surface audit (names, counts,
+    descriptions written for any model — some clients degrade with large tool lists);
+    **conformance matrix**: claude.ai (web/desktop/mobile), Claude Code, Hermes, Codex,
+    Cursor — connect, list tools, run the ritual, join a session, answer an attention
+    item. First checkpoint (gates everything): verify the staging endpoint from
+    claude.ai's custom-connector flow and Claude Code via the wizard — the last open
+    #53 checkbox (owner smoke).
+- **M11-02 reference integrations:** Claude Max recipe (Projects, OAuth connect,
   memory posture) and Hermes recipe (profiles, VPS install, memory posture) as
   skills-repo content. Both encode **scope pinning**: each workspace container
   (claude.ai Project / Hermes profile) carries one line pinning its default scope
@@ -117,13 +137,19 @@ exists; the OS session is the only shared state.
   parameter, session-anchored after kickoff); per-scope tokens are for non-human
   principals only. Sessions-doc update (decision 7);
   end-to-end acceptance scenario run on a real project scope through BOTH drivers.
+  **Scope note 2026-07-16:** connect *steps* now live in-product — the wizard
+  (`apps/os/src/modules/connect/platforms.ts`) carries verified per-platform setup for
+  all 7 platforms. Recipes must NOT duplicate them (two sources of connect truth will
+  drift); a recipe is the non-connect half only — memory posture, scope pinning,
+  Project/profile setup — plus a pointer at the wizard.
 - **M11-03 attention delivery:** n8n workflow polling attention MCP tools → messaging;
   round-trip verified from phone (notification → mobile client → answer over MCP).
   Needs M10-01. Hermes-gateway variant documented, optional.
 - **M11-04 recipe library + extras:** remaining tool recipes (Codex, ChatGPT,
-  claude.ai Team contexts) following the M11-02 template; integration-health
-  surfacing (decision 11); optional `companyos` Hermes memory plugin (decision 10,
-  needs M10-02).
+  claude.ai Team contexts) following the M11-02 template — same scope note as M11-02:
+  connect steps are the wizard's job now, recipes carry only the non-connect half;
+  integration-health surfacing (decision 11); optional `companyos` Hermes memory
+  plugin (decision 10, needs M10-02).
 
 Dependencies: M11-01 first (everything rides the surface); M10-01 → M11-03;
 M11-02 needs M11-01 + a stable wrap-up contract (M10-03; session registry suffices

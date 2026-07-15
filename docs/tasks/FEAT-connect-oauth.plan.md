@@ -1,6 +1,6 @@
 # FEAT-connect-oauth: Seamless MCP connect — OAuth provider, wizard, live status
 
-status: in-progress
+status: done (2026-07-15; staging OAuth smoke = last open checkbox, owner)
 type: feature
 issue: #53
 module: multi (kernel-adjacent auth + connect + attention)
@@ -193,22 +193,44 @@ Closes #53.
 
 - [x] PR 1: OAuth foundation (brief dispatched to codex gpt-5.6-terra/high)
 - [x] PR 1: gates green, adversarial security review (fresh session), owner merged (#55)
-- [ ] Staging smoke: connect Claude Code + ChatGPT connector via OAuth end-to-end
-- [ ] PR 2: wizard plan + brief + dispatch
-- [ ] PR 3: status/notifications plan + brief + dispatch
-- [ ] Module AGENTS.md updated each PR
+- [ ] Staging smoke: connect Claude Code + ChatGPT connector via OAuth end-to-end (owner)
+- [x] PR 2: wizard plan + brief + dispatch — merged (#59), security review fixes in
+- [x] PR 3: status/notifications plan + brief + dispatch — merged (#62; re-landed after
+      #60 hit the stacked base branch, see ORCHESTRATION §7)
+- [x] Module AGENTS.md updated each PR
 
 ## Acceptance criteria (feature-level)
 
-- [ ] A user can connect Claude Code, Cursor, VS Code, Codex, ChatGPT, claude.ai to the
+- [x] A user can connect Claude Code, Cursor, VS Code, Codex, ChatGPT, claude.ai to the
       CompanyOS MCP server without ever copying a raw token (OAuth consent flow).
-- [ ] Legacy `cos_` tokens keep working unchanged (headless workers, unsupported platforms).
-- [ ] Wizard guides platform-specific setup and ends with a live "Connected" confirmation.
-- [ ] Token/connection lists show truthful derived status; expiry raises a bell notification.
+      Verified in dev end-to-end; staging smoke against real clients is the owner's
+      remaining checkbox.
+- [x] Legacy `cos_` tokens keep working unchanged (headless workers, unsupported platforms).
+- [x] Wizard guides platform-specific setup and ends with a live "Connected" confirmation
+      (browser-verified: OAuth poll flips to Connected on first authenticated call).
+- [x] Token/connection lists show truthful derived status; expiry raises a bell notification
+      (browser-verified against the dev DB with a demo Expired token).
 
-## Finish report (fill when done)
+## Finish report (filled 2026-07-15)
 
-- Files changed:
+- Files changed: per the three per-PR tables above — PR1 #55 (OAuth AS + dual-mode auth +
+  well-known routes + consent), PR2 #59 (platforms.ts catalog, ConnectWizard, ConnectPanel
+  restructure, oauth_connections + migration 0029, touchOAuthConnection), PR3 #62
+  (derived status, connection_expiry kind + migration 0030, sweep + throttle, bell
+  deep-link, AttentionCard render, labelForConnectionStatus). Session handoff:
+  docs/HANDOFF-2026-07-15-connect-oauth-prs.md.
 - Deviations from plan:
-- Left undone:
-- Gate:
+  - 0028_snapshot.json prevId repaired in the PR2 branch (owner-approved) after
+    db:generate proved hard-broken by it; migration 0029 trimmed of re-emitted applied
+    objects + snapshot prevId hand-linearized (timestamp-snapshot ordering root cause —
+    see packages/db/AGENTS.md landmine note and issue #56).
+  - PR3 landed as #62: original #60 was merged into the stacked base branch before
+    branch deletion, re-landed via cherry-pick; rule captured in docs/ORCHESTRATION.md §7.
+  - Security-review fixes folded in: transactional first-use event, fire-and-forget
+    connection touch, bounded wizard polling, auth-check-before-sweep, advisory-locked
+    sweep, bulk-revoke attention dismissal.
+- Left undone: staging OAuth smoke via real Claude Code + ChatGPT clients (owner);
+  connected-apps list UI + per-app OAuth revoke (M11-01 remaining scope, decision 12).
+- Gate: typecheck/lint/test green on every PR; Playwright browser verification of
+  wizard + status + bell against the real Docker dev DB; staging deploy green with
+  live-verified PRM/AS metadata + 401 contract.

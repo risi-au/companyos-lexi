@@ -1,6 +1,6 @@
 # FIX-drizzle-meta-guardrail: stop drizzle meta/ chain rot at the source
 
-status: in-progress
+status: done (guardrail merged #58, allowance trimmed #64; historical rebuild deferred)
 type: bugfix
 issue: #56
 module: packages/db
@@ -73,11 +73,11 @@ fix the chain instead.
 
 ## Acceptance criteria
 
-- [ ] Chain-consistency test exists, runs in `pnpm test`, green on current main
-- [ ] Frozen allowlist matches the facts above exactly; adding a future migration without
+- [x] Chain-consistency test exists, runs in `pnpm test`, green on current main
+- [x] Frozen allowlist matches the facts above exactly; adding a future migration without
       a snapshot fails the suite
-- [ ] AGENTS.md rule landed in the same PR
-- [ ] Historical rebuild explicitly deferred — noted on issue #56, not attempted
+- [x] AGENTS.md rule landed in the same PR
+- [x] Historical rebuild explicitly deferred — noted on issue #56, not attempted
 
 ## Finish report (filled 2026-07-15)
 
@@ -97,3 +97,15 @@ fix the chain instead.
 - Left undone: historical snapshot rebuild + root-cause confirmation (deferred by design);
   optional `0028.prevId` one-field repair (owner decision).
 - Gate: typecheck ok | lint ok (14/14) | tests 378 passed (44 files, incl. 4 new)
+
+### Addendum (2026-07-15, post-merge)
+
+- The `0028.prevId` repair WAS done (owner-approved, landed with #59); the now-stale
+  `HISTORICAL_DUPLICATE_PARENTS` allowance + 0028 walk jump were trimmed in #64 —
+  the guardrail now enforces zero duplicate-parent exceptions.
+- Root cause CONFIRMED: drizzle-kit sorts the timestamp-named `20260710083235` snapshot
+  above every `00NN` prefix and uses it as the diff base, so every `generate` re-emits
+  applied objects and writes colliding prevIds. Procedure (trim SQL + hand-linearize
+  snapshot prevId, owner-approved repair class) documented in `packages/db/AGENTS.md`.
+- Deferred remainder tracked on issue #56: historical snapshot rebuild + renaming the
+  timestamp migration so `generate` stops mis-basing.

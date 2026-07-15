@@ -44,25 +44,37 @@ runbook line in `docs/PROD-SETUP.md`, or (c) a product fix that removes the foot
       root admin + typed-name confirmation (GitHub-style) and shows a badge in the
       Connect table. Today ANY principal with mint access can revoke them behind a
       single generic confirm — one misclick silently kills backups alerting or the
-      brain.
+      brain. *(Build note 2026-07-16: the Connect table now has a derived-status
+      column — Active/Expired/Revoked/Never used, #62; the badge should extend that
+      cell, not the old boolean.)*
 - [ ] **Admin-role minting in the UI**: brain-engine had to be minted as agent then
       elevated via SQL UPDATE. Either support admin minting (root-admin-gated) or
       document the elevation as an explicit runbook step — no more improvised SQL.
 - [ ] **Rotation runbook**: brain-engine token + skills-repo PAT both expire
       ~2026-10-05 (90d mints from 2026-07-07). /admin/health surfaces expiry; write the
       rotation steps BEFORE the first rotation is due, then rotate on staging once as
-      the drill.
+      the drill. *(2026-07-16: the header bell now raises `connection_expiry`
+      attention items automatically — 7-day warning + expired, deep-linking to the
+      connect tab (#62). Connect-minted tokens (both of the above) get this for free;
+      the runbook can count on the warning rather than health-panel-only visibility.)*
 - [ ] Policy: no non-expiring agent tokens on root (agent role reaches
-      `get_credential`); 90d default; expiry presets reviewed.
+      `get_credential`); 90d default; expiry presets reviewed. *(Conflict to resolve
+      at activation: the connect wizard's worker-token lane still offers a "None"
+      expiry preset — remove or root-gate it when this policy lands.)*
 
 ## 3. Security hardening (pre-live pass)
 
 - [ ] Dedicated security review of the exposed surfaces: better-auth flows
-      (sign-up/sign-in/temp-password), `/api/mcp` (token auth, Origin allowlist),
-      `/api/v1/*` (n8n + capability report), webhook handler (secret validation,
-      replay). Use the /security-review process; fix or accept-with-rationale every
-      finding.
+      (sign-up/sign-in/temp-password), `/api/mcp` (dual-mode token auth, Origin
+      allowlist), **the OAuth AS surface added by #53** (authorize/token endpoints,
+      unauthenticated DCR, consent page, JWKS, `/.well-known/*` metadata,
+      `oauth_connections` tracking), `/api/v1/*` (n8n + capability report), webhook
+      handler (secret validation, replay). PR-level adversarial reviews ran for
+      #55/#59/#62 but the pre-live pass must cover the assembled surface end-to-end.
+      Use the /security-review process; fix or accept-with-rationale every finding.
 - [ ] Rate limiting / abuse guard on auth endpoints and `/api/mcp` (none today).
+      *(Urgency raised 2026-07-16: DCR is an unauthenticated public registration
+      endpoint by MCP-spec design — an obvious spam/abuse target once live.)*
 - [ ] Security headers pass (CSP, HSTS via tunnel config, frame-ancestors, etc.).
 - [ ] Dependency hygiene: `pnpm audit` clean or triaged; enable automated dependency
       PRs (Renovate/Dependabot) with the gates as the merge bar.
