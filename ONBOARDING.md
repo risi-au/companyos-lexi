@@ -174,6 +174,24 @@ Refresh `docs/HANDOFF-<date>-<slug>.md` if the session was long or mid-flight. R
 learnings per §9. Update issue labels. Do not leave a failing gate claimed green. If any
 fact in §4 changed (ports, containers, worktree layout), fix it here in the same commit.
 
+### Session retro (required — this is how the process improves itself)
+
+Before you stop, spend a few minutes asking: **what slowed this session down, and how does
+the next agent avoid it?** Then commit those fixes to the shared layer so they compound.
+
+1. List 1-3 concrete friction points (a tool that failed, a wrong lane, wasted tokens, a
+   landmine, a missing guardrail). Be specific — "codex sandbox X errored, fix is Y", not
+   "dispatch was hard".
+2. Route each to the most-shared doc it belongs in (§9 table): dispatch/tooling → `docs/SUBAGENTS.md`;
+   model/lane choice → `docs/MODEL-POLICY.md`; process/loop → `docs/ORCHESTRATION.md` or this file;
+   environment facts → §4 here. Private memory is a cache only, never the home for a shared learning.
+3. Land it the same session — a docs branch + PR is fine (owner merges). A learning that
+   only lives in this chat or in private memory did not improve the process.
+
+Bias toward cheaper lanes and fewer orchestrator tokens each iteration: if you did research,
+a mechanical edit, or a broad file sweep in frontier context that grok/codex/`Explore` could
+have done, say so in the retro and adjust the relevant doc so next time it's delegated.
+
 ## 11. What this repo is (30 seconds)
 
 CompanyOS: self-hosted, AI-native system of record -- Postgres kernel (scopes, principals,

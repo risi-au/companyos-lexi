@@ -20,6 +20,22 @@ Companion: `docs/ORCHESTRATION.md` (TRIP loop), `docs/SUBAGENTS.md` (CLI recipes
 
 If unsure which tier: choose **Mid**, state why, offer Expensive only with a one-line cost reason.
 
+## Research & exploration (do NOT spend frontier tokens here)
+
+Web research, codebase mapping, "find every place that does X", and doc synthesis are
+**Cheap-tier** work. The orchestrator (often a frontier model) should delegate them and
+consume only the *summary*, never do the sweep in its own context.
+
+- **Web research / market or API surveys** → grok (`grok -p "...research... return a
+  structured report with sources"`), or an `Explore`/general-purpose subagent only when the
+  task needs repo access grok can't get. Prefer grok — the owner has ample grok credits, and
+  a frontier Claude research subagent bills the scarce Claude plan (a single deep web-research
+  agent can cost 100k+ tokens; that is the wrong lane for it).
+- **Codebase mapping for a brief** → one `Explore` subagent; take its summary, don't open
+  twenty files yourself.
+- Reserve frontier/orchestrator tokens for judgment: triage, brief-writing, diff review,
+  the merge decision, and security-sensitive reasoning.
+
 ## Orchestrator vs implementer
 
 | Role | Prefer | Avoid |

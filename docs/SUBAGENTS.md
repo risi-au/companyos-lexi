@@ -78,6 +78,24 @@ Flag notes (grok 0.2.93):
 - History: grok CLI was fully broken during M4-02; it no-opped again on UX-04 (2026-07-09)
   while still using the old `--permission-mode` flag — the trigger for this fix.
 
+### When to reach for grok (owner has ample grok credits — use them)
+
+Grok is not just the fallback lane. It is the **first choice** for work that is mechanical or
+well-pinned, so frontier/codex budget is saved for judgment. Proven-good grok jobs:
+
+- **Web research & doc synthesis** — "search the web and summarize X into a structured
+  report with sources." Cheap, parallelizable, and it does not need to touch the repo. Do
+  NOT spend a frontier Claude subagent on this (see MODEL-POLICY "Research & exploration").
+- **Mechanical, fully-pinned edits** — renames/label maps/string sweeps where the change set
+  is enumerated up front (grok's first clean run was M10-06, a rename audit it had itself
+  produced). Success pattern: exhaustive brief + hard file exclusions + "change ONLY these
+  strings."
+- **Delta / audit passes** — "list every place that still does X" (grok did the UX-06C audit).
+- **Parallel second lane** — disjoint file set from a codex run, both in isolated worktrees.
+
+Do NOT use grok for: subtle security reasoning, multi-file design under ambiguity, or
+anything where "looks plausible" is not good enough — those stay codex-mid or the reviewer.
+
 ## Codex CLI
 
 Two ways to run codex. Pick by whether you want Orca to track it.
@@ -131,6 +149,7 @@ Notes (as of codex-cli 0.142.5, 2026-07-03):
 - **Out-of-credits mode** (discovered M5-01): `ERROR: Your workspace is out of credits` — exits 1 within seconds, before any work. Credits reset/refill on the owner's plan, so retry codex once before falling back to grok, and tell the owner so he can refill. Add `out of credits` to the log-monitor pattern alongside `^LIMIT-ALERT:`.
 - **Token revocation lies about login state** (2026-07-14): the OAuth refresh token can be revoked server-side while `codex login status` still reports logged in — symptom is `401 token_revoked` on every call. Fix: `codex logout && codex login` (owner action, interactive).
 - **`[windows] sandbox = "elevated"` in `~/.codex/config.toml` kills headless runs** (2026-07-14): every sandboxed run dies with `CreateProcessAsUserW: Access is denied` while spamming UAC popups. Do NOT edit the config value (the desktop app owns it) — dispatch with `-c windows.sandbox="unelevated"` (baked into `scripts/dispatch-codex.ps1`), or with owner-approved `--dangerously-bypass-approvals-and-sandbox` for Orca-tracked runs. Note `codex exec resume` does NOT inherit the bypass flag from the original session — pass it again on resume calls.
+- **`cannot enforce split writable root sets; refusing to run unsandboxed`** (discovered 2026-07-15, FEAT-connect-oauth): a `-c windows.sandbox="unelevated"` run can fail *at sandbox setup* on `apply_patch` to an existing file — most often in a **git worktree with prior uncommitted work**. Likely cause: a worktree's `.git` is a file pointing at `<main-repo>/.git/worktrees/<name>`, so git-touching writes need a second writable root outside the worktree dir, and the unelevated restricted token can't express two disjoint roots. It can hit mid-task even after an earlier run in the same worktree succeeded. **Fix, in order:** (1) prefer the **codex-plugin-cc** path (`docs/OPTIONAL-CLAUDE-CODEX.md`) — it runs codex through its app server, not the raw `codex exec --sandbox` wrapper, so it sidesteps this whole class of sandbox-setup failure without weakening any isolation; (2) if the fix is small and you have already scoped it, orchestrator takeover is allowed after ~2 failed cycles (escalation ladder) rather than a third dispatch attempt; (3) only if neither fits, ask the owner in plain chat to approve `--dangerously-bypass-approvals-and-sandbox` **for that specific run** (a disposable worktree is externally sandboxed) — this is a per-run owner decision, never a standing default.
 - **Model policy** (owner): routine briefs = `gpt-5.5` at `model_reasoning_effort=medium` (2026-07-11, the dispatch script's defaults); TRIP-workflow feature runs = `gpt-5.6-terra` at `high` (2026-07-14). Never `gpt-5.6-sol`/xhigh — too token-hungry.
 
 ## Claude Agent implementer lane — OVERRIDDEN, do not use (owner, 2026-07-09)
