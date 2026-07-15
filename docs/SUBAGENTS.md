@@ -43,6 +43,7 @@ role definitions and the review/escalation loop.
 3. **Run implementers in the background and check startup within ~30 seconds.** Tail the output file once early to confirm the model is actually producing output, then leave it alone until completion.
 4. **Tell the implementer about pre-existing uncommitted work.** If the working tree has partial work from a prior run, say explicitly: "Do NOT redo or revert the uncommitted changes in <files>; build on them." Otherwise it may start over or revert.
 5. **Don't add unrelated files to the repo while an implementer is running.** If it was told to "commit everything", your file gets swept into its commit.
+6. **Dispatch commands must START with `grok` / `codex` / `.\scripts\dispatch-codex.ps1`.** The machine's Claude Code permission allowlist (2026-07-15) is prefix-matched against the whole command string, so `cd <worktree> && grok …` isn't covered and may be blocked by the permission classifier. Use grok `--cwd` / codex `-C` to target the worktree instead of a `cd` prefix.
 
 ## Grok CLI
 
@@ -127,24 +128,22 @@ Notes (as of codex-cli 0.142.5, 2026-07-03):
 - **Fresh-worktree ACL failure (discovered M10-01, 2026-07-10):** in a brand-new `git worktree`, codex's sandbox may get "Access is denied" writing under `packages/*` (its own `icacls` repair is denied too, and it correctly no-ops). The tree's files carry a stale per-run sandbox-user ACE. Repair from OUTSIDE the sandbox before (re)dispatching:
   `foreach ($d in @("packages","apps","docs","infra")) { icacls "<worktree>\$d" /grant "CodexSandboxUsers:(OI)(CI)(M)" /t /q }` (plus the worktree root non-recursively). Also override the broken default model while CLI 0.142.5 is installed: dispatch with `-c model=gpt-5.5` (config default `gpt-5.6-sol` 400s on this CLI version).
 - **Out-of-credits mode** (discovered M5-01): `ERROR: Your workspace is out of credits` — exits 1 within seconds, before any work. Credits reset/refill on the owner's plan, so retry codex once before falling back to grok, and tell the owner so he can refill. Add `out of credits` to the log-monitor pattern alongside `^LIMIT-ALERT:`.
+- **Token revocation lies about login state** (2026-07-14): the OAuth refresh token can be revoked server-side while `codex login status` still reports logged in — symptom is `401 token_revoked` on every call. Fix: `codex logout && codex login` (owner action, interactive).
+- **`[windows] sandbox = "elevated"` in `~/.codex/config.toml` kills headless runs** (2026-07-14): every sandboxed run dies with `CreateProcessAsUserW: Access is denied` while spamming UAC popups. Do NOT edit the config value (the desktop app owns it) — dispatch with `-c windows.sandbox="unelevated"` (baked into `scripts/dispatch-codex.ps1`), or with owner-approved `--dangerously-bypass-approvals-and-sandbox` for Orca-tracked runs. Note `codex exec resume` does NOT inherit the bypass flag from the original session — pass it again on resume calls.
+- **Model policy** (owner): routine briefs = `gpt-5.5` at `model_reasoning_effort=medium` (2026-07-11, the dispatch script's defaults); TRIP-workflow feature runs = `gpt-5.6-terra` at `high` (2026-07-14). Never `gpt-5.6-sol`/xhigh — too token-hungry.
 
-## Claude Agent implementer lane (reliable second lane)
+## Claude Agent implementer lane — OVERRIDDEN, do not use (owner, 2026-07-09)
 
-A **general-purpose Claude Agent subagent** (the `Agent` tool) is a first-class implementer,
-not just a searcher — it delivered the full UX-04 sidebar-tree + mobile-drawer rewrite in one
-shot and ran its own gates (2026-07-09). Use it when:
+**Owner directive: implementation lanes are codex + grok ONLY.** Claude Agent subagents
+are not to be used as implementers — they burn the owner's Claude plan usage, which is
+the scarce resource in the loop ("dont use claude sub agents. use grok. i have lots of
+credits on both grok and codex"). Read-only Explore/summary subagents for the
+orchestrator's own context-saving remain fine.
 
-- **codex is near its quota** (it flags "N usage limit resets available") and you want true
-  parallelism — a Claude Agent runs on a *different* resource, so two modules can build at
-  once without both codex instances stalling on the same near-limit account.
-- **grok no-ops** and you don't want to burn a codex slot on the retry.
-
-How: give it the worktree **ABSOLUTE path**, the brief path, the structural map you already
-gathered, and explicit instructions to *verify the gates, NOT commit, and report every file
-changed*. It uses `Edit`/`Write`/`Bash` directly. Note it runs in the primary working dir, so
-tell it to use absolute paths under the target worktree. If launched as an Orca `--agent claude`
-worker it CAN report `worker_done` (it isn't sandboxed the way codex is), so the orchestration
-loop works with it out of the box.
+(Historical note, kept for context: a general-purpose Claude Agent did deliver the UX-04
+sidebar rewrite cleanly on 2026-07-09 when grok was still no-opping under the old
+`--permission-mode` flag; grok's no-op cause is fixed — see the Grok section — so the
+justification for this lane is gone.)
 
 ## Orca orchestration mechanics (Windows — read before dispatching)
 
@@ -177,19 +176,19 @@ loop works with it out of the box.
 4. `pnpm typecheck && pnpm lint && pnpm test` from root, run by the orchestrator — never trust the implementer's claim that they pass.
 5. Review the diff against the brief's Do / Don't / Acceptance criteria before merging.
 
-## Escalation ladder (updated 2026-07-09)
+## Escalation ladder (updated 2026-07-15; owner lane policy 2026-07-09)
 
-1. **codex** — default implementer (owner has ample codex quota). Launch as an Orca worker
-   with the autonomy flag so `worker_done` works.
-2. **Claude Agent subagent** — the reliable parallel/second lane. Use when codex is near its
-   limit (don't run two codex against a near-limit account) or as the immediate fallback when
-   grok no-ops. Runs on a different resource, so it parallelizes cleanly with a codex run.
-3. **grok** — now viable with `--always-approve` (see Grok section). Try it for a module when
-   you want a third lane; if it still no-ops with that flag, drop it and use lane 2.
-4. **architect (orchestrator) takeover** — last resort, and the **most token-expensive** path
-   (see "Orchestrator role & token budget"). Prefer re-briefing + re-dispatching to a fresh
-   implementer over implementing inline. Only take over for a genuinely trivial fix or after
-   ~2 failed review-fix cycles, per ORCHESTRATION.md.
+1. **codex** — default implementer (owner has ample codex quota). Launch via
+   `scripts/dispatch-codex.ps1` or as an Orca worker with the autonomy flag so
+   `worker_done` works.
+2. **grok** — the parallel/second lane, viable with `--always-approve` (see Grok
+   section). If it no-ops even with that flag, capture `--debug-file` and fall back
+   to codex.
+3. **architect (orchestrator) takeover** — last resort, and the **most token-expensive**
+   path (see "Orchestrator role & token budget"). Prefer re-briefing + re-dispatching to
+   a fresh implementer over implementing inline. Only take over for a genuinely trivial
+   fix or after ~2 failed review-fix cycles, per ORCHESTRATION.md. Claude Agent
+   subagents are NOT a lane (owner directive — see the overridden section above).
 
 History: grok no-opped repeatedly (M4-02/04, M5-01, UX-04) — but every one of those runs used
 the old `--permission-mode acceptEdits` flag, not `--always-approve`; the "grok is broken"

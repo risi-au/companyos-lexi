@@ -36,9 +36,21 @@ nothing else, and stop.
   `apps/os/.next` is the safe rebuild.
 - **Database**: Postgres in Docker, container `companyos-postgres`
   (`docker exec companyos-postgres psql -U companyos -d companyos -c "..."`).
-  Gotcha: multi-statement `psql -c` runs in one transaction — one failure rolls back all.
-  Local test login for UI checks: see the `CompanyOS state` memory (a verify-bot user
-  usually exists in the local dev DB). **Local DB content is demo data** — don't spend
+  Gotchas: multi-statement `psql -c` runs in one transaction — one failure rolls back
+  all (run cleanup as separate `-c` calls). Hand-applied migrations also need their
+  drizzle bookkeeping row (`hash` = sha256 of the .sql text, `created_at` = journal
+  "when") or the next `pnpm db:migrate` dies re-running them. PGlite (used by tests)
+  tolerates SQL the real pg driver rejects — drive new server pages against the Docker
+  DB, not just tests. Local Plane 500s when two scope NAMES share initials (identifier
+  collision) — use distinct test-scope names.
+  Local test login for UI checks: `verify-bot@dev.local` (root grant) exists in the dev
+  DB but its password drifts between sessions — recipe: sign up a throwaway user via
+  `/sign-up`, copy its password hash onto verify-bot
+  (`UPDATE account SET password = (SELECT password FROM account WHERE user_id = '<throwaway>' AND provider_id = 'credential') WHERE user_id = '<verify-bot>' AND provider_id = 'credential';`
+  — better-auth tables are singular `user`/`account`, snake_case columns; get the two
+  auth ids from `SELECT id, email FROM "user"`), sign in as verify-bot, then delete the
+  throwaway: its grant → principal → `user` row → its empty `personal-<principalId>`
+  scope, as separate statements. **Local DB content is demo data** — don't spend
   effort restoring it if a test damages it, but say so.
 - **Browser verification**: Playwright MCP tools are available and may already have a
   signed-in session. Use accessibility snapshots + targeted `getComputedStyle` probes;
@@ -76,7 +88,8 @@ post-run encoding check; run it in the background and read its final output):
 .\scripts\dispatch-codex.ps1 -Task <name> -Resume    # re-dispatch after a broken run
 ```
 
-Model policy (owner, 2026-07-11): gpt-5.5 at medium reasoning — the script's defaults.
+Model policy (owner): routine briefs = gpt-5.5 at medium reasoning — the script's
+defaults (2026-07-11); TRIP-workflow feature runs = gpt-5.6-terra at high (2026-07-14).
 Don't dispatch at gpt-5.6-sol/xhigh (too token-hungry). Manual equivalents:
 
 ```bash
@@ -88,6 +101,10 @@ grok -p "<prompt>" -m grok-composer-2.5-fast --always-approve --no-auto-update -
 
 Non-negotiables (each cost a real incident):
 - **Exit 0 ≠ work done.** Always `git status --short` + read the diff. Never trust "gates pass".
+- **Dispatch commands must START with `grok` / `codex` / `.\scripts\dispatch-codex.ps1`.**
+  The machine allowlist (Claude Code permission rules, added 2026-07-15) is prefix-matched
+  against the whole command string — `cd <worktree> && grok …` falls through to the
+  permission classifier and may be blocked. Use grok `--cwd` / codex `-C` instead of `cd`.
 - Two lanes may share a worktree only with **disjoint file boundaries stated in both prompts**.
 - Tell implementers about pre-existing uncommitted changes ("do NOT revert X").
 - Implementers **cannot commit** (sandbox). The architect commits after review.
@@ -115,14 +132,36 @@ Non-negotiables (each cost a real incident):
 - Don't create files in the repo while an implementer with "commit everything" runs.
 - Secrets: `.env`, `vps-login.txt` are gitignored — keep them out of briefs, logs, PRs.
 
-## 7. When you stop
+## 7. Where learnings go (memory routing — applies to ALL agents)
+
+Private agent memory (Claude auto-memory, ChatGPT memory, provider-specific stores) is
+**invisible to every other agent, account, and machine**. Before writing a learning
+anywhere, route it to the most-shared layer it belongs in:
+
+| Learning | Home |
+|---|---|
+| Repo/tooling/dispatch mechanics (CLI flags, sandbox landmines, verify recipes, env gotchas) | `docs/SUBAGENTS.md` (dispatch) or this file §2 (environment) — commit it this session |
+| A module's contract or behavior | that module's `AGENTS.md`, in the same commit as the change |
+| Session exit state (in-flight work, next step) | newest `docs/HANDOFF-*.md` |
+| Machine-wide, cross-project agent conventions | `~/.agents/` (owner-managed — propose, don't edit) |
+| Durable business/ops knowledge | the CompanyOS wiki via MCP (the product IS the shared memory) |
+| Mechanics only your own runtime cares about (your provider's permission quirks, your session recipes) | your private memory — and ONLY those |
+
+The rule (owner directive, 2026-07-15): **shared layer first; private memory is a
+cache.** If an agent on a different account or provider would benefit from a learning,
+it must not live only in your private memory. Never point a shared doc at a private
+memory — a previous version of this file did exactly that with the verify-bot login
+recipe, which trapped it where only one agent could read it. Private notes should carry
+pointers INTO the shared layers, not the other way around.
+
+## 8. When you stop
 
 Write/refresh `docs/HANDOFF-<date>-<slug>.md` (what changed, what's in-flight, exact next
-step, open landmines) and update the `CompanyOS state` memory if you have memory access.
-If any fact in §2 changed (ports, containers, worktree layout), fix it here in the same
-commit — this file only works if it never lies.
+step, open landmines), route any new learnings per §7, and update your private memory's
+state pointer if you have one. If any fact in §2 changed (ports, containers, worktree
+layout), fix it here in the same commit — this file only works if it never lies.
 
-## 8. What this repo is (30 seconds)
+## 9. What this repo is (30 seconds)
 
 CompanyOS: self-hosted, AI-native system of record for running businesses — Postgres
 kernel (scopes tree, principals, grants, events, records) + modules (dashboards, docs/wiki,
