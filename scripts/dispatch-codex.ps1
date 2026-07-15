@@ -59,7 +59,10 @@ if (-not $worktreeExists) {
 }
 
 if (-not $Resume) {
-  # 2. Codex sandbox ACLs (fresh worktrees lack them - see SUBAGENTS.md)
+  # 2. Codex sandbox ACLs (fresh worktrees lack them - see SUBAGENTS.md). The worktree
+  # ROOT grant is load-bearing: the restricted token cannot traverse into subdirs it was
+  # granted on if the root itself carries no CodexSandboxUsers ACE (2026-07-15).
+  icacls $Worktree /grant "CodexSandboxUsers:(OI)(CI)(M)" /q | Out-Null
   foreach ($d in @("packages", "apps", "docs", "infra")) {
     icacls (Join-Path $Worktree $d) /grant "CodexSandboxUsers:(OI)(CI)(M)" /t /q | Out-Null
   }
