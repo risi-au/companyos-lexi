@@ -39,21 +39,16 @@ const HISTORICAL_MISSING_SNAPSHOTS = [
   "0026_following_notifications",
 ] as const;
 
-// 0028_snapshot.json carries prevId 4be44927 (the attention_items snapshot) instead of
-// its true parent 0027 (83cee90c) - a leftover of the #55 head repair. Frozen here with
-// the matching walk jump; the one-field repair is the owner's call (issue #56).
-const HISTORICAL_DUPLICATE_PARENTS = [
-  "0024_flimsy_the_santerians -> 0028_past_spitfire",
-] as const;
-
+// The 0028 prevId defect this once allowed was repaired in #59 (owner-approved);
+// the live chain has no duplicate parents. The single remaining jump bridges the
+// snapshots deleted before 20260710083235 (its prevId points at the absent 0023).
 const HISTORICAL_WALK_JUMPS = {
-  "0028_past_spitfire": "0027_open_questions_notifications",
   "20260710083235_attention_items": "0020_neat_vulcan",
 } as const;
 
 const REAL_CHAIN_ALLOWANCES: ChainAllowances = {
   missingSnapshots: HISTORICAL_MISSING_SNAPSHOTS,
-  duplicateParents: HISTORICAL_DUPLICATE_PARENTS,
+  duplicateParents: [],
   walkJumps: HISTORICAL_WALK_JUMPS,
 };
 
