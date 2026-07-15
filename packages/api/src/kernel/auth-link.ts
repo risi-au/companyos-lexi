@@ -133,6 +133,15 @@ export async function linkAuthUser(
  * Resolve the principalId for a Better Auth session user id (authUserId).
  * Returns null if no link (caller may trigger link).
  */
+export async function getPrincipalForAuthUser(db: DB, authUserId: string): Promise<Principal | null> {
+  const [principal] = await db
+    .select()
+    .from(principals)
+    .where(eq(principals.authUserId, authUserId))
+    .limit(1);
+  return (principal as Principal) ?? null;
+}
+
 export async function getPrincipalIdForAuthUser(db: DB, authUserId: string): Promise<string | null> {
   const [p] = await db
     .select({ id: principals.id })

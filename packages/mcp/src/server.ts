@@ -236,7 +236,7 @@ export function createServer(options: CreateServerOptions) {
   // Helper to ensure auth for protected tools
   function ensurePrincipal(): string {
     if (!principalId) {
-      throw new Error("Unauthenticated: provide a valid COS_TOKEN (cos_...)");
+      throw new Error("Unauthenticated: provide a valid COMPANYOS_TOKEN (cos_...)");
     }
     return principalId;
   }

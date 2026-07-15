@@ -12,6 +12,7 @@ import { createServer } from "./server";
 export interface HttpAuthenticatedPrincipal {
   principalId: string;
   tokenId?: string | null;
+  oauthClientId?: string | null;
 }
 
 export interface HttpRateLimitOptions {
@@ -41,8 +42,8 @@ const DEFAULT_RATE_LIMIT_MAX = 120;
 
 const buckets = new Map<string, Bucket>();
 
-function jsonError(error: string, status: number, extra?: Record<string, unknown>): Response {
-  return Response.json({ error, ...(extra || {}) }, { status });
+function jsonError(error: string, status: number, extra?: Record<string, unknown>, headers?: HeadersInit): Response {
+  return Response.json({ error, ...(extra || {}) }, { status, headers });
 }
 
 function jsonRpcError(status: number, code: number, message: string): Response {
@@ -304,6 +305,14 @@ export function createHttpHandler(options: CreateHttpHandlerOptions): (request: 
     const startedAt = Date.now();
     const token = bearerToken(request);
     if (!token) {
+      try {
+        await (options.authenticateRequest ?? ((req) => defaultAuthenticateRequest(options.db, req)))(request);
+      } catch (e) {
+        const error = e as Error & { status?: number; wwwAuthenticate?: string };
+        if (error.status === 401) {
+          return jsonError("Unauthorized", 401, undefined, error.wwwAuthenticate ? { "WWW-Authenticate": error.wwwAuthenticate } : undefined);
+        }
+      }
       return jsonError("Unauthorized", 401);
     }
 
@@ -314,9 +323,10 @@ export function createHttpHandler(options: CreateHttpHandlerOptions): (request: 
     try {
       principal = await (options.authenticateRequest ?? ((req) => defaultAuthenticateRequest(options.db, req)))(request);
     } catch (e) {
-      const status = (e as Error & { status?: number }).status;
+      const error = e as Error & { status?: number; wwwAuthenticate?: string };
+      const status = error.status;
       if (status === 401) {
-        return jsonError("Unauthorized", 401);
+        return jsonError("Unauthorized", 401, undefined, error.wwwAuthenticate ? { "WWW-Authenticate": error.wwwAuthenticate } : undefined);
       }
       return jsonError("Bad request", status || 400);
     }

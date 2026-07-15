@@ -52,3 +52,8 @@ Tests cover mint escalation denial, subtree boundaries, admin listing filters, r
 - Do not store plaintext tokens in any table, event, log, or module state.
 - Do not revoke grants when revoking tokens.
 - Do not add grant creation/editing/deletion UI in this module.
+
+
+## OAuth lane (FEAT-connect-oauth-pr1)
+- Browser-authorized OAuth MCP connections act as the linked human principal (principals.auth_user_id) and use that principal's existing grants. They do not create or alter connection-token records.
+- Legacy cos_ connection tokens remain the fallback lane for headless or unsupported clients. OAuth consent approval emits the kernel connection.authorized event with client and principal metadata.

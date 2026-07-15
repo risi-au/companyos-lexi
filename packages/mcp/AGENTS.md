@@ -111,3 +111,9 @@ Use `get_context` at session start for scoped context, then `recall_memory` befo
 
 
 M10-04B: list_attention_items, esolve_attention_item, and get_context rely on the attention service target-principal filter. page_update attention items are visible only to their target principal and are dismiss-only over MCP; no follow/unfollow MCP tools are exposed.
+
+
+## OAuth HTTP auth (FEAT-connect-oauth-pr1)
+- The mounted /api/mcp handler accepts either the existing cos_ token lane or an OAuth access-token lane supplied by apps/os; MCP tool signatures remain unchanged.
+- Auth callbacks may attach wwwAuthenticate to a 401 error. The HTTP wrapper forwards it as WWW-Authenticate, enabling RFC 9728 protected-resource discovery without changing JSON error bodies.
+- Stdio continues to use COS_TOKEN; user-facing MCP configuration errors use COMPANYOS_TOKEN as the canonical provisioning variable.

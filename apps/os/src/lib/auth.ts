@@ -2,23 +2,39 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { createDb, authSchema } from "@companyos/db";
 import { nextCookies } from "better-auth/next-js";
+import { jwt } from "better-auth/plugins";
+import { oauthProvider } from "@better-auth/oauth-provider";
+import { getCompanyOsPublicUrl, getMcpPublicUrl } from "@/lib/mcp-public-url";
 
-// DB instance for auth adapter (per constitution limited to auth adapter only; runtime requires DATABASE_URL/BETTER_AUTH_SECRET).
 const db = createDb();
 
 export const auth = betterAuth({
+  baseURL: getCompanyOsPublicUrl(),
   database: drizzleAdapter(db, {
     provider: "pg",
     schema: authSchema,
   }),
   emailAndPassword: {
     enabled: true,
-    requireEmailVerification: false, // M2-03: email/password only, verification later
+    requireEmailVerification: false,
   },
-  // Use nextCookies plugin so server actions automatically set auth cookies
-  plugins: [nextCookies()],
-  // Secret from env; required for signing sessions
+  plugins: [
+    jwt({
+      jwt: { issuer: getCompanyOsPublicUrl() },
+      disableSettingJwtHeader: true,
+    }),
+    oauthProvider({
+      loginPage: "/sign-in",
+      consentPage: "/oauth/consent",
+      validAudiences: [getMcpPublicUrl()],
+      accessTokenExpiresIn: 60 * 60,
+      refreshTokenExpiresIn: 60 * 60 * 24 * 30,
+      allowDynamicClientRegistration: true,
+      allowUnauthenticatedClientRegistration: true,
+      scopes: ["openid", "profile", "email", "offline_access"],
+    }),
+    nextCookies(),
+  ],
   secret: process.env.BETTER_AUTH_SECRET!,
-  // Trust the local dev host; production will use proper trustedOrigins or env
-  trustedOrigins: ["http://localhost:3000"],
+  trustedOrigins: [getCompanyOsPublicUrl()],
 });

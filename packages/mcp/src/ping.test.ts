@@ -1168,6 +1168,22 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     return { mcpClient, transport };
   }
 
+  it("forwards WWW-Authenticate from a 401 auth callback", async () => {
+    const handler = createHttpHandler({
+      db,
+      authenticateRequest: async () => {
+        const error = new Error("Unauthorized") as Error & { status?: number; wwwAuthenticate?: string };
+        error.status = 401;
+        error.wwwAuthenticate = 'Bearer resource_metadata="https://companyos.test/.well-known/oauth-protected-resource/api/mcp"';
+        throw error;
+      },
+    });
+
+    const response = await handler(new Request("https://companyos.test/api/mcp", { method: "POST", body: initializeBody() }));
+    expect(response.status).toBe(401);
+    expect(response.headers.get("www-authenticate")).toContain("resource_metadata");
+  });
+
   it("HTTP auth matrix covers valid, invalid, revoked, expired, and absent tokens", async () => {
     const handler = createHttpHandler({ db, allowedOrigins: ["https://client.test"] });
     const valid = await issueToken(db, { principalId: agentPrincipalId, name: "http-valid" }, rootPrincipalId);

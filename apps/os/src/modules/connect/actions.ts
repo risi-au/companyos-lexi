@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { api, getCurrentActorPrincipalId } from "@/lib/api";
+import { getMcpPublicUrl } from "@/lib/mcp-public-url";
 
 export async function listConnectionTokensAction(scopePath: string) {
   const actor = await getCurrentActorPrincipalId();
@@ -35,11 +36,5 @@ export async function revokeConnectionTokenAction(scopePath: string, tokenId: st
 }
 
 export async function getConnectConfigAction() {
-  const explicit = process.env.MCP_PUBLIC_URL?.trim();
-  if (explicit) return { mcpPublicUrl: explicit };
-
-  const companyOsUrl = process.env.COMPANYOS_URL?.trim().replace(/\/$/, "");
-  return {
-    mcpPublicUrl: companyOsUrl ? `${companyOsUrl}/api/mcp` : "/api/mcp",
-  };
+  return { mcpPublicUrl: getMcpPublicUrl() };
 }

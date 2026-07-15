@@ -5,6 +5,19 @@ import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { Button } from "@companyos/ui";
 
+// A safe post-login redirect must stay on this origin. Reject protocol-relative
+// (`//host`) and backslash forms (`/\host`, which browsers normalize to `//host`
+// -> external), then confirm the resolved origin is unchanged.
+function safeInternalPath(raw: string | null): string | null {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.includes("\\")) return null;
+  try {
+    const origin = window.location.origin;
+    return new URL(raw, origin).origin === origin ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function SignInPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -28,13 +41,19 @@ export default function SignInPage() {
       return;
     }
 
+    // Resume a signed OAuth authorization request before normal app navigation.
+    const oauthQuery = new URLSearchParams(window.location.search);
+    if (oauthQuery.has("client_id") && oauthQuery.has("redirect_uri") && oauthQuery.has("response_type")) {
+      router.push("/api/auth/oauth2/authorize?" + oauthQuery.toString());
+      router.refresh();
+      return;
+    }
+
     // Successful sign in — land on root scope (or a safe same-origin ?redirect=).
     // Do not push "/" : authenticated `/` is redirected in middleware to avoid a
     // Next.js 15.5 server-only page 500 (missing clientReferenceManifest).
     const params = new URLSearchParams(window.location.search);
-    const raw = params.get("redirect");
-    const dest =
-      raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : "/s/root";
+    const dest = safeInternalPath(params.get("redirect")) ?? "/s/root";
     router.push(dest);
     router.refresh();
   }

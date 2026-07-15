@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "^1.6.23",
+    "@better-auth/oauth-provider": "1.6.23",
     "@blocknote/core": "^0.51.4",
     "@blocknote/react": "^0.51.4",
     "@blocknote/shadcn": "^0.51.4",
