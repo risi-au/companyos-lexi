@@ -36,6 +36,18 @@ export function NotificationBell({ initialItems, initialTotal }: { initialItems:
   const rootRef = useRef<HTMLDivElement | null>(null);
   const firstItemRef = useRef<HTMLAnchorElement | null>(null);
 
+  // Server actions (e.g. resolving an attention item) revalidate the layout and
+  // re-render this component with fresh props; without this sync the badge would
+  // stay stale until the next poll or window refocus.
+  const [prevInitialItems, setPrevInitialItems] = useState(initialItems);
+  const [prevInitialTotal, setPrevInitialTotal] = useState(initialTotal);
+  if (initialItems !== prevInitialItems || initialTotal !== prevInitialTotal) {
+    setPrevInitialItems(initialItems);
+    setPrevInitialTotal(initialTotal);
+    setItems(initialItems);
+    setTotal(initialTotal);
+  }
+
   useEffect(() => {
     let active = true;
     let timer: number | null = null;
