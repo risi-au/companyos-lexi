@@ -1,7 +1,7 @@
 /**
  * Server-only service bindings for apps/os.
  * Creates the DB handle (allowed only for wiring services + auth adapter per brief).
- * All page/server components MUST call through these wrappers — never raw @companyos/db queries.
+ * All page/server components MUST call through these wrappers - never raw @companyos/db queries.
  * This keeps "services only" contract.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -50,6 +50,7 @@ import {
   mintConnectionToken,
   listConnectionTokens,
   listConnections,
+  listOAuthConnections,
   revokeConnectionToken,
   revokePrincipalAccess,
   revokeScopeAccess,
@@ -267,7 +268,7 @@ export const api = {
     return listModules(db, scopePath, actorPrincipalId);
   },
 
-  // Resident agent (M3-04) — env at boundary only; tests pass mocked LLMConfig directly to service
+  // Resident agent (M3-04) - env at boundary only; tests pass mocked LLMConfig directly to service
   runTurn: (input: RunTurnInput, actorPrincipalId: string, llm: LLMConfig, planeClient?: unknown) =>
     runTurn(db, input, actorPrincipalId, llm, planeClient as any),
   listConversations: (input: Parameters<typeof listConversations>[1], actorPrincipalId: string) =>
@@ -284,6 +285,8 @@ export const api = {
     revokeConnectionToken(db, input, actorPrincipalId),
   listConnections: (input: Parameters<typeof listConnections>[1], actorPrincipalId: string) =>
     listConnections(db, input, actorPrincipalId),
+  listOAuthConnections: (input: Parameters<typeof listOAuthConnections>[1], actorPrincipalId: string) =>
+    listOAuthConnections(db, input, actorPrincipalId),
   revokeScopeAccess: (input: Parameters<typeof revokeScopeAccess>[1], actorPrincipalId: string) =>
     revokeScopeAccess(db, input, actorPrincipalId),
   revokePrincipalAccess: (input: Parameters<typeof revokePrincipalAccess>[1], actorPrincipalId: string) =>

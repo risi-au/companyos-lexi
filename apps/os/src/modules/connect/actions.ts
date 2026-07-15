@@ -38,3 +38,11 @@ export async function revokeConnectionTokenAction(scopePath: string, tokenId: st
 export async function getConnectConfigAction() {
   return { mcpPublicUrl: getMcpPublicUrl() };
 }
+
+export async function getOAuthConnectionStatusAction(input: { since: string }) {
+  const actor = await getCurrentActorPrincipalId();
+  if (!actor) throw new Error("Your session expired. Sign in again.");
+  const since = new Date(input.since);
+  if (Number.isNaN(since.getTime())) throw new Error("Invalid connection status timestamp.");
+  return api.listOAuthConnections({ principalId: actor, since }, actor);
+}

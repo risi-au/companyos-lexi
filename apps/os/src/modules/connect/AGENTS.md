@@ -43,3 +43,9 @@ import { ConnectPanel } from "@/modules/connect";
 - Server actions + service layer only; never call the database directly from UI.
 - Never store plaintext tokens outside transient client state.
 - Update this AGENTS.md on behavioral changes.
+
+
+## OAuth-first wizard
+- `ConnectWizard.tsx` presents Platform, Set up, and Verify with OAuth as the token-free default.
+- The worker-token fallback is explicit and keeps plaintext only in client state after mint.
+- Verify polling runs only on step three, stops on cleanup, and is bounded to two minutes before the user chooses to keep waiting.

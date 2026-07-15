@@ -57,3 +57,10 @@ Tests cover mint escalation denial, subtree boundaries, admin listing filters, r
 ## OAuth lane (FEAT-connect-oauth-pr1)
 - Browser-authorized OAuth MCP connections act as the linked human principal (principals.auth_user_id) and use that principal's existing grants. They do not create or alter connection-token records.
 - Legacy cos_ connection tokens remain the fallback lane for headless or unsupported clients. OAuth consent approval emits the kernel connection.authorized event with client and principal metadata.
+
+
+## OAuth first-call tracking
+- `oauth_connections` is the connect-owned per-client, per-principal first/last authenticated OAuth MCP call table.
+- `touchOAuthConnection` emits `connection.first_used` only for the first insert (insert + event are one transaction); never store or emit JWTs or plaintext tokens.
+- `touchOAuthConnection` is an auth-boundary function like the kernel's `authenticateTokenWithMetadata`: it takes no actor because its caller IS the authenticator and passes the principal it just verified. Never expose it through a route or MCP tool; callers must invoke it fire-and-forget so bookkeeping cannot delay or fail authentication.
+- `listOAuthConnections` is self-view only and supports a first-use timestamp filter for live verification.

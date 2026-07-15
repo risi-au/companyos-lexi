@@ -1,6 +1,6 @@
 {
-  "id": "ac1e1a98-d783-4794-8a15-17174a06ef50",
-  "prevId": "83cee90c-2377-48b7-8d7a-83b06173d176",
+  "id": "7cc4fe78-20a1-4c81-9456-67f29f24325b",
+  "prevId": "ac1e1a98-d783-4794-8a15-17174a06ef50",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2033,6 +2033,109 @@
           "tableTo": "principals",
           "columnsFrom": [
             "minted_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.oauth_connections": {
+      "name": "oauth_connections",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "oauth_client_id": {
+          "name": "oauth_client_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "principal_id": {
+          "name": "principal_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "first_used_at": {
+          "name": "first_used_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "last_used_at": {
+          "name": "last_used_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "oauth_connections_client_principal_unique": {
+          "name": "oauth_connections_client_principal_unique",
+          "columns": [
+            {
+              "expression": "oauth_client_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "principal_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "oauth_connections_principal_first_used_idx": {
+          "name": "oauth_connections_principal_first_used_idx",
+          "columns": [
+            {
+              "expression": "principal_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "first_used_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "oauth_connections_principal_id_principals_id_fk": {
+          "name": "oauth_connections_principal_id_principals_id_fk",
+          "tableFrom": "oauth_connections",
+          "tableTo": "principals",
+          "columnsFrom": [
+            "principal_id"
           ],
           "columnsTo": [
             "id"

@@ -26,6 +26,8 @@ import {
   revokeConnectionToken,
   revokePrincipalAccess,
   revokeScopeAccess,
+  touchOAuthConnection,
+  listOAuthConnections,
 } from "../../index";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -348,4 +350,45 @@ describe("connect module", () => {
       scopePaths: expect.arrayContaining([scopePath, childPath]),
     });
   });
+
+  it("tracks the first OAuth MCP call once and only advances the latest use", async () => {
+    const oauthClientId = "client-" + Date.now();
+    await touchOAuthConnection(db, { oauthClientId, principalId: editorId });
+    const [first] = await db
+      .select()
+      .from(schema.oauthConnections)
+      .where(and(eq(schema.oauthConnections.oauthClientId, oauthClientId), eq(schema.oauthConnections.principalId, editorId)))
+      .limit(1);
+    expect(first).toBeTruthy();
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await touchOAuthConnection(db, { oauthClientId, principalId: editorId });
+    const [second] = await db
+      .select()
+      .from(schema.oauthConnections)
+      .where(and(eq(schema.oauthConnections.oauthClientId, oauthClientId), eq(schema.oauthConnections.principalId, editorId)))
+      .limit(1);
+    expect(second.id).toBe(first.id);
+    expect(second.firstUsedAt.getTime()).toBe(first.firstUsedAt.getTime());
+    expect(second.lastUsedAt.getTime()).toBeGreaterThanOrEqual(first.lastUsedAt.getTime());
+
+    const events = await listEvents(db, { type: "connection.first_used", limit: 20 });
+    expect(events.filter((event: any) => event.payload?.oauthClientId === oauthClientId)).toHaveLength(1);
+  });
+
+  it("lists OAuth connections only for the authenticated principal and respects since", async () => {
+    const oauthClientId = "client-list-" + Date.now();
+    await db.insert(schema.oauthClient).values({ id: "oauth-" + Date.now(), clientId: oauthClientId, name: "OAuth test client", redirectUris: [] });
+    await touchOAuthConnection(db, { oauthClientId, principalId: editorId });
+    await touchOAuthConnection(db, { oauthClientId: "client-other-" + Date.now(), principalId: otherEditorId });
+
+    const visible = await listOAuthConnections(db, { principalId: editorId }, editorId);
+    expect(visible.map((row) => row.principalId)).toEqual([editorId]);
+    expect(visible[0]?.clientName).toBe("OAuth test client");
+    await expect(listOAuthConnections(db, { principalId: otherEditorId }, editorId)).rejects.toThrow(AccessDeniedError);
+
+    const future = await listOAuthConnections(db, { principalId: editorId, since: new Date(Date.now() + 60000) }, editorId);
+    expect(future).toEqual([]);
+  });
+
 });

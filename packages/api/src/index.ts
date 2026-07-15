@@ -87,3 +87,5 @@ export * from "./errors";
 
 // DB handle type for clients like MCP
 export type { DB } from "./kernel/events";
+
+export { listOAuthConnections, touchOAuthConnection } from "./modules/connect/service";

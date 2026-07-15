@@ -1,6 +1,6 @@
 import "server-only";
 import { createDb } from "@companyos/db";
-import { authenticateTokenWithMetadata, getPrincipalForAuthUser } from "@companyos/api";
+import { authenticateTokenWithMetadata, getPrincipalForAuthUser, touchOAuthConnection } from "@companyos/api";
 import type { Principal } from "@companyos/db";
 import { verifyAccessToken } from "better-auth/oauth2";
 import { getCompanyOsPublicUrl, getJwksUrl, getMcpProtectedResourceMetadataUrl, getMcpPublicUrl } from "@/lib/mcp-public-url";
@@ -30,7 +30,7 @@ export async function getOAuthPrincipalForPayload(payload: { sub?: unknown; aud?
   return mapOAuthPayloadToPrincipal(payload, getMcpPublicUrl(), (authUserId) => getPrincipalForAuthUser(db, authUserId));
 }
 
-async function authenticateOAuthAccessToken(token: string): Promise<AgentPrincipal | null> {
+async function authenticateOAuthAccessToken(token: string): Promise<{ principal: AgentPrincipal; oauthClientId: string | null } | null> {
   // Verify through the OAuth provider's access-token verifier, NOT the generic
   // jwt-plugin verifier. This enforces the MCP endpoint as the required audience
   // and the CompanyOS issuer, so a session JWT minted at /api/auth/token (whose
@@ -43,7 +43,8 @@ async function authenticateOAuthAccessToken(token: string): Promise<AgentPrincip
     },
     jwksUrl: getJwksUrl(),
   });
-  return getOAuthPrincipalForPayload(payload);
+  const principal = await getOAuthPrincipalForPayload(payload);
+  return principal ? { principal, oauthClientId: typeof payload.azp === "string" ? payload.azp : null } : null;
 }
 
 export async function authenticateAgentRequest(req: Request): Promise<AgentPrincipal> {
@@ -60,7 +61,14 @@ export async function authenticateAgentRequest(req: Request): Promise<AgentPrinc
 
   try {
     const authenticated = await authenticateOAuthAccessToken(token);
-    if (authenticated) return authenticated;
+    if (authenticated) {
+      if (authenticated.oauthClientId) {
+        // Fire-and-forget: connection bookkeeping must never delay or fail auth.
+        void touchOAuthConnection(db, { oauthClientId: authenticated.oauthClientId, principalId: authenticated.principal.principalId })
+          .catch((error) => console.error("Failed to record OAuth MCP connection use", error));
+      }
+      return authenticated.principal;
+    }
   } catch {
     // Authentication failures must have one indistinguishable response shape.
   }

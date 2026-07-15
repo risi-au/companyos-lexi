@@ -1,8 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { and, desc, eq, gte, inArray, isNotNull, isNull, like, lte, or } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, like, lte, or, sql } from "drizzle-orm";
 import {
   connections,
   grants,
+  oauthClient,
+  oauthConnections,
   principals,
   scopes,
   tokens,
@@ -60,6 +62,14 @@ export type ListedAdminConnection = Omit<ListedConnectionToken, "canRevoke"> & {
   scopePath: string;
 };
 
+export interface ListedOAuthConnection {
+  oauthClientId: string;
+  clientName: string | null;
+  principalId: string;
+  firstUsedAt: Date;
+  lastUsedAt: Date;
+}
+
 export interface ListConnectionsInput {
   scopePath?: string;
   principalId?: string;
@@ -107,6 +117,59 @@ function subtreeCondition(scopePath: string) {
   return scopePath === "root"
     ? like(scopes.path, "%")
     : or(eq(scopes.path, scopePath), like(scopes.path, `${scopePath}/%`));
+}
+
+// Auth-boundary bookkeeping like authenticateTokenWithMetadata: no actor param because
+// the caller IS the authenticator and must pass the principal it just verified. Never
+// expose this through a route or MCP tool.
+export async function touchOAuthConnection(
+  db: DB,
+  input: { oauthClientId: string; principalId: string }
+): Promise<void> {
+  await db.transaction(async (tx: DB) => {
+    const [row] = await tx
+      .insert(oauthConnections)
+      .values({ oauthClientId: input.oauthClientId, principalId: input.principalId })
+      .onConflictDoUpdate({
+        target: [oauthConnections.oauthClientId, oauthConnections.principalId],
+        set: { lastUsedAt: sql.raw("now()") },
+      })
+      .returning({ inserted: sql.raw("xmax = 0") });
+
+    if (row?.inserted) {
+      await emitEvent(tx, {
+        type: "connection.first_used",
+        principalId: input.principalId,
+        payload: { oauthClientId: input.oauthClientId, principalId: input.principalId },
+      });
+    }
+  });
+}
+
+export async function listOAuthConnections(
+  db: DB,
+  input: { principalId: string; since?: Date },
+  actorPrincipalId: string
+): Promise<ListedOAuthConnection[]> {
+  if (input.principalId !== actorPrincipalId) {
+    throw new AccessDeniedError(actorPrincipalId, "root", "viewer", "OAuth connections are only visible to the authenticated principal.");
+  }
+
+  const conditions = [eq(oauthConnections.principalId, input.principalId)];
+  if (input.since) conditions.push(gte(oauthConnections.firstUsedAt, input.since));
+
+  return (await db
+    .select({
+      oauthClientId: oauthConnections.oauthClientId,
+      clientName: oauthClient.name,
+      principalId: oauthConnections.principalId,
+      firstUsedAt: oauthConnections.firstUsedAt,
+      lastUsedAt: oauthConnections.lastUsedAt,
+    })
+    .from(oauthConnections)
+    .innerJoin(oauthClient, eq(oauthConnections.oauthClientId, oauthClient.clientId))
+    .where(and(...conditions))
+    .orderBy(desc(oauthConnections.firstUsedAt))) as ListedOAuthConnection[];
 }
 
 async function listMinterNames(db: DB, mintedByIds: string[]): Promise<Map<string, string>> {

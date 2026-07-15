@@ -113,3 +113,7 @@ Update this file when API surface or auth wiring changes. (canvas added M3-03)
 - Missing or invalid MCP auth returns 401 with RFC 9728 WWW-Authenticate resource metadata. Protected-resource metadata is available at both /.well-known/oauth-protected-resource paths.
 - Better Auth uses BETTER_AUTH_URL as the preferred public origin, falling back to COMPANYOS_URL, then the origin of MCP_PUBLIC_URL. MCP_PUBLIC_URL remains the canonical explicit MCP endpoint override.
 - OAuth provider endpoints, JWKS, DCR, and consent are mounted under Better Auth. The consent page is /oauth/consent and approval emits connection.authorized.
+
+
+## OAuth MCP auth (FEAT-connect-oauth-pr2)
+- Successful OAuth MCP calls record first/last use in the connect-owned `oauth_connections` table. The first call emits `connection.first_used`; tracking failures log and never block authentication.

@@ -70,19 +70,63 @@ status + expiry notifications).
 - Env-var naming consistency: canonicalize on `COMPANYOS_TOKEN` (provisioning already uses
   it); fix the divergent `COS_TOKEN` copy in packages/mcp error text.
 
-### PR 2 — Connect wizard (plan to be detailed after PR 1 merges)
+### PR 2 — Connect wizard (detailed 2026-07-15 after PR 1 merge; brief: FEAT-connect-oauth-pr2-brief.md)
 
-- Replace snippet wall in ConnectPanel: platform picker → per-platform guided steps.
-  OAuth-first (paste URL / one-click deeplinks: Cursor `install-mcp` link, `vscode:mcp/install`,
-  `claude mcp add` / `codex mcp add` one-liners); manual-token path only on explicit request.
-- Final step: live verification — poll connection list until first authenticated call bumps
-  `lastUsedAt` → "Connected ✓".
+- ConnectPanel restructured: a "Connect a platform" wizard card on top (3-step shared
+  `Stepper`: **Platform → Set up → Verify**), the existing worker-tokens table below
+  (table unchanged in PR 2; truthful status is PR 3).
+- Platform catalog (7 entries, `platforms.ts`, pure + unit-testable): Claude Code,
+  Claude Desktop / claude.ai web, Cursor, VS Code, Codex, ChatGPT, Gemini CLI. Each:
+  label, ordered OAuth setup steps, one-click deeplink builder where the platform has one
+  (Cursor `install-mcp` link, `vscode:mcp/install`), copyable one-liners elsewhere
+  (`claude mcp add`, `codex mcp add`, `gemini mcp add`, connector-UI steps for
+  ChatGPT/Claude web), plus a token-lane variant of the same instructions.
+- **OAuth-first**: default lane never mints or shows a token — just the MCP URL +
+  deeplink/command; the browser consent flow (PR 1) does the auth. The raw-token lane
+  appears only behind an explicit "Use a worker token instead" action and reuses the
+  existing mint form + snippet builders.
+- **Live verify — OAuth lane needs a first-call signal that does not exist yet**: OAuth
+  JWT verification is local (JWKS); `oauth_access_token` rows prove issuance, not use.
+  New module-owned table `oauth_connections` (connect module — NOT a hand-edit of
+  better-auth plugin tables, which 1.7 renames): unique `(oauth_client_id, principal_id)`,
+  `first_used_at`, `last_used_at`. `agent-auth.ts` touches it (upsert) after each
+  successful OAuth MCP authentication, non-fatal on failure. Insert emits
+  `connection.first_used`; subsequent `last_used_at` bumps are bookkeeping (same
+  precedent as kernel `tokens.last_used_at` — no event).
+- Wizard verify step polls a server action (interval ≥3s, stops on unmount/step change,
+  ~2 min soft timeout with troubleshooting hints):
+  - OAuth lane: `oauth_connections` row for the signed-in principal with
+    `first_used_at >=` wizard start → "Connected ✓" + client name.
+  - Token lane: minted `tokenId` in `listConnectionTokens` gets non-null `lastUsedAt`.
 
-### PR 3 — Status + notifications (original #53 core; plan after PR 2)
+### PR 3 — Status + notifications (original #53 core; detailed 2026-07-15; brief: FEAT-connect-oauth-pr3-brief.md)
 
-- Derived status in token/connection lists: Active / Expired / Revoked / Never used.
-- Attention items (new kind, migration) for expired / expiring-soon connections; bell
-  deep-links to the connect tab.
+Branch stacks on `task/FEAT-connect-oauth-pr2` (shares ConnectPanel + connect service +
+a linear migration chain); PR opens with that base and retargets `main` when PR 2 merges.
+Closes #53.
+
+- **Truthful derived status** in `listConnectionTokens`: server-side `status` field with
+  precedence `revoked` > `expired` (`expiresAt < now`) > `never_used` (`lastUsedAt` null)
+  > `active`. UI: `labelForConnectionStatus` takes the derived status; ConnectPanel
+  status cell renders it (tokens only — muted for never-used, destructive for
+  expired/revoked).
+- **New attention kind `connection_expiry`** (enum value add migration; payload
+  `{ tokenId, name, scopePath, state: "expiring" | "expired", expiresAt }`).
+- **Sweep, no cron infra**: internal connect-module service
+  `ensureConnectionExpiryAttention(db)` — for each non-revoked connection token expired
+  or expiring within 7 days, ensure exactly one open `connection_expiry` item on the
+  token's scope (dedupe on open item + `payload.tokenId`). `created_by` = the token's
+  `minted_by` principal via an internal attention insert that skips grant checks but
+  still emits `attention.created`. State transition expiring→expired = dismiss old +
+  create new (existing event types only). Trigger: bell's
+  `refreshNotificationsAction` calls the sweep behind an in-process ≥5-min throttle
+  (bell already polls every 60s per active user; idempotent so multi-caller safe).
+- **Auto-clean**: `revokeConnectionToken` dismisses that token's open
+  `connection_expiry` items (note "token revoked").
+- **Bell + card**: `NotificationBell` adds the kind label and deep-links
+  `connection_expiry` items to `/s/<scopePath>?tab=connect` (other kinds keep
+  `?tab=overview`); `AttentionCard` renders the kind with a Dismiss affordance
+  (admin/owner), no approve/reject.
 
 ## Files to modify (PR 1)
 
@@ -99,6 +143,39 @@ status + expiry notifications).
 | tests near code + `packages/api` | dual-mode auth, PRM route shape, principal mapping, audience rejection |
 | module `AGENTS.md`s (apps/os, packages/mcp, connect) | contract updates in same change set |
 
+## Files to modify (PR 2)
+
+| Path | Change |
+|---|---|
+| `packages/db/src/schema/connect.ts` | `oauth_connections` table + row type |
+| `packages/db/drizzle/*` | generated migration (`pnpm --filter @companyos/db db:generate`; meta chain clean from 0028) |
+| `packages/api/src/modules/connect/service.ts` | `touchOAuthConnection` (upsert + first-use event), `listOAuthConnections` (self view) |
+| `packages/api/src/modules/connect/connect.test.ts` | upsert idempotency, event-emitted-once, self-visibility tests |
+| `packages/api/src/index.ts` (exports) | re-export new services |
+| `packages/api/src/modules/connect/AGENTS.md` | OAuth-connection tracking contract |
+| `apps/os/src/lib/agent-auth.ts` | touch oauth connection on successful OAuth MCP auth (non-fatal) |
+| `apps/os/src/modules/connect/platforms.ts` (+ `platforms.test.ts`) | platform catalog + deeplink/snippet builders (pure functions) |
+| `apps/os/src/modules/connect/ConnectWizard.tsx` | wizard client component (shared `Stepper`) |
+| `apps/os/src/modules/connect/ConnectPanel.tsx` | compose wizard + keep tokens table/mint/revoke |
+| `apps/os/src/modules/connect/actions.ts` | `getOAuthConnectionStatusAction` poll action |
+| `apps/os/src/modules/connect/AGENTS.md`, `apps/os/AGENTS.md` | contract updates |
+
+## Files to modify (PR 3)
+
+| Path | Change |
+|---|---|
+| `packages/db/src/schema/attention.ts` | `connection_expiry` enum value + type unions |
+| `packages/db/drizzle/*` | generated enum-add migration (linear after PR 2's) |
+| `packages/api/src/modules/connect/service.ts` | derived `status` in `listConnectionTokens`; `ensureConnectionExpiryAttention`; revoke auto-dismiss |
+| `packages/api/src/modules/attention/service.ts` | internal no-actor insert/dismiss helpers (events still emitted) |
+| `packages/api/src/modules/{connect,attention}/*.test.ts` | status matrix, sweep idempotency + transition, revoke cleanup |
+| `packages/api/src/modules/{connect,attention}/AGENTS.md` | contract updates |
+| `apps/os/src/lib/labels.ts` | `labelForConnectionStatus(status)` for 4 states |
+| `apps/os/src/modules/connect/ConnectPanel.tsx` | status cell uses derived status |
+| `apps/os/src/app/(app)/_components/notification-actions.ts` | throttled sweep call |
+| `apps/os/src/app/(app)/_components/NotificationBell.tsx` | kind label + connect-tab deep-link |
+| `apps/os/src/modules/attention/AttentionCard.tsx` (+ `AGENTS.md`) | render + dismiss for the new kind |
+
 ## Test impact
 
 - New: dual-mode auth unit tests (legacy token ok; OAuth JWT ok; wrong audience 401; no
@@ -114,8 +191,8 @@ status + expiry notifications).
 
 ## Phased to-dos
 
-- [ ] PR 1: OAuth foundation (brief dispatched to codex gpt-5.6-terra/high)
-- [ ] PR 1: gates green, adversarial security review (fresh session), owner merges
+- [x] PR 1: OAuth foundation (brief dispatched to codex gpt-5.6-terra/high)
+- [x] PR 1: gates green, adversarial security review (fresh session), owner merged (#55)
 - [ ] Staging smoke: connect Claude Code + ChatGPT connector via OAuth end-to-end
 - [ ] PR 2: wizard plan + brief + dispatch
 - [ ] PR 3: status/notifications plan + brief + dispatch
