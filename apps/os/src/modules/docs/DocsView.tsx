@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useConfirm, useToast } from "@companyos/ui";
 import { Archive, BookOpen, History, Link2, ListTree, Plus, X } from "lucide-react";
 import { DocEditor } from "./DocEditor";
 import { extractMarkdownOutline, type KnownWikiPage, type MarkdownOutlineItem } from "./structured-editor";
+import { createLoadSequence, DOC_LOAD_TIMEOUT_MS, withTimeout } from "./doc-load";
 import {
   listDocsAction,
   getDocAction,
@@ -97,6 +98,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
   const [access, setAccess] = useState<string | null>(initialAccess || null);
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [isLoadingDoc, setIsLoadingDoc] = useState(false);
+  const [docLoadError, setDocLoadError] = useState<{ scopePath: string; slug: string } | null>(null);
   const [isDocEditing, setIsDocEditing] = useState(false);
   const [inheritedWiki, setInheritedWiki] = useState<InheritedWiki | null>(null);
   const [, setSaveState] = useState<"saved" | "saving" | "error">("saved");
@@ -119,6 +121,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
   const readOnly = access === "viewer";
   const selectedKey = currentDoc ? docKey(currentDoc.scopePath, currentDoc.slug) : null;
   const urlDocSlug = searchParams?.get("doc") || initialDocSlug || null;
+  const loadSequence = useRef(createLoadSequence());
 
   const mapDocs = useCallback((rows: RawDocListItem[]): DocListItem[] =>
     rows.map((r) => ({
@@ -140,9 +143,17 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
       } else {
         params.delete("doc");
       }
-      router.replace(`/s/${targetScopePath}?${params.toString()}`, { scroll: false });
+      const url = `/s/${targetScopePath}?${params.toString()}`;
+      if (targetScopePath === scopePath) {
+        // Same scope: query-only change. Native replaceState keeps useSearchParams
+        // in sync without an RSC navigation; a pending navigation would make any
+        // in-flight server action hang forever (vercel/next.js#74246, issue #54).
+        window.history.replaceState(null, "", url);
+      } else {
+        router.replace(url, { scroll: false });
+      }
     },
-    [router, searchParams],
+    [router, scopePath, searchParams],
   );
 
   const refreshList = useCallback(async () => {
@@ -164,11 +175,15 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
 
   const loadDoc = useCallback(
     async (targetScopePath: string, slug: string, syncUrl = true) => {
+      const seq = loadSequence.current.next();
       setIsLoadingDoc(true);
+      setDocLoadError(null);
       try {
-        const d = await getDocAction(targetScopePath, slug);
+        const d = await withTimeout(getDocAction(targetScopePath, slug), DOC_LOAD_TIMEOUT_MS);
+        if (!loadSequence.current.isCurrent(seq)) return;
         if (d) {
-          const following = await isFollowingDocAction(targetScopePath, d.slug).catch(() => false);
+          const following = await withTimeout(isFollowingDocAction(targetScopePath, d.slug), DOC_LOAD_TIMEOUT_MS).catch(() => false);
+          if (!loadSequence.current.isCurrent(seq)) return;
           const listRow = docs.find((row) => row.scopePath === targetScopePath && row.slug === d.slug);
           setCurrentDoc({
             scopePath: targetScopePath,
@@ -179,12 +194,16 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
           });
           setIsFollowingCurrent(Boolean(following));
           if (syncUrl) updateUrlDoc(targetScopePath, d.slug);
+        } else {
+          setDocLoadError({ scopePath: targetScopePath, slug });
         }
       } catch {
+        if (!loadSequence.current.isCurrent(seq)) return;
         setIsFollowingCurrent(false);
-        await refreshList();
+        setDocLoadError({ scopePath: targetScopePath, slug });
+        refreshList().catch(() => {});
       } finally {
-        setIsLoadingDoc(false);
+        if (loadSequence.current.isCurrent(seq)) setIsLoadingDoc(false);
       }
     },
     [docs, refreshList, updateUrlDoc],
@@ -197,6 +216,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
     setDocs([]);
     setBacklinks([]);
     setInheritedWiki(null);
+    setDocLoadError(null);
     setIsLoadingList(true);
 
     (async () => {
@@ -227,10 +247,13 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
   }, [scopePath, initialAccess, refreshList]);
 
   useEffect(() => {
-    if (!urlDocSlug || urlDocSlug === currentDoc?.slug) return;
+    if (!urlDocSlug || urlDocSlug === currentDoc?.slug || isLoadingDoc) return;
+    // A failed load stays failed until the user retries; auto-reloading here would
+    // clear the error pane and loop back to "Loading page..." on every docs refresh.
+    if (docLoadError?.slug === urlDocSlug) return;
     const target = docs.find((row) => row.scopePath === scopePath && row.slug === urlDocSlug) ?? docs.find((row) => row.slug === urlDocSlug);
     if (target) loadDoc(target.scopePath, target.slug, false).catch(() => {});
-  }, [urlDocSlug, currentDoc?.slug, docs, loadDoc, scopePath]);
+  }, [urlDocSlug, currentDoc?.slug, docLoadError, isLoadingDoc, docs, loadDoc, scopePath]);
 
   useEffect(() => {
     let mounted = true;
@@ -297,7 +320,11 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
   }, [currentDoc, isDocEditing]);
 
   const onSelectDoc = async (doc: DocListItem) => {
-    if (docKey(doc.scopePath, doc.slug) === selectedKey) return;
+    if (docKey(doc.scopePath, doc.slug) === selectedKey) {
+      // Already loaded; if another page's failed load is covering it, reveal it again.
+      setDocLoadError(null);
+      return;
+    }
     await loadDoc(doc.scopePath, doc.slug);
   };
 
@@ -666,13 +693,24 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
           </div>
         )}
 
-        {noDocSelected ? (
-          <div className="flex h-full items-center justify-center rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
-            {hasDocs ? "Select a page from the list." : "Create the first page to start editing."}
-          </div>
-        ) : isLoadingDoc || !currentDoc ? (
+        {isLoadingDoc ? (
           <div className="flex h-full items-center justify-center rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
             Loading page...
+          </div>
+        ) : docLoadError ? (
+          <div className="flex h-full flex-col items-center justify-center gap-[var(--space-3)] rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
+            <div>This page didn&apos;t load.</div>
+            <button
+              type="button"
+              onClick={() => loadDoc(docLoadError.scopePath, docLoadError.slug)}
+              className="rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--foreground)] hover:bg-[var(--muted)]"
+            >
+              Try again
+            </button>
+          </div>
+        ) : noDocSelected ? (
+          <div className="flex h-full items-center justify-center rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
+            {hasDocs ? "Select a page from the list." : "Create the first page to start editing."}
           </div>
         ) : (
           <DocEditor
