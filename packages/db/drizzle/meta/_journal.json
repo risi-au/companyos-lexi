@@ -218,6 +218,13 @@
       "when": 1784114627708,
       "tag": "0030_connection_expiry_attention",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1784239445719,
+      "tag": "0031_abandoned_rumiko_fujikawa",
+      "breakpoints": true
     }
   ]
 }

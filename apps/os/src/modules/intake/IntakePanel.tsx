@@ -149,9 +149,15 @@ function normalizeHistory(value: unknown): RelatedHistoryHit[] {
   })).filter((item) => item.id && item.title && item.scopePath);
 }
 
+// approved, provisioning (claim held by a provision run), and provisioned are all
+// read-only for wizard content; only provisioned counts as live.
+function isPostApproval(status: string): boolean {
+  return status === "approved" || status === "provisioning" || status === "provisioned";
+}
+
 function statusStep(status: string): number {
   if (status === "needs_review") return 5;
-  if (status === "approved" || status === "provisioned") return 6;
+  if (isPostApproval(status)) return 6;
   if (status === "rejected" || status === "dismissed") return 1;
   return 4;
 }
@@ -354,7 +360,7 @@ function WizardWorkspace({
   const statusMaxStep = statusStep(intake.status);
   const maxReached = Math.max(localMaxStep, statusMaxStep);
   const openQuestions = useMemo(
-    () => intake.status === "approved" || intake.status === "provisioned"
+    () => isPostApproval(intake.status)
       ? openQuestionEntries.map((entry) => ({ ...entry, done: true }))
       : openQuestionEntries,
     [intake.status, openQuestionEntries],
@@ -608,7 +614,7 @@ function WizardWorkspace({
   }
 
   function toggleQuestion(index: number) {
-    if (!canEdit || intake.status === "approved" || intake.status === "provisioned") return;
+    if (!canEdit || isPostApproval(intake.status)) return;
     const current = openQuestionEntriesRef.current;
     const entry = current[index];
     if (!entry) return;
@@ -629,7 +635,7 @@ function WizardWorkspace({
   }
 
   function openAnswerEditor(index: number) {
-    if (!canEdit || intake.status === "approved" || intake.status === "provisioned") return;
+    if (!canEdit || isPostApproval(intake.status)) return;
     const entry = openQuestionEntriesRef.current[index];
     if (!entry) return;
     setAnsweringQuestion(index);
@@ -638,7 +644,7 @@ function WizardWorkspace({
 
   function markQuestionAnswered(index: number) {
     const answer = (answerDrafts[index] ?? "").trim();
-    if (!canEdit || !answer || intake.status === "approved" || intake.status === "provisioned") return;
+    if (!canEdit || !answer || isPostApproval(intake.status)) return;
     const next = openQuestionEntriesRef.current.map((entry, itemIndex) => itemIndex === index
       ? { ...entry, done: true, answer }
       : entry);
@@ -815,7 +821,7 @@ function WizardWorkspace({
               running={provisionRunning}
               error={provisionError}
               live={scopeLive}
-              canProvision={canAdmin && intake.status === "approved"}
+              canProvision={canAdmin && (intake.status === "approved" || intake.status === "provisioning")}
               onProvision={() => runAction(runProvision, "Project is live.")}
             />
           ) : null}

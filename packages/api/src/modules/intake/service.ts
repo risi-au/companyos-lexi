@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { and, desc, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, like, lt, or, sql } from "drizzle-orm";
 import { documents, embeddings, intakePackets, scopes, skillsIndex, type IntakePacket } from "@companyos/db";
 import {
   assembleExternalPack,
@@ -905,8 +905,16 @@ export async function dismissIntakePacket(db: DB, input: { id: string }, actorPr
 export async function reopenIntakePacket(db: DB, input: { id: string }, actorPrincipalId: string): Promise<IntakePacketView> {
   const intake = await getIntakePacket(db, input.id, actorPrincipalId);
   await requireAccess(db, actorPrincipalId, intake.scopePath, "admin");
-  if (intake.status !== "dismissed" && intake.status !== "rejected") return intake;
-  await db.update(intakePackets).set({ status: "draft", updatedAt: new Date() }).where(eq(intakePackets.id, input.id));
+  // Pre-approval intakes are still editable, so send-back is an idempotent no-op there.
+  if (PRE_APPROVAL_STATUSES.includes(intake.status)) return intake;
+  if (intake.status === "provisioned") throw new IntakeStateError(`Intake ${input.id} is provisioned; it cannot be reopened to draft`);
+  if (intake.status === "provisioning") throw new IntakeStateError(`Intake ${input.id} is being provisioned; wait for provisioning to finish before sending it back`);
+  // Guarded update: the status may have moved (e.g. provisioning finished) between the read above and here.
+  const reopenedRows = await db.update(intakePackets)
+    .set({ status: "draft", approvedBy: null, approvedAt: null, updatedAt: new Date() })
+    .where(and(eq(intakePackets.id, input.id), inArray(intakePackets.status, ["dismissed", "rejected", "approved"])))
+    .returning({ id: intakePackets.id });
+  if (reopenedRows.length === 0) throw new IntakeStateError(`Intake ${input.id} changed state concurrently and can no longer be reopened`);
   const updated = await getIntakeRow(db, input.id);
   await emitIntakeEvent(db, "intake.updated", updated, actorPrincipalId, { action: "reopened" });
   return updated;
@@ -1001,10 +1009,58 @@ export async function provisionFromIntakePacket(
 ): Promise<{ intake: IntakePacketView; result: ProvisionResult; recordId: string; artifacts: Record<string, unknown> }> {
   const intake = await getIntakePacket(db, input.id, actorPrincipalId);
   await requireAccess(db, actorPrincipalId, intake.scopePath, "admin");
-  if (intake.status !== "approved") throw new IntakeStateError(`Only approved intakes can be provisioned; got ${intake.status}`);
   const spec = input.specOverride ?? (isJsonObject(intake.proposedProvisionSpec) ? intake.proposedProvisionSpec as unknown as ProvisionSpec : null);
   if (!spec || !spec.scopePath) throw new Error("Approved intake has no proposed provision spec with scopePath");
 
+  // Atomic claim: serializes provisioning against send-back and double-provision.
+  // A stale claim (a run that crashed mid-provision) can be taken over once its lease
+  // expires. The claim's updatedAt doubles as a fencing token: nothing else writes the
+  // row while the claim is held, so only the run whose stamp still matches may finish
+  // (stamp provisioned) or release (roll back to approved) the claim.
+  const leaseCutoff = new Date(Date.now() - PROVISIONING_LEASE_MS);
+  const claimStamp = new Date();
+  const claimedRows = await db.update(intakePackets)
+    .set({ status: "provisioning", updatedAt: claimStamp })
+    .where(and(
+      eq(intakePackets.id, input.id),
+      or(
+        eq(intakePackets.status, "approved"),
+        and(eq(intakePackets.status, "provisioning"), lt(intakePackets.updatedAt, leaseCutoff)),
+      ),
+    ))
+    .returning({ id: intakePackets.id });
+  if (claimedRows.length === 0) {
+    const current = await getIntakeRow(db, input.id);
+    throw new IntakeStateError(`Only approved intakes can be provisioned; got ${current.status}`);
+  }
+
+  try {
+    return await provisionClaimedIntake(db, deps, intake, spec, claimStamp, actorPrincipalId);
+  } catch (error) {
+    // Release the claim so a failed run does not wedge the intake in `provisioning`.
+    // Fenced on claimStamp: a run that lost its claim to a lease takeover must not
+    // reset the newer claimant to approved.
+    try {
+      await db.update(intakePackets)
+        .set({ status: "approved", updatedAt: new Date() })
+        .where(and(eq(intakePackets.id, input.id), eq(intakePackets.status, "provisioning"), eq(intakePackets.updatedAt, claimStamp)));
+    } catch {
+      // best-effort: the lease takeover above recovers a wedged claim
+    }
+    throw error;
+  }
+}
+
+const PROVISIONING_LEASE_MS = 10 * 60 * 1000;
+
+async function provisionClaimedIntake(
+  db: DB,
+  deps: ProvisionDeps & { plane: PlaneClient },
+  intake: IntakePacketView,
+  spec: ProvisionSpec,
+  claimStamp: Date,
+  actorPrincipalId: string
+): Promise<{ intake: IntakePacketView; result: ProvisionResult; recordId: string; artifacts: Record<string, unknown> }> {
   const result = await provisionScope(db, deps, { ...spec, scopePath: intake.scopePath }, actorPrincipalId);
   const artifacts: Record<string, unknown> = { provisionSteps: result.steps };
   const requiredCredentials = requiredCredentialsFromAnswers(intake.answers);
@@ -1111,13 +1167,16 @@ export async function provisionFromIntakePacket(
     artifacts.sourceRefsRecordId = sourceRecord.id;
   }
 
-  await db.update(intakePackets).set({
+  // Guarded stamp, fenced on claimStamp: only the run still holding the provisioning
+  // claim may mark the intake provisioned; a run that lost its lease throws instead.
+  const stampedRows = await db.update(intakePackets).set({
     status: "provisioned",
     reportRecordId: report.id,
     artifactLinks: artifacts,
     provisionedAt: new Date(),
     updatedAt: new Date(),
-  }).where(eq(intakePackets.id, intake.id));
+  }).where(and(eq(intakePackets.id, intake.id), eq(intakePackets.status, "provisioning"), eq(intakePackets.updatedAt, claimStamp))).returning({ id: intakePackets.id });
+  if (stampedRows.length === 0) throw new IntakeStateError(`Intake ${intake.id} lost its provisioning claim (taken over or reset); provisioning aborted`);
   const updated = await getIntakeRow(db, intake.id);
   await emitIntakeEvent(db, "intake.provisioned", updated, actorPrincipalId, { reportRecordId: report.id, artifacts });
   return { intake: updated, result, recordId: report.id, artifacts };

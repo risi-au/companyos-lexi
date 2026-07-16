@@ -150,6 +150,167 @@ describe("intake creation wizard module", () => {
     expect(events.map((event) => event.type)).toEqual(expect.arrayContaining(["intake.updated", "intake.dismissed"]));
   });
 
+  it("sends an approved intake back to draft and refuses to reopen a provisioned intake", async () => {
+    const slug = `intake-sendback-${Date.now()}`;
+    await createScope(db, { slug, name: "Send Back", type: "project" }, admin);
+    const draft = await ensureDraftIntakeForScope(db, { scopePath: slug, reason: "Send-back regression" }, admin);
+    await updateIntakePacket(db, { id: draft.id, status: "awaiting_external" }, admin);
+    await submitIntakePacket(db, { id: draft.id, pasteText: "Packet summary for send-back" }, admin);
+    const approved = await approveIntakePacket(db, { id: draft.id }, admin);
+    expect(approved.status).toBe("approved");
+
+    const reopened = await reopenIntakePacket(db, { id: draft.id }, admin);
+    expect(reopened.status).toBe("draft");
+    expect(reopened.approvedBy).toBeNull();
+    expect(reopened.approvedAt).toBeNull();
+    const edited = await updateIntakePacket(db, { id: draft.id, answers: { reason: "Revised after send-back" } }, admin);
+    expect(edited.answers).toMatchObject({ reason: "Revised after send-back" });
+
+    await updateIntakePacket(db, { id: draft.id, status: "awaiting_external" }, admin);
+    await submitIntakePacket(db, { id: draft.id, pasteText: "Packet summary after revision" }, admin);
+    await approveIntakePacket(db, { id: draft.id }, admin);
+    await provisionFromIntakePacket(db, { plane: planeMock(), github: null }, { id: draft.id }, admin);
+    await expect(reopenIntakePacket(db, { id: draft.id }, admin)).rejects.toThrow(/provisioned/);
+  });
+
+  it("refuses send-back while the provisioning claim is held mid-provision", async () => {
+    const slug = `intake-sendback-race-${Date.now()}`;
+    await createScope(db, { slug, name: "Send Back Race", type: "project" }, admin);
+    const draft = await ensureDraftIntakeForScope(db, { scopePath: slug, reason: "Send-back race" }, admin);
+    await updateIntakePacket(db, { id: draft.id, status: "awaiting_external" }, admin);
+    await submitIntakePacket(db, {
+      id: draft.id,
+      pasteText: [
+        "```json",
+        JSON.stringify({
+          packet_md: "Race packet",
+          proposed_provision_spec: { scopePath: slug, modules: [] },
+          proposed_docs: [],
+          proposed_tasks: [{ title: "Race task" }],
+          proposed_wiki_updates: [],
+          required_credentials: [],
+          external_systems: [],
+          open_questions: [],
+          risk_notes: [],
+        }),
+        "```",
+      ].join("\n"),
+    }, admin);
+    await approveIntakePacket(db, { id: draft.id }, admin);
+
+    const plane = planeMock();
+    let reopenError: unknown = null;
+    plane.createIssue.mockImplementation(async () => {
+      try {
+        await reopenIntakePacket(db, { id: draft.id }, admin);
+      } catch (error) {
+        reopenError = error;
+      }
+      return { id: "issue-race", sequence_id: 9 };
+    });
+    const provisioned = await provisionFromIntakePacket(db, { plane, github: null }, { id: draft.id }, admin);
+    expect(provisioned.intake.status).toBe("provisioned");
+    expect(String(reopenError)).toMatch(/being provisioned/);
+  });
+
+  it("serializes provisioning claims and recovers stale ones", async () => {
+    const slug = `intake-claim-${Date.now()}`;
+    await createScope(db, { slug, name: "Claim", type: "project" }, admin);
+    const draft = await ensureDraftIntakeForScope(db, { scopePath: slug, reason: "Claim test" }, admin);
+    await updateIntakePacket(db, { id: draft.id, status: "awaiting_external" }, admin);
+    await submitIntakePacket(db, { id: draft.id, pasteText: "Claim packet" }, admin);
+    await approveIntakePacket(db, { id: draft.id }, admin);
+
+    // Simulate another run holding a fresh claim.
+    await db.update(schema.intakePackets).set({ status: "provisioning", updatedAt: new Date() }).where(eq(schema.intakePackets.id, draft.id));
+    await expect(provisionFromIntakePacket(db, { plane: planeMock(), github: null }, { id: draft.id }, admin))
+      .rejects.toThrow(/got provisioning/);
+    await expect(reopenIntakePacket(db, { id: draft.id }, admin)).rejects.toThrow(/being provisioned/);
+
+    // A stale claim (crashed run) is taken over once the lease expires.
+    await db.update(schema.intakePackets).set({ updatedAt: new Date(Date.now() - 11 * 60 * 1000) }).where(eq(schema.intakePackets.id, draft.id));
+    const provisioned = await provisionFromIntakePacket(db, { plane: planeMock(), github: null }, { id: draft.id }, admin);
+    expect(provisioned.intake.status).toBe("provisioned");
+  });
+
+  it("fences a run that lost its claim: it can neither stamp provisioned nor reset the new claimant", async () => {
+    const slug = `intake-fence-${Date.now()}`;
+    await createScope(db, { slug, name: "Fence", type: "project" }, admin);
+    const draft = await ensureDraftIntakeForScope(db, { scopePath: slug, reason: "Fence test" }, admin);
+    await updateIntakePacket(db, { id: draft.id, status: "awaiting_external" }, admin);
+    await submitIntakePacket(db, {
+      id: draft.id,
+      pasteText: [
+        "```json",
+        JSON.stringify({
+          packet_md: "Fence packet",
+          proposed_provision_spec: { scopePath: slug, modules: [] },
+          proposed_docs: [],
+          proposed_tasks: [{ title: "Fence task" }],
+          proposed_wiki_updates: [],
+          required_credentials: [],
+          external_systems: [],
+          open_questions: [],
+          risk_notes: [],
+        }),
+        "```",
+      ].join("\n"),
+    }, admin);
+    await approveIntakePacket(db, { id: draft.id }, admin);
+
+    // Mid-provision, simulate a lease takeover by another run: same provisioning
+    // status, different claim stamp.
+    const takeoverStamp = new Date(Date.now() + 5000);
+    const plane = planeMock();
+    plane.createIssue.mockImplementation(async () => {
+      await db.update(schema.intakePackets).set({ updatedAt: takeoverStamp }).where(eq(schema.intakePackets.id, draft.id));
+      return { id: "issue-fence", sequence_id: 11 };
+    });
+    await expect(provisionFromIntakePacket(db, { plane, github: null }, { id: draft.id }, admin))
+      .rejects.toThrow(/lost its provisioning claim/);
+    // The fenced loser must not have stamped provisioned nor reset the new claimant.
+    const after = await getIntakePacket(db, draft.id, admin);
+    expect(after.status).toBe("provisioning");
+    expect(new Date(after.updatedAt).getTime()).toBe(takeoverStamp.getTime());
+  });
+
+  it("rolls the provisioning claim back to approved when provisioning fails", async () => {
+    const slug = `intake-rollback-${Date.now()}`;
+    await createScope(db, { slug, name: "Rollback", type: "project" }, admin);
+    const draft = await ensureDraftIntakeForScope(db, { scopePath: slug, reason: "Rollback test" }, admin);
+    await updateIntakePacket(db, { id: draft.id, status: "awaiting_external" }, admin);
+    await submitIntakePacket(db, {
+      id: draft.id,
+      pasteText: [
+        "```json",
+        JSON.stringify({
+          packet_md: "Rollback packet",
+          proposed_provision_spec: { scopePath: slug, modules: [] },
+          proposed_docs: [],
+          proposed_tasks: [{ title: "Rollback task" }],
+          proposed_wiki_updates: [],
+          required_credentials: [],
+          external_systems: [],
+          open_questions: [],
+          risk_notes: [],
+        }),
+        "```",
+      ].join("\n"),
+    }, admin);
+    await approveIntakePacket(db, { id: draft.id }, admin);
+
+    const brokenPlane = planeMock();
+    brokenPlane.createProject.mockRejectedValue(new Error("plane down"));
+    brokenPlane.getProjects.mockRejectedValue(new Error("plane down"));
+    await expect(provisionFromIntakePacket(db, { plane: brokenPlane, github: null }, { id: draft.id }, admin))
+      .rejects.toThrow();
+    expect((await getIntakePacket(db, draft.id, admin)).status).toBe("approved");
+
+    // A retry with a healthy dependency succeeds after the rollback.
+    const provisioned = await provisionFromIntakePacket(db, { plane: planeMock(), github: null }, { id: draft.id }, admin);
+    expect(provisioned.intake.status).toBe("provisioned");
+  });
+
   it("parses valid paste-back, reports malformed JSON precisely, accepts markdown-only, and enforces subtree submission", async () => {
     const slug = `intake-submit-${Date.now()}`;
     const other = `intake-submit-other-${Date.now()}`;

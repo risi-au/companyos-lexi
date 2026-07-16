@@ -9,6 +9,7 @@ export const intakePacketStatusEnum = pgEnum("intake_packet_status", [
   "provisioned",
   "rejected",
   "dismissed",
+  "provisioning",
 ]);
 
 export const intakePackets = pgTable(
@@ -51,7 +52,7 @@ export const intakePackets = pgTable(
 export interface IntakePacket {
   id: string;
   scopeId: string;
-  status: "draft" | "awaiting_external" | "needs_review" | "approved" | "provisioned" | "rejected" | "dismissed";
+  status: "draft" | "awaiting_external" | "needs_review" | "approved" | "provisioning" | "provisioned" | "rejected" | "dismissed";
   templateSlug: string;
   answers: unknown;
   packetMd: string | null;

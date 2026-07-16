@@ -10,6 +10,7 @@ export const intakeStatusLabels: Record<string, string> = {
   awaiting_external: "Waiting on interview",
   needs_review: "Ready for review",
   approved: "Approved",
+  provisioning: "Provisioning",
   provisioned: "Live",
   rejected: "Sent back",
   dismissed: "Discarded",

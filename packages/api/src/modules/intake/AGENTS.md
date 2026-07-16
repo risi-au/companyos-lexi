@@ -27,6 +27,19 @@ already-created scopes.
 - Draft/update/submit require editor/agent while pre-approval.
 - Approve/reject/dismiss/reopen/provision require admin; provision requires status
   `approved` and calls `provisionScope`.
+- Reopen returns dismissed/rejected/approved intakes to `draft` (clearing
+  `approved_by`/`approved_at`) via a status-guarded update; pre-approval statuses
+  are an idempotent no-op; `provisioning`/`provisioned` intakes throw
+  `IntakeStateError` instead of silently succeeding.
+- Provisioning atomically claims `approved -> provisioning` before any side-effect
+  work, rolls the claim back to `approved` on failure, and stamps
+  `provisioning -> provisioned` guarded on the claim. A stale claim (crashed run)
+  can be taken over after a 10-minute lease. The claim's `updated_at` is the
+  fencing token: stamp and rollback require it, so a run that lost its lease can
+  neither mark provisioned nor reset the newer claimant. Every refused transition
+  throws `IntakeStateError` — no silent no-ops. Known limitation (#84): a run that
+  hangs past the lease and later resumes can duplicate non-idempotent side effects
+  (report record, Plane issues) before dying at the fenced stamp.
 - No LLM calls in this module.
 - Related history and reuse-pattern matching use embeddings-only retrieval with
   lexical fail-open behavior; never add chat-LLM calls to request paths.
