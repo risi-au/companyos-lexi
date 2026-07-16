@@ -272,6 +272,20 @@ export function Sidebar({ tree, selected = null, taskManagerUrl = null, instance
         )}
       </div>
 
+      {taskManagerUrl && (
+        <div className="mb-[var(--space-4)]">
+          <a
+            href={taskManagerUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`mt-[var(--space-1)] flex min-h-[30px] items-center gap-[7px] rounded-[var(--radius-3)] px-[var(--space-2)] text-[13.5px] text-[var(--mutedfg)] hover:bg-[var(--hover)] hover:text-[var(--fg)] ${hoverUnderlineClass}`}
+          >
+            <ExternalLink size={14} />
+            Task board
+          </a>
+        </div>
+      )}
+
       {/* system group — flat, gated on rootRole (owner/admin) */}
       {showSystem && (
         <div className="mb-[var(--space-2)]">

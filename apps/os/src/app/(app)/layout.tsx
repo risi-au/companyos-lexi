@@ -52,11 +52,16 @@ export default async function AppLayout({
 
   // Server-rendered Task Manager URL (uses getPlaneUrl; falls back per spec)
   let taskManagerUrl: string | null = null;
-  if (resolvedSelected && resolvedSelected !== "root") {
-    try {
-      taskManagerUrl = await api.getPlaneUrl(resolvedSelected);
-    } catch {
-      taskManagerUrl = process.env.PLANE_BASE_URL || null;
+  const planeBaseUrl = process.env.PLANE_BASE_URL;
+  if (planeBaseUrl) {
+    if (resolvedSelected && resolvedSelected !== "root") {
+      try {
+        taskManagerUrl = await api.getPlaneUrl(resolvedSelected);
+      } catch {
+        taskManagerUrl = planeBaseUrl;
+      }
+    } else {
+      taskManagerUrl = planeBaseUrl;
     }
   }
 
