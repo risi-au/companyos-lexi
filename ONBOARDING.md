@@ -57,9 +57,14 @@ Bugfix plan: `docs/tasks/_TEMPLATE-bugfix.plan.md` (repro -> minimise -> fix -> 
 ## 4. Live environment (verify, do not assume)
 
 - **Dev server**: usually http://localhost:3000, often serving a *task worktree*, not this
-  folder. Find which: `Get-NetTCPConnection -LocalPort 3000 -State Listen` -> owning
+  folder — or an unrelated project entirely (verify before assuming). Find which:
+  `Get-NetTCPConnection -LocalPort 3000 -State Listen` -> owning
   process command line shows the worktree path. Restarting it + deleting that worktree's
   `apps/os/.next` is the safe rebuild.
+  To serve a task worktree on an alternate port (2026-07-16): the `dev` script hardcodes
+  `--port 3000`, so run `pnpm --filter @companyos/os exec next dev -p <port>`; copy
+  `apps/os/.env` from another worktree first AND set `BETTER_AUTH_URL=http://localhost:<port>`
+  in the copy or every auth POST fails with "Invalid origin" (next dev hot-reloads .env).
 - **Database**: Postgres in Docker, container `companyos-postgres`
   (`docker exec companyos-postgres psql -U companyos -d companyos -c "..."`).
   Gotchas: multi-statement `psql -c` runs in one transaction -- one failure rolls back
@@ -76,8 +81,13 @@ Bugfix plan: `docs/tasks/_TEMPLATE-bugfix.plan.md` (repro -> minimise -> fix -> 
   -- better-auth tables are singular `user`/`account`, snake_case columns; get the two
   auth ids from `SELECT id, email FROM "user"`), sign in as verify-bot, then delete the
   throwaway: its grant -> principal -> `user` row -> its empty `personal-<principalId>`
-  scope, as separate statements. **Local DB content is demo data** -- don't spend
-  effort restoring it if a test damages it, but say so.
+  scope, as separate statements. **Shortcut when root access isn't needed** (2026-07-16):
+  skip the hash-copy entirely — the throwaway user itself owns its `personal-<principalId>`
+  scope, which has the full tab set (incl. Worker tokens/Connect); verify there and seed
+  test rows against its principal id, then delete the same chain. Per-principal demo rows
+  (e.g. `oauth_connections`) may need seeding — the wizard-verification rows are gone;
+  an `oauth_client` insert needs `redirect_uris => '{}'` (NOT NULL). **Local DB content
+  is demo data** -- don't spend effort restoring it if a test damages it, but say so.
 - **Browser verification**: Playwright MCP tools are available and may already have a
   signed-in session. Use accessibility snapshots + targeted `getComputedStyle` probes;
   screenshots only when judging visuals.

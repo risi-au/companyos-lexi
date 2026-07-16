@@ -1,5 +1,29 @@
 # Handoff 2026-07-16: connect follow-ups (next session)
 
+## STATUS UPDATE (2026-07-16, later session): both tasks DONE, PRs open
+
+- Task 1 -> PR #68 (closes #67): Connected apps section in ConnectPanel, render-only,
+  gates green, Playwright-verified on the dev DB. Codex lane note: plugin lane died
+  (CreateProcessAsUserW) -> CLI gpt-5.6-terra/high with `windows.sandbox="unelevated"`
+  completed via git-apply fallback (SUBAGENTS.md updated).
+- Task 2 -> PR #69 (references #56, first checkbox ticked in the tracking comment):
+  renamed to `0023a_attention_items` — rename-only. VERIFIED against installed
+  drizzle-orm 0.44.7 that the migrator compares only journal `when` vs `created_at`
+  (hash selected but never used, tag never stored), so the handoff step-3
+  `__drizzle_migrations` updates were unnecessary — zero DB changes on any env.
+  Probe generate: clean one-statement diff, prevId = 0030. Dev-DB migrate: no-op.
+  Fresh-session adversarial codex review passed (two nits applied).
+- Staging OAuth smoke: still NOT run (owner) — FEAT-connect-oauth.plan.md checkbox open.
+- New: issue #70 (ensurePersonalScope duplicate-key race on first sign-up render).
+- Remainder under #56: historical snapshot rebuild only.
+- Owner: merge #68 and #69 (independent branches off main, no stacking).
+- Housekeeping: `feat-worker-token-test/apps/os/.env` is a local copy with
+  BETTER_AUTH_URL pointed at :3100 for the verification server (now stopped).
+
+Original handoff below (consumed).
+
+---
+
 From: architect session that closed the #53/#56 arc and amended M11/M14 (#65).
 State: main @ 97ea8d7, staging deployed and green through the #53 arc. Issue #53
 CLOSED; issue #56 OPEN (relabeled — now tracks only the deferred remainder below).

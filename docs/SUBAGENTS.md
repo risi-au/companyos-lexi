@@ -152,7 +152,7 @@ Notes (as of codex-cli 0.142.5, 2026-07-03):
 - **`[windows] sandbox = "elevated"` in `~/.codex/config.toml` kills headless runs** (2026-07-14): every sandboxed run dies with `CreateProcessAsUserW: Access is denied` while spamming UAC popups. Do NOT edit the config value (the desktop app owns it) — dispatch with `-c windows.sandbox="unelevated"` (baked into `scripts/dispatch-codex.ps1`), or with owner-approved `--dangerously-bypass-approvals-and-sandbox` for Orca-tracked runs. Note `codex exec resume` does NOT inherit the bypass flag from the original session — pass it again on resume calls.
 - **`cannot enforce split writable root sets; refusing to run unsandboxed`** (discovered 2026-07-15, FEAT-connect-oauth): a `-c windows.sandbox="unelevated"` run can fail *at sandbox setup* on `apply_patch` to an existing file — most often in a **git worktree with prior uncommitted work**. Likely cause: a worktree's `.git` is a file pointing at `<main-repo>/.git/worktrees/<name>`, so git-touching writes need a second writable root outside the worktree dir, and the unelevated restricted token can't express two disjoint roots. It can hit mid-task even after an earlier run in the same worktree succeeded. **Fix, in order:** (1) prefer the **codex-plugin-cc** path (`docs/OPTIONAL-CLAUDE-CODEX.md`) — it runs codex through its app server, not the raw `codex exec --sandbox` wrapper, so it sidesteps this whole class of sandbox-setup failure without weakening any isolation; (2) if the fix is small and you have already scoped it, orchestrator takeover is allowed after ~2 failed cycles (escalation ladder) rather than a third dispatch attempt; (3) only if neither fits, ask the owner in plain chat to approve `--dangerously-bypass-approvals-and-sandbox` **for that specific run** (a disposable worktree is externally sandboxed) — this is a per-run owner decision, never a standing default.
 - **Model policy** (owner): routine briefs = `gpt-5.5` at `model_reasoning_effort=medium` (2026-07-11, the dispatch script's defaults); TRIP-workflow feature runs = `gpt-5.6-terra` at `high` (2026-07-14). Never `gpt-5.6-sol`/xhigh — too token-hungry.
-- **Model-behavior note on the split-roots failure (2026-07-15):** when `apply_patch` dies on the split-writable-roots error, `gpt-5.5` pragmatically falls back to PowerShell file writes and completes the brief (pwsh 7 writes stayed clean ASCII/no-BOM — still run the encoding check), while `gpt-5.6-terra` refuses alternate write methods and stops. Factor that into lane choice when a worktree is known to trip the error.
+- **Model-behavior note on the split-roots failure (2026-07-15, updated 2026-07-16):** when `apply_patch` dies on the split-writable-roots error, `gpt-5.5` pragmatically falls back to PowerShell file writes and completes the brief (pwsh 7 writes stayed clean ASCII/no-BOM — still run the encoding check). The 2026-07-15 observation that `gpt-5.6-terra` refuses alternate write methods is OUTDATED: on codex CLI 0.144.4 (FEAT-connected-apps-list) terra hit the same error, fell back to `git apply` restricted to the briefed files, and completed cleanly — terra via the CLI lane is viable again for worktrees that trip the error. Watch line endings either way: terra's fallback wrote one `.md` with CRLF (caught by the encoding sweep; normalize to LF).
 - **`Selected model is at capacity` kills a run mid-task (2026-07-15, FEAT-connect-oauth-pr2):** a terra run died ~95% done with uncommitted work in the tree; nothing notifies you. If a run goes quiet, check file mtimes in the worktree (`ls -lt`) and the run/task log tail before assuming it is still working. Recovery that worked: orchestrator reviews what exists on disk, finishes the small remainder inline (escalation ladder), full gates as usual. Retry terra later or fall back to `gpt-5.5` at `high`.
 
 ## Codex plugin runtime lane (codex-plugin-cc, proven 2026-07-15)
@@ -175,11 +175,17 @@ Mechanics learned:
   sees jobs whose workspaceRoot matches. Jobs launched against another worktree live under
   `~/.claude/plugins/data/codex-openai-codex/state/<worktree-name>-<hash>/jobs/*.json` —
   read that JSON + `.log` directly when a job "disappears".
-- **The plugin lane can die instantly in a fresh worktree** with `CreateProcessAsUserW
-  failed: Access is denied` (no shell starts; PR3 2026-07-15) even though the identical
-  setup worked in another worktree (PR2). Cause unconfirmed (likely per-project trust /
-  sandbox mode selection). If it hits: fall back to the CLI lane with `gpt-5.5` at high —
-  proven to complete despite the split-roots error via its PowerShell write fallback.
+- **The plugin lane can die instantly with `CreateProcessAsUserW failed: Access is
+  denied`** (no shell starts; PR3 2026-07-15) even though the identical setup worked in
+  another worktree (PR2). NOT limited to fresh worktrees — it also hit the established
+  `feat-worker-token-test` worktree on 2026-07-16 (worktree had never had the
+  CodexSandboxUsers ACL grants). If it hits: (1) run the icacls ACL repair (root grant +
+  packages/apps/docs/infra recursive — recipe in the Codex CLI section) — worth doing
+  PREEMPTIVELY on any worktree that hasn't had it before dispatching either codex lane;
+  (2) fall back to the CLI lane with `-c windows.sandbox="unelevated"` — proven 2026-07-16
+  with gpt-5.6-terra (git-apply fallback) and 2026-07-15 with gpt-5.5 at high (PowerShell
+  fallback). A mid-flight plugin job that has already lost its shell will not recover
+  after the ACL repair — cancel it and redispatch.
 
 ## Claude Agent implementer lane — OVERRIDDEN, do not use (owner, 2026-07-09)
 
