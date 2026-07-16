@@ -6,7 +6,7 @@ Per-scope "Connect to MCP" UI (M6-02). Lets authorized users mint scoped MCP con
 Provide a scope-local connection panel for remote MCP clients. The UI is intentionally thin: current principal resolution happens in server actions, all permission checks and writes happen in `packages/api` connect services, and plaintext tokens are only held in client state immediately after minting. Scoped memory access is default-on for connection tokens and displayed as the service-derived `memoryAccess` value.
 
 ## Files
-- `ConnectPanel.tsx`: client component with mint form, token-shown-once copy UI, MCP client snippets, and this scope's connections table including the derived Memory column.
+- `ConnectPanel.tsx`: client component with mint form, token-shown-once copy UI, MCP client snippets, Connected apps section, and this scope's connections table including the derived Memory column.
 - `actions.ts`: "use server" wrappers around `api.mintConnectionToken`, `api.listConnectionTokens`, `api.revokeConnectionToken`, plus MCP public URL resolution from env.
 - `index.ts`: public export for the scope page.
 - `AGENTS.md`: this file.
@@ -16,6 +16,7 @@ Consumes from `@companyos/api` via `@/lib/api`:
 - `mintConnectionToken({ scopePath, name, role, expiresAt? }, actor)`
 - `listConnectionTokens({ scopePath }, actor)`
 - `revokeConnectionToken({ tokenId }, actor)`
+- `listOAuthConnections({ principalId }, actor)` (self-only)
 
 Roles are limited to `agent` and `viewer` in the UI. Expiry presets are UI-only and are converted to absolute `expiresAt` dates before calling the service.
 
@@ -49,3 +50,5 @@ import { ConnectPanel } from "@/modules/connect";
 - `ConnectWizard.tsx` presents Platform, Set up, and Verify with OAuth as the token-free default.
 - The worker-token fallback is explicit and keeps plaintext only in client state after mint.
 - Verify polling runs only on step three, stops on cleanup, and is bounded to two minutes before the user chooses to keep waiting.
+- The panel lists the signed-in principal's OAuth-connected apps with name, first used, and last seen.
+- Revoke and session counts are out of scope.

@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { useConfirm } from "@companyos/ui";
 import { labelForConnectionStatus, labelForMemoryAccess, labelForRole } from "@/lib/labels";
-import { PlugZap, RefreshCw, Shield, Trash2 } from "lucide-react";
+import { Link2, PlugZap, RefreshCw, Shield, Trash2 } from "lucide-react";
 import {
   getConnectConfigAction,
   listConnectionTokensAction,
+  listOAuthConnectionsAction,
   revokeConnectionTokenAction,
 } from "./actions";
 import { ConnectWizard } from "./ConnectWizard";
@@ -26,6 +27,14 @@ interface ConnectionRow {
   revoked: boolean;
   status: "active" | "expired" | "revoked" | "never_used";
   canRevoke: boolean;
+}
+
+interface OAuthConnectionRow {
+  oauthClientId: string;
+  clientName: string | null;
+  principalId: string;
+  firstUsedAt: string | Date;
+  lastUsedAt: string | Date;
 }
 
 function canMint(access: AccessRole | null): boolean {
@@ -51,6 +60,7 @@ function statusClassName(status: ConnectionRow["status"]): string {
 export function ConnectPanel({ scopePath, initialAccess }: { scopePath: string; initialAccess: AccessRole | null }) {
   const requestConfirm = useConfirm();
   const [connections, setConnections] = useState<ConnectionRow[]>([]);
+  const [oauthConnections, setOauthConnections] = useState<OAuthConnectionRow[]>([]);
   const [mcpUrl, setMcpUrl] = useState("<MCP_PUBLIC_URL>");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -58,13 +68,15 @@ export function ConnectPanel({ scopePath, initialAccess }: { scopePath: string; 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [config, rows] = await Promise.all([getConnectConfigAction(), listConnectionTokensAction(scopePath)]);
+      const [config, rows, oauthRows] = await Promise.all([getConnectConfigAction(), listConnectionTokensAction(scopePath), listOAuthConnectionsAction()]);
       setMcpUrl(config.mcpPublicUrl || "<MCP_PUBLIC_URL>");
       setConnections(rows as ConnectionRow[]);
+      setOauthConnections(oauthRows as OAuthConnectionRow[]);
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Couldn't load worker tokens. Refresh and try again.");
       setConnections([]);
+      setOauthConnections([]);
     } finally {
       setLoading(false);
     }
@@ -93,6 +105,36 @@ export function ConnectPanel({ scopePath, initialAccess }: { scopePath: string; 
   return (
     <div className="space-y-[var(--space-4)]">
       <ConnectWizard scopePath={scopePath} mcpUrl={mcpUrl} canMint={canMint(initialAccess)} onTokensChanged={refresh} />
+
+      {!loading && (oauthConnections.length === 0 ? (
+        <div className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No apps connected via OAuth yet.</div>
+      ) : (
+        <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
+          <div className="mb-[var(--space-3)] flex items-center gap-[var(--space-2)]">
+            <Link2 size={18} />
+            <div>
+              <div className="text-[var(--font-size-sm)] font-medium">Connected apps</div>
+              <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Apps connected to your account via OAuth</div>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[480px] text-left text-[var(--font-size-sm)]">
+              <thead className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
+                <tr><th className="pb-[var(--space-2)] font-medium">App</th><th className="pb-[var(--space-2)] font-medium">First used</th><th className="pb-[var(--space-2)] font-medium">Last seen</th></tr>
+              </thead>
+              <tbody>
+                {oauthConnections.map((row) => (
+                  <tr key={row.oauthClientId} className="border-t border-[var(--border)]">
+                    <td className="py-[var(--space-2)]">{row.clientName !== null ? <span className="font-medium">{row.clientName}</span> : <span className="font-mono text-[var(--font-size-xs)] text-[var(--muted-foreground)]">{row.oauthClientId}</span>}</td>
+                    <td className="py-[var(--space-2)] tabular-nums">{formatDate(row.firstUsedAt)}</td>
+                    <td className="py-[var(--space-2)] tabular-nums">{formatDate(row.lastUsedAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
 
       <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-4)]">
         <div className="mb-[var(--space-3)] flex flex-wrap items-center justify-between gap-[var(--space-3)]">

@@ -10,6 +10,12 @@ export async function listConnectionTokensAction(scopePath: string) {
   return api.listConnectionTokens({ scopePath }, actor);
 }
 
+export async function listOAuthConnectionsAction() {
+  const actor = await getCurrentActorPrincipalId();
+  if (!actor) throw new Error("Your session expired. Sign in again.");
+  return api.listOAuthConnections({ principalId: actor }, actor);
+}
+
 export async function mintConnectionTokenAction(input: {
   scopePath: string;
   name: string;
