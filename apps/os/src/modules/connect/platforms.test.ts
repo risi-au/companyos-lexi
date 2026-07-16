@@ -16,6 +16,7 @@ describe("connect platforms", () => {
 
   it("keeps OAuth builders token-free and includes the URL in commands", () => {
     for (const platform of platforms) {
+      if (!platform.oauth) continue;
       expect(JSON.stringify(platform.oauth)).not.toContain(token);
       if (platform.oauth.command) expect(platform.oauth.command(mcpUrl)).toContain(mcpUrl);
       if (platform.oauth.deeplink) expect(platform.oauth.deeplink(mcpUrl)).not.toContain(token);
@@ -26,5 +27,21 @@ describe("connect platforms", () => {
     const snippets = buildTokenSnippets(mcpUrl, token);
     for (const snippet of Object.values(snippets)) expect(snippet).toContain(token);
     for (const platform of platforms) expect(platform.token.snippet(mcpUrl, token)).toContain(token);
+  });
+
+  it("offers token-only entries for clients without OAuth support", () => {
+    const tokenOnly = platforms.filter((platform) => !platform.oauth).map((platform) => platform.id);
+    expect(tokenOnly).toEqual(["hermes", "other"]);
+
+    const hermes = buildTokenSnippets(mcpUrl, token).hermes;
+    expect(hermes).toContain("~/.hermes/config.yaml");
+    expect(hermes).toContain("mcp_servers:");
+    expect(hermes).toContain('url: "' + mcpUrl + '"');
+    expect(hermes).toContain('Authorization: "Bearer ' + token + '"');
+
+    const other = buildTokenSnippets(mcpUrl, token).other;
+    expect(other).toContain("MCP URL: " + mcpUrl);
+    expect(other).toContain("Authorization: Bearer " + token);
+    expect(other).toContain('"mcpServers"');
   });
 });

@@ -5,7 +5,9 @@ export type PlatformId =
   | "vscode"
   | "codex"
   | "chatgpt"
-  | "gemini-cli";
+  | "gemini-cli"
+  | "hermes"
+  | "other";
 
 export interface PlatformSetup {
   steps: string[];
@@ -17,7 +19,8 @@ export interface PlatformSetup {
 export interface Platform {
   id: PlatformId;
   label: string;
-  oauth: PlatformSetup;
+  /** Omitted for token-only clients (no OAuth support): the wizard goes straight to the worker-token lane. */
+  oauth?: PlatformSetup;
   token: {
     steps: string[];
     snippet: (mcpUrl: string, token: string) => string;
@@ -49,6 +52,31 @@ export function buildTokenSnippets(mcpUrl: string, token: string) {
       "\"",
     claudeDesktop: "Add a custom HTTP connector named companyos.\nURL: " + mcpUrl + "\nHeader: " + authHeader,
     chatgpt: "ChatGPT web: paste " + mcpUrl + " and the Authorization bearer header Bearer " + token + " into its connector UI.",
+    hermes:
+      "# ~/.hermes/config.yaml on the machine running Hermes\nmcp_servers:\n  companyos:\n    url: \"" +
+      mcpUrl +
+      "\"\n    headers:\n      Authorization: \"Bearer " +
+      token +
+      "\"",
+    other:
+      "MCP URL: " +
+      mcpUrl +
+      "\nHeader: " +
+      authHeader +
+      "\n\nStandard mcpServers JSON, if your client reads one:\n" +
+      JSON.stringify(
+        {
+          mcpServers: {
+            companyos: {
+              url: mcpUrl,
+              transport: "http",
+              headers: { Authorization: "Bearer " + token },
+            },
+          },
+        },
+        null,
+        2
+      ),
   };
 }
 
@@ -134,5 +162,27 @@ export const platforms: Platform[] = [
       command: (mcpUrl) => "gemini mcp add --transport http companyos " + mcpUrl,
     },
     token: { steps: tokenSteps, snippet: (mcpUrl, token) => buildTokenSnippets(mcpUrl, token).mcpJson },
+  },
+  {
+    id: "hermes",
+    label: "Hermes",
+    token: {
+      steps: [
+        "Create a scoped worker token below.",
+        "Add the server block to ~/.hermes/config.yaml on the machine running Hermes, then reload or restart Hermes.",
+      ],
+      snippet: (mcpUrl, token) => buildTokenSnippets(mcpUrl, token).hermes,
+    },
+  },
+  {
+    id: "other",
+    label: "Other (manual token)",
+    token: {
+      steps: [
+        "Create a scoped worker token below.",
+        "Configure your MCP client with the URL and the Authorization header from the snippet.",
+      ],
+      snippet: (mcpUrl, token) => buildTokenSnippets(mcpUrl, token).other,
+    },
   },
 ];

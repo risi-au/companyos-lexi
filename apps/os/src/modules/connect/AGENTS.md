@@ -49,6 +49,7 @@ import { ConnectPanel } from "@/modules/connect";
 ## OAuth-first wizard
 - `ConnectWizard.tsx` presents Platform, Set up, and Verify with OAuth as the token-free default.
 - The worker-token fallback is explicit and keeps plaintext only in client state after mint.
+- `Platform.oauth` is optional: token-only clients (Hermes, "Other (manual token)") route straight to the worker-token mint lane on selection (no OAuth branch). Hermes' snippet is the `mcp_servers` block for `~/.hermes/config.yaml`; Other's is the MCP URL + Authorization header plus a standard `mcpServers` JSON.
 - Verify polling runs only on step three, stops on cleanup, and is bounded to two minutes before the user chooses to keep waiting.
 - The panel lists the signed-in principal's OAuth-connected apps with name, first used, and last seen.
 - Revoke and session counts are out of scope.

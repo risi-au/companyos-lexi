@@ -166,7 +166,7 @@ export function ConnectWizard({
                     type="button"
                     onClick={() => {
                       setPlatformId(item.id);
-                      setUseToken(false);
+                      setUseToken(!item.oauth);
                       advance(2);
                     }}
                     className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--background)] p-[var(--space-3)] text-left text-[var(--font-size-sm)] font-medium hover:bg-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
@@ -188,7 +188,7 @@ export function ConnectWizard({
                 <button type="button" onClick={() => setCurrent(1)} className="text-[var(--font-size-sm)] text-[var(--primary)]">Change platform</button>
               </div>
 
-              {!useToken ? (
+              {!useToken && platform.oauth ? (
                 <div className="space-y-[var(--space-3)]">
                   <CodeBlock label="MCP URL" value={mcpUrl} />
                   {platform.oauth.deeplink && (
