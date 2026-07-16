@@ -56,6 +56,20 @@ async function getTaskLink(db: DB, scopeId: string): Promise<TaskLink | null> {
   return (row as TaskLink) || null;
 }
 
+function isStubPlane(plane: PlaneClient): boolean {
+  return (plane as PlaneClient & { isStub?: boolean }).isStub === true;
+}
+
+async function getUsableTaskLink(db: DB, scopeId: string, plane: PlaneClient): Promise<TaskLink | null> {
+  const link = await getTaskLink(db, scopeId);
+  if (link?.planeProjectId !== "stub") return link;
+
+  if (!isStubPlane(plane)) {
+    await db.delete(taskLinks).where(eq(taskLinks.id, link.id));
+  }
+  return null;
+}
+
 async function upsertTaskLink(
   db: DB,
   scopeId: string,
@@ -84,13 +98,17 @@ export async function ensureTaskTarget(
     throw new ScopeNotFoundError(scopePath);
   }
 
+  if (isStubPlane(plane)) {
+    return { projectId: "stub", labelId: "stub", workspaceSlug: null };
+  }
+
   // compute top-level scope path for the project (first segment)
   const topPath = scopePath.split("/")[0] || scopePath;
 
   const topScope = topPath === scopePath ? scope : await getScope(db, topPath);
   const topScopeId = topScope?.id ?? null;
 
-  const topLink: TaskLink | null = topScopeId ? await getTaskLink(db, topScopeId) : null;
+  const topLink: TaskLink | null = topScopeId ? await getUsableTaskLink(db, topScopeId, plane) : null;
 
   // M4-03: registered workspace → v2 mapping (workspace-per-project)
   const registeredSlug = topLink?.planeWorkspaceSlug || null;
@@ -123,7 +141,7 @@ export async function ensureTaskTarget(
   const labelName = `scope:${scopePath}`;
 
   // check if we have a stored link for this exact scope
-  const existing = await getTaskLink(db, scope.id);
+  const existing = await getUsableTaskLink(db, scope.id, plane);
 
   if (existing && existing.planeLabelId) {
     // idempotent: already have label for this scope
@@ -188,7 +206,7 @@ async function ensureTaskTargetV2(
   const secondScope = secondPath === scope.path ? scope : await getScope(db, secondPath);
   if (!secondScope) throw new ScopeNotFoundError(secondPath);
 
-  const secondLink = await getTaskLink(db, secondScope.id);
+  const secondLink = await getUsableTaskLink(db, secondScope.id, wsPlane);
   let projectId = secondLink?.planeWorkspaceSlug === slug ? secondLink.planeProjectId : "";
   if (!projectId) {
     projectId = await ensurePlaneProject(wsPlane, secondScope.name, projectIdentifier(secondScope.slug));
@@ -205,7 +223,7 @@ async function ensureTaskTargetV2(
   }
 
   // Deeper nesting → label scope:<path> inside the second-level project
-  const exactLink = scope.id === secondScope.id ? secondLink : await getTaskLink(db, scope.id);
+  const exactLink = scope.id === secondScope.id ? secondLink : await getUsableTaskLink(db, scope.id, wsPlane);
   if (exactLink && exactLink.planeWorkspaceSlug === slug && exactLink.planeProjectId === projectId && exactLink.planeLabelId) {
     return { projectId, labelId: exactLink.planeLabelId, workspaceSlug: slug };
   }
@@ -477,19 +495,26 @@ export async function listTasks(
 
   await requireAccess(db, actorPrincipalId, scopePath, "viewer");
 
-  const target = await ensureTaskTarget(db, plane, scopePath);
-  const targetPlane = planeForTarget(plane, target);
+  let issues: any[];
+  try {
+    const target = await ensureTaskTarget(db, plane, scopePath);
+    const targetPlane = planeForTarget(plane, target);
 
-  const filters: any = {};
-  if (target.labelId) filters.label = target.labelId;
+    const filters: any = {};
+    if (target.labelId) filters.label = target.labelId;
 
-  if (state === "completed") filters.state_group = "completed";
-  else if (state === "open") {
-    // open = not completed; many impls filter by excluding or use state_group != 
-    // for simplicity pass no filter or use a non-completed; mock will handle
+    if (state === "completed") filters.state_group = "completed";
+    else if (state === "open") {
+      // open = not completed; many impls filter by excluding or use state_group !=
+      // for simplicity pass no filter or use a non-completed; mock will handle
+    }
+
+    issues = await targetPlane.listIssues(target.projectId, filters);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`Plane task list unavailable for scope ${scopePath}: ${message}`);
+    return [];
   }
-
-  let issues = await targetPlane.listIssues(target.projectId, filters);
 
   if (state === "open") {
     issues = issues.filter((i: any) => {

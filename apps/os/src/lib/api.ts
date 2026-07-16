@@ -125,6 +125,7 @@ function getPlaneClient(): any {
   if (!token) {
     // Full stub implementing surface used by service (no-ops / empties to avoid crashes)
     const planeStub = {
+      isStub: true,
       listIssues: async () => [],
       getProjects: async () => [],
       createProject: async () => ({ id: "stub" }),

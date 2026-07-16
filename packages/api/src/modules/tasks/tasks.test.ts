@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { vector } from "@electric-sql/pglite/vector";
 import { drizzle } from "drizzle-orm/pglite";
@@ -321,6 +321,38 @@ describe("tasks module (PGlite + mocked Plane)", () => {
       expect(subLink.planeWorkspaceSlug).toBeNull();
       expect(subLink.planeProjectId).toBe(topLink.planeProjectId);
     });
+
+    it("does not persist task links when Plane is using the graceful stub", async () => {
+      const top = "airbuddy-stub-" + Date.now();
+      await createScope(db, { slug: top, name: "Stub", type: "project" }, rootPrincipalId);
+
+      const target = await ensureTaskTarget(db, { isStub: true } as any, top);
+
+      expect(target).toEqual({ projectId: "stub", labelId: "stub", workspaceSlug: null });
+      expect(await taskLinkFor(top)).toBeNull();
+    });
+
+    it("re-provisions a legacy stub task link when a real Plane client is used", async () => {
+      const top = "airbuddy-stub-heal-" + Date.now();
+      await createScope(db, { slug: top, name: "Stub Heal", type: "project" }, rootPrincipalId);
+      const [scope] = await db.select().from(schema.scopes).where(eq(schema.scopes.path, top)).limit(1);
+      await db.insert(schema.taskLinks).values({
+        scopeId: scope.id,
+        planeProjectId: "stub",
+        planeLabelId: "stub",
+        planeWorkspaceSlug: null,
+      });
+
+      const plane = makeMockPlane();
+      const target = await ensureTaskTarget(db, plane, top);
+      const healedLink = await taskLinkFor(top);
+
+      expect(target.projectId).not.toBe("stub");
+      expect(target.labelId).not.toBe("stub");
+      expect(healedLink.planeProjectId).toBe(target.projectId);
+      expect(healedLink.planeLabelId).toBe(target.labelId);
+      expect(plane._calls.filter((call: any) => call.fn === "createProject")).toHaveLength(1);
+    });
   });
 
   describe("setProjectWorkspace + registered workspace routing", () => {
@@ -592,6 +624,26 @@ describe("tasks module (PGlite + mocked Plane)", () => {
         const s = typeof o.state === "string" ? o.state : (o.state?.group || o.state?.name || "");
         return String(s).toLowerCase() !== "completed";
       })).toBe(true);
+    });
+
+    it("returns an empty list when Plane listIssues fails", async () => {
+      const sp = "airbuddy-list-fail-" + Date.now();
+      await createScope(db, { slug: sp, name: "List Fail", type: "project" }, rootPrincipalId);
+      await grantRole(db, { principalId: rootPrincipalId, scopePath: sp, role: "viewer" }, rootPrincipalId);
+
+      const plane = makeMockPlane();
+      plane.listIssues = async () => {
+        throw new Error("Plane list failed");
+      };
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+      try {
+        await expect(listTasks(db, plane, { scopePath: sp }, rootPrincipalId)).resolves.toEqual([]);
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining(sp));
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("Plane list failed"));
+      } finally {
+        warn.mockRestore();
+      }
     });
   });
 
