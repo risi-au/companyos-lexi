@@ -16,7 +16,7 @@ Implements the kernel: scope tree ops, grants/authz, token issuance+auth, event 
 - `src/errors.ts` — AccessDeniedError, ScopeNotFoundError, DuplicatePathError, InvalidSlugError, ParentNotFoundError, TokenNotFoundError, CapabilityNotFoundError, KernelError
 - `src/kernel/`
   - `events.ts` — emitEvent, listEvents
-  - `scopes.ts` — createScope (enforces project/subproject), getScope, getChildren, getSubtree, getVisibleTree, archiveScope, listModules
+  - `scopes.ts` — createScope (enforces project/subproject), getScope, getChildren, getSubtree, getVisibleTree, archiveScope/unarchiveScope, listArchivedScopes, listModules
   - `grants.ts` — grantRole, resolveAccess, requireAccess, listGrants, revokeGrant (emits grant.revoked)
   - `personal.ts` / `personal-path.ts` — personal wiki path convention, idempotent per-human personal scope provisioning, and brain routing target lookup
   - `auth-link.ts` — getPrincipalByEmail (for member assignment)
@@ -27,7 +27,8 @@ Implements the kernel: scope tree ops, grants/authz, token issuance+auth, event 
 
 ## Key behaviors (per M1-03)
 - createScope: top-level (direct under root) must be "project" or "personal"; nested must be "subproject". Computes path, slug `[a-z0-9-]+`. Rejects dups/missing/invalid type.
-- getVisibleTree(principalId): returns only visible subtrees per grants (root grant => full except other principals' personal scopes; else only directly granted top projects/personal scopes + subs). No root row for limited users.
+- getVisibleTree(principalId): returns only active visible subtrees per grants (root grant => full except other principals' personal scopes; else only directly granted top projects/personal scopes + subs). No root row for limited users. Pass `includeArchived` only for recovery surfaces.
+- archiveScope/unarchiveScope: require admin, update the full target subtree, and emit one event. Archive rejects root and records descendant count plus any Plane link metadata without changing Plane. Restore also activates archived ancestors so the target is reachable. listArchivedScopes returns visible archived roots once per cascaded subtree.
 - revokeGrant: deletes grant row + emits "grant.revoked". Idempotent.
 - resolveAccess: walks scope ancestors (self → root) for non-personal scopes. Personal scopes never inherit ancestor grants: direct grants resolve normally; mediated system principals (agent kind with direct root admin/agent grant) resolve as `agent`; humans with root grants resolve `null`.
 - linkAuthUser provisions `personal-<principalId>` with a direct owner grant for every human auth link path, lazily repairing existing users on sign-in.

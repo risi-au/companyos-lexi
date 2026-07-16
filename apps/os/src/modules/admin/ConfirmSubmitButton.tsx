@@ -9,12 +9,14 @@ export function ConfirmSubmitButton({
   title,
   body,
   confirmLabel,
+  tone = "destructive",
   children,
   className = "",
 }: {
   title: string;
   body: string;
   confirmLabel: string;
+  tone?: "destructive" | "default";
   children: React.ReactNode;
   className?: string;
 }) {
@@ -24,7 +26,7 @@ export function ConfirmSubmitButton({
 
   async function onClick(event: React.MouseEvent<HTMLButtonElement>) {
     event.preventDefault();
-    const ok = await confirm({ title, body, confirmLabel });
+    const ok = await confirm({ title, body, confirmLabel, tone });
     if (ok) ref.current?.form?.requestSubmit(ref.current);
   }
 

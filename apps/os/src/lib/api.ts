@@ -14,6 +14,9 @@ import {
   getScope,
   createScope,
   getVisibleTree,
+  archiveScope,
+  unarchiveScope,
+  listArchivedScopes,
   listEvents,
   listRecords,
   listTasks,
@@ -196,8 +199,11 @@ export const api = {
   getSubtree: (path: string) => getSubtree(db, path),
   getScope: (path: string) => getScope(db, path),
   getVisibleTree: (principalId: string) => getVisibleTree(db, principalId),
+  listArchivedScopes: (principalId: string) => listArchivedScopes(db, principalId),
   createScope: (input: any, actor?: string | null) =>
     createScope(db, input, actor),
+  archiveScope: (path: string, actor: string) => archiveScope(db, path, actor),
+  unarchiveScope: (path: string, actor: string) => unarchiveScope(db, path, actor),
 
   // Events
   listEvents: (input?: Parameters<typeof listEvents>[1]) => listEvents(db, input),

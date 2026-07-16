@@ -5,6 +5,7 @@ import { KeyRound, Settings } from "lucide-react";
 import { ConfirmSubmitButton } from "@/modules/admin/ConfirmSubmitButton";
 import { revokeLiteLlmKeyAction, setLiteLlmBudgetAction } from "@/modules/admin/actions";
 import { LiteLlmMintForm } from "@/modules/admin/LiteLlmMintForm";
+import { unarchiveScopeAction } from "../../_components/actions";
 
 function money(value: number | null | undefined): string {
   if (value == null) return "-";
@@ -14,9 +15,10 @@ function money(value: number | null | undefined): string {
 export default async function AdminSettingsPage() {
   const actor = await getCurrentActorPrincipalId();
   if (!actor) return null;
-  const [settings, llm] = await Promise.all([
+  const [settings, llm, archivedScopes] = await Promise.all([
     api.getAdminSettings(actor),
     api.getAdminLiteLlmState(actor),
+    api.listArchivedScopes(actor),
   ]);
 
   return (
@@ -45,6 +47,36 @@ export default async function AdminSettingsPage() {
           </div>
         </Card>
       </div>
+
+      <Card>
+        <div className="mb-[var(--space-3)] text-[var(--font-size-sm)] font-medium">Archived scopes</div>
+        {archivedScopes.length === 0 ? (
+          <div className="text-[var(--font-size-sm)] text-[var(--mutedfg)]">No archived scopes.</div>
+        ) : (
+          <ul className="divide-y divide-[var(--border)]">
+            {archivedScopes.map((scope) => (
+              <li key={scope.id} className="flex flex-wrap items-center justify-between gap-[var(--space-3)] py-[var(--space-2)]">
+                <div>
+                  <div className="text-[var(--font-size-sm)] font-medium">{scope.name}</div>
+                  <div className="font-mono text-[var(--font-size-xs)] text-[var(--mutedfg)]">{scope.path}</div>
+                </div>
+                <form action={unarchiveScopeAction}>
+                  <input type="hidden" name="scopePath" value={scope.path} />
+                  <ConfirmSubmitButton
+                    title={`Restore ${scope.name}?`}
+                    body="This restores the scope, its archived sub-scopes, and any archived parents needed to reach it."
+                    confirmLabel="Restore scope"
+                    tone="default"
+                    className="rounded-[var(--radius-3)] border border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-xs)] font-medium hover:bg-[var(--hover)]"
+                  >
+                    Restore
+                  </ConfirmSubmitButton>
+                </form>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
 
       <section className="space-y-[var(--space-4)]">
         <div>

@@ -71,6 +71,7 @@ Update this file when API surface or auth wiring changes. (canvas added M3-03)
   entries, but the new-scope dialog parent filter only allows project/subproject
   parents (`isNewScopeParentOption`), so personal scopes cannot be selected as parents.
 - Scope pages use the client `ScopeTabs` wrapper to pass Next `Link` into the shared `Tabs` primitive for soft tab navigation, wrap server-rendered tab content in the client `ScopeTabPanel` GSAP transition island, and render grant-aware linked breadcrumbs using display names rather than raw path segments.
+- Archived scopes are absent from the sidebar. Direct `/s/<path>` access renders an archived notice with an admin-only Restore action; active non-root scope headers expose the admin-only Archive action. Admin Settings lists top-level archived roots with Restore controls.
 - The shell (`layout.tsx`) stays an async server component and passes the rendered `<Sidebar>`/`<UserMenu>` into `AppShellChrome.tsx`, a `"use client"` wrapper that owns the mobile-drawer state and desktop sidebar resize state. Desktop content is fluid with 22px padding, the sidebar width persists in `localStorage` and clamps to 220-420px with double-click reset to 264px; below `@media (max-width: 820px)` the drawer remains the fixed 264px slide-in branch behind an `--overlay` scrim with header burger toggle, scrim/nav-link/Esc close behavior, and no resize handle.
 
 ## Navigation (UX-04, superseded by UX-08 above - kept for history)

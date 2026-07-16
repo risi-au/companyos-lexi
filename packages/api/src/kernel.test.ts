@@ -17,6 +17,8 @@ import {
   getSubtree,
   getVisibleTree,
   archiveScope,
+  unarchiveScope,
+  listArchivedScopes,
   grantRole,
   ensurePersonalScope,
   getPersonalScopePath,
@@ -227,14 +229,72 @@ describe("kernel services (PGlite + migrations)", () => {
       expect(subtree.map(s => s.path)).toContain(`${base}/c1/c2`);
     });
 
-    it("archiveScope sets archived and emits event", async () => {
+    it("archiveScope cascades through descendants and emits one enriched event", async () => {
       const p = "arch-" + Date.now();
+      await ensureRootScope(rootPrincipalId);
+      await grantRole(db, { principalId: rootPrincipalId, scopePath: "root", role: "owner" }, rootPrincipalId);
       await createScope(db, { slug: p, name: "A", type: "project" }, rootPrincipalId);
+      await createScope(db, { parentPath: p, slug: "child", name: "Child", type: "subproject" }, rootPrincipalId);
+      await createScope(db, { parentPath: `${p}/child`, slug: "grandchild", name: "Grandchild", type: "subproject" }, rootPrincipalId);
+      const target = await getScope(db, p);
+      if (!target) throw new Error(`scope ${p} not found`);
+      await db.insert(schema.taskLinks).values({
+        scopeId: target.id,
+        planeProjectId: "plane-project",
+        planeWorkspaceSlug: "plane-workspace",
+      });
+
       const archived = await archiveScope(db, p, rootPrincipalId);
       expect(archived.status).toBe("archived");
+      expect((await getSubtree(db, p)).map((scope) => scope.status)).toEqual([
+        "archived",
+        "archived",
+        "archived",
+      ]);
 
       const evs = await listEvents(db, { scopePath: p, type: "scope.archived", limit: 5 });
-      expect(evs.length).toBeGreaterThan(0);
+      expect(evs).toHaveLength(1);
+      expect(evs[0]?.payload).toMatchObject({
+        descendantCount: 2,
+        planeProjectId: "plane-project",
+        planeWorkspaceSlug: "plane-workspace",
+      });
+    });
+
+    it("unarchiveScope restores the subtree and archived ancestors", async () => {
+      const p = "restore-" + Date.now();
+      await ensureRootScope(rootPrincipalId);
+      await grantRole(db, { principalId: rootPrincipalId, scopePath: "root", role: "owner" }, rootPrincipalId);
+      await createScope(db, { slug: p, name: "Restore", type: "project" }, rootPrincipalId);
+      await createScope(db, { parentPath: p, slug: "child", name: "Child", type: "subproject" }, rootPrincipalId);
+      await createScope(db, { parentPath: `${p}/child`, slug: "grandchild", name: "Grandchild", type: "subproject" }, rootPrincipalId);
+      await createScope(db, { parentPath: p, slug: "sibling", name: "Sibling", type: "subproject" }, rootPrincipalId);
+      await archiveScope(db, p, rootPrincipalId);
+
+      const restored = await unarchiveScope(db, `${p}/child`, rootPrincipalId);
+      expect(restored.status).toBe("active");
+      expect((await getScope(db, p))?.status).toBe("active");
+      expect((await getScope(db, `${p}/child/grandchild`))?.status).toBe("active");
+      expect((await getScope(db, `${p}/sibling`))?.status).toBe("archived");
+
+      const evs = await listEvents(db, { scopePath: `${p}/child`, type: "scope.unarchived", limit: 5 });
+      expect(evs).toHaveLength(1);
+      expect(evs[0]?.payload).toMatchObject({ descendantCount: 1, ancestorCount: 1 });
+    });
+
+    it("archiveScope requires admin access and rejects the root scope", async () => {
+      const p = "arch-guard-" + Date.now();
+      await ensureRootScope(rootPrincipalId);
+      await grantRole(db, { principalId: rootPrincipalId, scopePath: "root", role: "owner" }, rootPrincipalId);
+      await createScope(db, { slug: p, name: "Guard", type: "project" }, rootPrincipalId);
+      const viewer = (await db.insert(schema.principals).values({
+        kind: "human",
+        name: "Archive Viewer " + Date.now(),
+      }).returning() as any[])[0].id;
+      await grantRole(db, { principalId: viewer, scopePath: p, role: "viewer" }, rootPrincipalId);
+
+      await expect(archiveScope(db, p, viewer)).rejects.toThrow(AccessDeniedError);
+      await expect(archiveScope(db, "root", rootPrincipalId)).rejects.toThrow(/Root scope cannot be archived/);
     });
   });
 
@@ -399,6 +459,43 @@ describe("kernel services (PGlite + migrations)", () => {
       expect(plainVisible.some((scope) => scope.path === own.scopePath)).toBe(false);
     });
 
+    it("getVisibleTree hides archived scopes by default and can include them explicitly", async () => {
+      const p = "visible-archived-" + Date.now();
+      await ensureRootScope(rootPrincipalId);
+      await grantRole(db, { principalId: rootPrincipalId, scopePath: "root", role: "owner" }, rootPrincipalId);
+      await createScope(db, { slug: p, name: "Archived visible", type: "project" }, rootPrincipalId);
+      await createScope(db, { parentPath: p, slug: "child", name: "Child", type: "subproject" }, rootPrincipalId);
+      await archiveScope(db, p, rootPrincipalId);
+
+      expect((await getVisibleTree(db, rootPrincipalId)).some((scope) => scope.path === p)).toBe(false);
+      expect(
+        (await getVisibleTree(db, rootPrincipalId, { includeArchived: true }))
+          .map((scope) => scope.path)
+      ).toEqual(expect.arrayContaining([p, `${p}/child`]));
+    });
+
+    it("listArchivedScopes returns only visible top-level archived roots", async () => {
+      const first = "archived-list-a-" + Date.now();
+      const second = "archived-list-b-" + Date.now();
+      const limited = (await db.insert(schema.principals).values({
+        kind: "human",
+        name: "Archived List Limited " + Date.now(),
+      }).returning() as any[])[0].id;
+      await ensureRootScope(rootPrincipalId);
+      await grantRole(db, { principalId: rootPrincipalId, scopePath: "root", role: "owner" }, rootPrincipalId);
+      await createScope(db, { slug: first, name: "Archived A", type: "project" }, rootPrincipalId);
+      await createScope(db, { parentPath: first, slug: "child", name: "Child", type: "subproject" }, rootPrincipalId);
+      await createScope(db, { slug: second, name: "Archived B", type: "project" }, rootPrincipalId);
+      await grantRole(db, { principalId: limited, scopePath: first, role: "viewer" }, rootPrincipalId);
+      await archiveScope(db, first, rootPrincipalId);
+      await archiveScope(db, second, rootPrincipalId);
+
+      const archived = await listArchivedScopes(db, rootPrincipalId);
+      expect(archived.map((scope) => scope.path)).toEqual(expect.arrayContaining([first, second]));
+      expect(archived.some((scope) => scope.path === `${first}/child`)).toBe(false);
+      expect((await listArchivedScopes(db, limited)).map((scope) => scope.path)).toEqual([first]);
+    });
+
     it("revokeGrant removes grant and emits grant.revoked", async () => {
       const sp = "revscope-" + Date.now();
       await createScope(db, { slug: sp, name: "Rev", type: "project" }, rootPrincipalId);
@@ -470,7 +567,7 @@ describe("kernel services (PGlite + migrations)", () => {
       const before = beforeCountRes.length;
 
       await createScope(db, { slug: evPath, name: "E", type: "project" }, rootPrincipalId);
-      await grantRole(db, { principalId: rootPrincipalId, scopePath: evPath, role: "viewer" }, rootPrincipalId);
+      await grantRole(db, { principalId: rootPrincipalId, scopePath: evPath, role: "admin" }, rootPrincipalId);
       await archiveScope(db, evPath, rootPrincipalId);
 
       const pTok = (await db.insert(schema.principals).values({ kind: "agent", name: "ETok" + Date.now() }).returning() as any[])[0].id;

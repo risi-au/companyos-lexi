@@ -672,7 +672,7 @@ export function createServer(options: CreateServerOptions) {
           await requireAccess(db, actor, targetPath, "viewer");
         }
 
-        const subtree = await getSubtree(db, targetPath);
+        const subtree = await getSubtree(db, targetPath, { includeArchived: false });
         if (subtree.length === 0 && targetPath) {
           // may be no grant or not found, but getSubtree returns []
           // still return structure

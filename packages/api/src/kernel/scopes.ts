@@ -1,5 +1,5 @@
-import { eq, like, or, and, desc, asc } from "drizzle-orm";
-import { scopes, moduleInstances, grants } from "@companyos/db";
+import { eq, like, or, and, desc, asc, inArray } from "drizzle-orm";
+import { scopes, moduleInstances, grants, taskLinks } from "@companyos/db";
 import type { Scope } from "@companyos/db";
 import {
   emitEvent,
@@ -128,7 +128,11 @@ export async function getScope(db: DB, path: string): Promise<Scope | null> {
   return (scope as Scope) ?? null;
 }
 
-export async function getChildren(db: DB, path: string): Promise<Scope[]> {
+export async function getChildren(
+  db: DB,
+  path: string,
+  options: { includeArchived?: boolean } = {}
+): Promise<Scope[]> {
   // Find direct children: path starts with "path/" but no further /
   // Simpler: query where parentId matches the target's id
   const target = await getScope(db, path);
@@ -137,20 +141,30 @@ export async function getChildren(db: DB, path: string): Promise<Scope[]> {
   const children = await db
     .select()
     .from(scopes)
-    .where(eq(scopes.parentId, target.id))
+    .where(
+      options.includeArchived
+        ? eq(scopes.parentId, target.id)
+        : and(eq(scopes.parentId, target.id), eq(scopes.status, "active"))
+    )
     .orderBy(desc(scopes.createdAt));
 
   return children as Scope[];
 }
 
-export async function getSubtree(db: DB, path: string): Promise<Scope[]> {
+export async function getSubtree(
+  db: DB,
+  path: string,
+  options: { includeArchived?: boolean } = { includeArchived: true }
+): Promise<Scope[]> {
   const target = await getScope(db, path);
   if (!target) return [];
 
   // The root scope's children carry no "root/" path prefix — its subtree is
   // every scope.
   if (target.type === "root") {
-    const all = await db.select().from(scopes).orderBy(scopes.path);
+    const all = options.includeArchived === false
+      ? await db.select().from(scopes).where(eq(scopes.status, "active")).orderBy(scopes.path)
+      : await db.select().from(scopes).orderBy(scopes.path);
     return all as Scope[];
   }
 
@@ -159,9 +173,12 @@ export async function getSubtree(db: DB, path: string): Promise<Scope[]> {
     .select()
     .from(scopes)
     .where(
-      or(
-        eq(scopes.path, path),
-        like(scopes.path, `${path}/%`)
+      and(
+        or(
+          eq(scopes.path, path),
+          like(scopes.path, `${path}/%`)
+        ),
+        options.includeArchived === false ? eq(scopes.status, "active") : undefined
       )
     )
     .orderBy(scopes.path);
@@ -183,28 +200,109 @@ export async function archiveScope(
   if (!existing) {
     throw new ScopeNotFoundError(path);
   }
+  if (existing.type === "root") {
+    throw new Error("Root scope cannot be archived");
+  }
 
-  const [updated] = (await db
+  await requireAccess(db, actor ?? "", path, "admin");
+
+  const updated = (await db
     .update(scopes)
     .set({
       status: "archived",
       updatedAt: new Date(),
     })
-    .where(eq(scopes.path, path))
+    .where(or(eq(scopes.path, path), like(scopes.path, `${path}/%`)))
     .returning()) as Scope[];
 
-  if (!updated) {
+  const target = updated.find((scope) => scope.path === path);
+  if (!target) {
     throw new ScopeNotFoundError(path);
   }
+
+  const [taskLink] = await db
+    .select({
+      planeProjectId: taskLinks.planeProjectId,
+      planeWorkspaceSlug: taskLinks.planeWorkspaceSlug,
+    })
+    .from(taskLinks)
+    .where(eq(taskLinks.scopeId, existing.id))
+    .limit(1);
 
   await emitEvent(db, {
     type: "scope.archived",
     scopePath: path,
     principalId: actor ?? null,
-    payload: { previousStatus: existing.status },
+    payload: {
+      previousStatus: existing.status,
+      descendantCount: Math.max(0, updated.length - 1),
+      ...(taskLink
+        ? {
+            planeProjectId: taskLink.planeProjectId,
+            planeWorkspaceSlug: taskLink.planeWorkspaceSlug,
+          }
+        : {}),
+    },
   });
 
-  return updated;
+  return target;
+}
+
+export async function unarchiveScope(
+  db: DB,
+  path: string,
+  actor?: string | null
+): Promise<Scope> {
+  const existing = await getScope(db, path);
+  if (!existing) {
+    throw new ScopeNotFoundError(path);
+  }
+
+  await requireAccess(db, actor ?? "", path, "admin");
+
+  const updated = (await db
+    .update(scopes)
+    .set({ status: "active", updatedAt: new Date() })
+    .where(or(eq(scopes.path, path), like(scopes.path, `${path}/%`)))
+    .returning()) as Scope[];
+
+  const ancestorIds: string[] = [];
+  let parentId = existing.parentId;
+  while (parentId) {
+    const [parent] = await db
+      .select({ id: scopes.id, parentId: scopes.parentId, status: scopes.status })
+      .from(scopes)
+      .where(eq(scopes.id, parentId))
+      .limit(1);
+    if (!parent) break;
+    if (parent.status === "archived") ancestorIds.push(parent.id);
+    parentId = parent.parentId;
+  }
+
+  if (ancestorIds.length > 0) {
+    await db
+      .update(scopes)
+      .set({ status: "active", updatedAt: new Date() })
+      .where(inArray(scopes.id, ancestorIds));
+  }
+
+  const target = updated.find((scope) => scope.path === path);
+  if (!target) {
+    throw new ScopeNotFoundError(path);
+  }
+
+  await emitEvent(db, {
+    type: "scope.unarchived",
+    scopePath: path,
+    principalId: actor ?? null,
+    payload: {
+      previousStatus: existing.status,
+      descendantCount: Math.max(0, updated.length - 1),
+      ancestorCount: ancestorIds.length,
+    },
+  });
+
+  return target;
 }
 
 export interface ModuleInstanceInfo {
@@ -244,7 +342,13 @@ export async function listModules(
  * - Root row is included only for root-granted principals.
  * Used for sidebar + filtered navigation.
  */
-export async function getVisibleTree(db: DB, principalId: string): Promise<Scope[]> {
+export async function getVisibleTree(
+  db: DB,
+  principalId: string,
+  options: { includeArchived?: boolean } = {}
+): Promise<Scope[]> {
+  const filterStatus = (items: Scope[]) =>
+    options.includeArchived ? items : items.filter((scope) => scope.status === "active");
   // Find root
   const [root] = await db
     .select()
@@ -270,7 +374,9 @@ export async function getVisibleTree(db: DB, principalId: string): Promise<Scope
     // Full access, except other principals' personal scopes.
     const ownPersonalPath = getPersonalScopePath(principalId);
     const all = await db.select().from(scopes).orderBy(scopes.path);
-    return (all as Scope[]).filter((scope) => scope.type !== "personal" || scope.path === ownPersonalPath);
+    return filterStatus(
+      (all as Scope[]).filter((scope) => scope.type !== "personal" || scope.path === ownPersonalPath)
+    );
   }
 
   // No root grant: collect visible top-level project subtrees
@@ -305,9 +411,20 @@ export async function getVisibleTree(db: DB, principalId: string): Promise<Scope
           )
         )
         .orderBy(scopes.path);
-      visible.push(...(sub as Scope[]));
+      visible.push(...filterStatus(sub as Scope[]));
     }
   }
 
   return visible;
+}
+
+export async function listArchivedScopes(db: DB, principalId: string): Promise<Scope[]> {
+  const visible = await getVisibleTree(db, principalId, { includeArchived: true });
+  const byId = new Map(visible.map((scope) => [scope.id, scope]));
+
+  return visible.filter((scope) => {
+    if (scope.status !== "archived" || scope.type === "root") return false;
+    const parent = scope.parentId ? byId.get(scope.parentId) : null;
+    return parent?.status !== "archived";
+  });
 }

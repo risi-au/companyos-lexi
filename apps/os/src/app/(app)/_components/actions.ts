@@ -96,6 +96,33 @@ export async function revokeMember(formData: FormData): Promise<void> {
   revalidatePath(`/s/${scopePath}`);
 }
 
+export async function archiveScopeAction(formData: FormData): Promise<void> {
+  const scopePath = ((formData.get("scopePath") as string) || "").trim();
+  if (!scopePath) throw new Error("Select a scope to archive.");
+
+  const actor = await getCurrentActorPrincipalId();
+  if (!actor) throw new Error("Your session expired. Sign in again.");
+
+  await api.archiveScope(scopePath, actor);
+  revalidatePath("/");
+  revalidatePath(`/s/${scopePath}`);
+  redirect(`/s/${scopePath}`);
+}
+
+export async function unarchiveScopeAction(formData: FormData): Promise<void> {
+  const scopePath = ((formData.get("scopePath") as string) || "").trim();
+  if (!scopePath) throw new Error("Select a scope to restore.");
+
+  const actor = await getCurrentActorPrincipalId();
+  if (!actor) throw new Error("Your session expired. Sign in again.");
+
+  await api.unarchiveScope(scopePath, actor);
+  revalidatePath("/");
+  revalidatePath("/admin/settings");
+  revalidatePath(`/s/${scopePath}`);
+  redirect(`/s/${scopePath}`);
+}
+
 /** Server action for project switcher: persists selection in cookie (SSR) then redirects */
 export async function setSelectedProject(formData: FormData): Promise<void> {
   const path = ((formData.get("path") as string) || "").trim();

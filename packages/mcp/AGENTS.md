@@ -26,7 +26,7 @@ Stdio auth uses `COS_TOKEN` env. HTTP auth uses `Authorization: Bearer cos_...` 
 - `set_context_profile({scope, name, preset?, config?, is_default?})` - admin-gated context profile create/update. Presets: lean, standard, deep. Emits `usage.profile_updated` in the API service.
 - `list_credentials({scope})` - credential metadata only: names, descriptions, set/updated timestamps, last-accessed timestamps. Viewer.
 - `get_credential({scope, name})` - returns one vault value to agent/editor/admin/owner principals and emits `credential.accessed`. Never use it to store or echo values into records, docs, tasks, logs, or usage metadata.
-- `get_tree({scope?})` - indented subtree paths. Viewer.
+- `get_tree({scope?})` - indented active subtree paths; archived scopes are omitted from normal navigation output. Viewer.
 - `log_change({scope, title, body_md, data?})` - create changelog. Editor/agent.
 - `log_decision({scope, title, body_md, data?})` - create decision. Editor/agent.
 - `save_report({scope, title, body_md, data?})` - create report. Editor/agent.

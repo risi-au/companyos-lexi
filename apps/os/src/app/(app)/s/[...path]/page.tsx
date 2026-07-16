@@ -14,9 +14,16 @@ import { IntakePanel } from "@/modules/intake";
 import { AttentionCard } from "@/modules/attention";
 import { getDashboard } from "@companyos/api";
 import { AskOSButton } from "@/modules/agent";
-import { addMemberToScope, changeMemberRole, revokeMember } from "../../_components/actions";
+import {
+  addMemberToScope,
+  archiveScopeAction,
+  changeMemberRole,
+  revokeMember,
+  unarchiveScopeAction,
+} from "../../_components/actions";
 import { ScopeTabPanel } from "../../_components/ScopeTabPanel";
 import { ScopeTabs } from "../../_components/ScopeTabs";
+import { ConfirmSubmitButton } from "@/modules/admin/ConfirmSubmitButton";
 // Consume spec contract (never fork schema); derive type from service surface for compile
 type DashboardSpec = NonNullable<Awaited<ReturnType<typeof getDashboard>>>["spec"] & {
   version: 1;
@@ -104,6 +111,37 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
   const access = await api.resolveAccess(actor, scopePath);
   if (!access) {
     notFound();
+  }
+
+  const canAdministerScope = ["owner", "admin"].includes(access);
+  if (scope.status === "archived") {
+    return (
+      <div className="mx-auto max-w-2xl rounded-[var(--radius-4)] border border-[var(--border)] bg-[var(--raised)] p-[var(--space-6)]">
+        <div className="text-[var(--font-size-xs)] font-medium uppercase tracking-[0.08em] text-[var(--mutedfg)]">
+          Archived scope
+        </div>
+        <h1 className="mt-[var(--space-2)] text-[var(--font-size-2xl)] font-semibold tracking-[-0.01em]">
+          {scope.name}
+        </h1>
+        <p className="mt-[var(--space-3)] text-[var(--font-size-sm)] text-[var(--mutedfg)]">
+          This scope is archived. Its data and task board are still intact, but it is hidden from normal navigation.
+        </p>
+        {canAdministerScope ? (
+          <form action={unarchiveScopeAction} className="mt-[var(--space-5)]">
+            <input type="hidden" name="scopePath" value={scopePath} />
+            <ConfirmSubmitButton
+              title={`Restore ${scope.name}?`}
+              body="This restores the scope, its archived sub-scopes, and any archived parents needed to reach it."
+              confirmLabel="Restore scope"
+              tone="default"
+              className="rounded-[var(--radius-3)] bg-[var(--primary)] px-[var(--space-4)] py-[var(--space-2)] text-[var(--font-size-sm)] font-medium text-[var(--primaryfg)] hover:bg-[var(--primaryhover)]"
+            >
+              Restore
+            </ConfirmSubmitButton>
+          </form>
+        ) : null}
+      </div>
+    );
   }
 
   const instanceName = process.env.INSTANCE_NAME || "CompanyOS";
@@ -254,6 +292,19 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
         </div>
         <div className="flex items-center gap-[var(--space-2)]">
           <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Role: {labelForRole(access)}</div>
+          {canAdministerScope && scope.type !== "root" ? (
+            <form action={archiveScopeAction}>
+              <input type="hidden" name="scopePath" value={scopePath} />
+              <ConfirmSubmitButton
+                title={`Archive ${scope.name}?`}
+                body="This archives all sub-scopes and hides them from the sidebar. All data and the task board stay intact."
+                confirmLabel="Archive scope"
+                className="rounded-[var(--radius-3)] border border-[var(--err)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-xs)] font-medium text-[var(--err)] hover:bg-[var(--hover)]"
+              >
+                Archive
+              </ConfirmSubmitButton>
+            </form>
+          ) : null}
           <AskOSButton scopePath={scopePath} />
         </div>
       </div>
