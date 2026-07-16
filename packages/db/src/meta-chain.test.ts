@@ -41,9 +41,11 @@ const HISTORICAL_MISSING_SNAPSHOTS = [
 
 // The 0028 prevId defect this once allowed was repaired in #59 (owner-approved);
 // the live chain has no duplicate parents. The single remaining jump bridges the
-// snapshots deleted before 20260710083235 (its prevId points at the absent 0023).
+// snapshots deleted before 0023a_attention_items, formerly 20260710083235_attention_items
+// (its prevId points at the absent 0023). Renamed per issue #56 so drizzle-kit's
+// lexicographic snapshot sort matches chain order and generate diffs against the true head.
 const HISTORICAL_WALK_JUMPS = {
-  "20260710083235_attention_items": "0020_neat_vulcan",
+  "0023a_attention_items": "0020_neat_vulcan",
 } as const;
 
 const REAL_CHAIN_ALLOWANCES: ChainAllowances = {
