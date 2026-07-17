@@ -4,7 +4,9 @@ import { createDb, authSchema } from "@companyos/db";
 import { nextCookies } from "better-auth/next-js";
 import { jwt } from "better-auth/plugins";
 import { oauthProvider } from "@better-auth/oauth-provider";
+import { createAuthMiddleware } from "better-auth/api";
 import { getCompanyOsPublicUrl, getMcpPublicUrl } from "@/lib/mcp-public-url";
+import { expandLoopbackRedirects } from "@/lib/oauth-loopback";
 
 const db = createDb();
 
@@ -35,6 +37,26 @@ export const auth = betterAuth({
     }),
     nextCookies(),
   ],
+  hooks: {
+    // Dynamic Client Registration: expand loopback redirect_uris (127.0.0.1 / localhost
+    // / [::1]) to all equivalent forms so MCP clients that register one loopback form
+    // (codex uses 127.0.0.1) still match at /authorize regardless of how the request's
+    // loopback host is normalized. See lib/oauth-loopback.ts and
+    // docs/tasks/DIAG-mcp-oauth-invalid-redirect.md.
+    before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== "/oauth2/register") return;
+      const body = ctx.body as { redirect_uris?: unknown } | undefined;
+      if (!body || !Array.isArray(body.redirect_uris)) return;
+      // Only touch a well-formed all-string array; otherwise leave the body for
+      // upstream validation to reject (don't let filtering turn an invalid request valid).
+      if (body.redirect_uris.length === 0) return;
+      if (!body.redirect_uris.every((u) => typeof u === "string")) return;
+      const uris = body.redirect_uris as string[];
+      const expanded = expandLoopbackRedirects(uris);
+      if (expanded.length === uris.length && expanded.every((u, i) => u === uris[i])) return;
+      return { context: { body: { ...body, redirect_uris: expanded } } };
+    }),
+  },
   secret: process.env.BETTER_AUTH_SECRET!,
   trustedOrigins: [getCompanyOsPublicUrl()],
 });
