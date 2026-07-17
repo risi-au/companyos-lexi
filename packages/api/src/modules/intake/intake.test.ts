@@ -26,6 +26,7 @@ import {
   getRecord,
   getIntakePacket,
   grantRole,
+  IntakeStateError,
   listEvents,
   listIntakePackets,
   listAttentionItems,
@@ -769,5 +770,93 @@ domains: [intake]
     expect(result.written).toBe(true);
     expect(clientMock.putFile).toHaveBeenCalledWith("skills", "scope-intake/templates/new-project.md", body, expect.stringContaining("companyos"));
     expect(clientMock.listFiles).toHaveBeenCalled();
+  });
+
+  async function intakeInNeedsReview(slug: string) {
+    await createScope(db, { slug, name: "Spec gate", type: "project" }, admin);
+    const draft = await ensureDraftIntakeForScope(db, { scopePath: slug, reason: "Spec validation" }, admin);
+    await updateIntakePacket(db, { id: draft.id, status: "awaiting_external" }, admin);
+    await submitIntakePacket(db, { id: draft.id, pasteText: "Packet for provision-spec gate" }, admin);
+    return getIntakePacket(db, draft.id, admin);
+  }
+
+  it("rejects approve when proposedProvisionSpec is missing scopePath", async () => {
+    const slug = `intake-spec-missing-scope-${Date.now()}`;
+    const intake = await intakeInNeedsReview(slug);
+    await updateIntakePacket(db, { id: intake.id, proposedProvisionSpec: { modules: ["docs"] } }, admin);
+    await expect(approveIntakePacket(db, { id: intake.id }, admin)).rejects.toThrow(IntakeStateError);
+    await expect(approveIntakePacket(db, { id: intake.id }, admin)).rejects.toThrow(/scopePath/i);
+    expect((await getIntakePacket(db, intake.id, admin)).status).toBe("needs_review");
+  });
+
+  it("rejects approve when proposedProvisionSpec.scopePath does not match the intake", async () => {
+    const slug = `intake-spec-wrong-scope-${Date.now()}`;
+    const intake = await intakeInNeedsReview(slug);
+    await updateIntakePacket(db, {
+      id: intake.id,
+      proposedProvisionSpec: { scopePath: "other-scope", modules: ["docs"] },
+    }, admin);
+    await expect(approveIntakePacket(db, { id: intake.id }, admin)).rejects.toThrow(IntakeStateError);
+    await expect(approveIntakePacket(db, { id: intake.id }, admin)).rejects.toThrow(/scopePath/i);
+    expect((await getIntakePacket(db, intake.id, admin)).status).toBe("needs_review");
+  });
+
+  it("rejects approve when proposedProvisionSpec.modules contains an unknown value", async () => {
+    const slug = `intake-spec-bogus-mod-${Date.now()}`;
+    const intake = await intakeInNeedsReview(slug);
+    await updateIntakePacket(db, {
+      id: intake.id,
+      proposedProvisionSpec: { scopePath: slug, modules: ["bogus"] },
+    }, admin);
+    await expect(approveIntakePacket(db, { id: intake.id }, admin)).rejects.toThrow(IntakeStateError);
+    await expect(approveIntakePacket(db, { id: intake.id }, admin)).rejects.toThrow(/modules/i);
+    expect((await getIntakePacket(db, intake.id, admin)).status).toBe("needs_review");
+  });
+
+  it("rejects approve for the #43 nested docs/tasks workbench shape", async () => {
+    const slug = `intake-spec-43-shape-${Date.now()}`;
+    const intake = await intakeInNeedsReview(slug);
+    await updateIntakePacket(db, {
+      id: intake.id,
+      proposedProvisionSpec: {
+        docs: [{ slug: "brief", title: "Brief", bodyMd: "# Brief" }],
+        tasks: [{ title: "Do the thing" }],
+        workbench: { repo: slug },
+      },
+    }, admin);
+    await expect(approveIntakePacket(db, { id: intake.id }, admin)).rejects.toThrow(IntakeStateError);
+    expect((await getIntakePacket(db, intake.id, admin)).status).toBe("needs_review");
+  });
+
+  it("approves a well-formed proposedProvisionSpec with scopePath and modules", async () => {
+    const slug = `intake-spec-ok-${Date.now()}`;
+    const intake = await intakeInNeedsReview(slug);
+    await updateIntakePacket(db, {
+      id: intake.id,
+      proposedProvisionSpec: { scopePath: slug, modules: ["docs"] },
+    }, admin);
+    const approved = await approveIntakePacket(db, { id: intake.id }, admin);
+    expect(approved.status).toBe("approved");
+  });
+
+  it("approves workbench:{} (repo optional) and rejects empty-string workbench.repo", async () => {
+    const slugOk = `intake-spec-wb-empty-obj-${Date.now()}`;
+    const intakeOk = await intakeInNeedsReview(slugOk);
+    await updateIntakePacket(db, {
+      id: intakeOk.id,
+      proposedProvisionSpec: { scopePath: slugOk, modules: ["workbench"], workbench: {} },
+    }, admin);
+    const approved = await approveIntakePacket(db, { id: intakeOk.id }, admin);
+    expect(approved.status).toBe("approved");
+
+    const slugBad = `intake-spec-wb-empty-repo-${Date.now()}`;
+    const intakeBad = await intakeInNeedsReview(slugBad);
+    await updateIntakePacket(db, {
+      id: intakeBad.id,
+      proposedProvisionSpec: { scopePath: slugBad, modules: ["workbench"], workbench: { repo: "" } },
+    }, admin);
+    await expect(approveIntakePacket(db, { id: intakeBad.id }, admin)).rejects.toThrow(IntakeStateError);
+    await expect(approveIntakePacket(db, { id: intakeBad.id }, admin)).rejects.toThrow(/repo/i);
+    expect((await getIntakePacket(db, intakeBad.id, admin)).status).toBe("needs_review");
   });
 });

@@ -600,8 +600,15 @@ function WizardWorkspace({
     setProvisionSteps(PROVISION_ITEMS.map((item) => ({ ...item, status: "running" })));
     try {
       const result = await provisionIntakeAction({ intakeId: intake.id, scopePath });
-      mergeIntake(result.intake as Intake);
-      setProvisionSteps(result.result.steps as ProvisionDisplayStep[]);
+      if (result && typeof result === "object" && "ok" in result && result.ok === false) {
+        const message = result.error || "Provisioning failed. Check the setup and try again.";
+        setProvisionError(message);
+        setProvisionSteps([{ key: "provision", status: "manual", message }]);
+        // Throw so runAction skips the success toast; finally still clears "Creating…".
+        throw new Error(message);
+      }
+      mergeIntake(result.result.intake as Intake);
+      setProvisionSteps(result.result.result.steps as ProvisionDisplayStep[]);
       setScopeLive(true);
     } catch (error) {
       const message = errorMessage(error, "Provisioning failed. Check the setup and try again.");
@@ -821,7 +828,7 @@ function WizardWorkspace({
               running={provisionRunning}
               error={provisionError}
               live={scopeLive}
-              canProvision={canAdmin && (intake.status === "approved" || intake.status === "provisioning")}
+              canProvision={canAdmin && intake.status === "approved"}
               onProvision={() => runAction(runProvision, "Project is live.")}
             />
           ) : null}
@@ -1018,8 +1025,12 @@ function InterviewStep(props: {
           {props.errors.map((error) => <li key={error}>{error}</li>)}
         </ul>
       ) : null}
-      <button disabled={!props.canEdit || props.busy} onClick={() => props.runAction(async () => {
+      <button disabled={!props.canEdit || props.busy || isPostApproval(props.intake.status)} onClick={() => props.runAction(async () => {
         const result = await submitPasteAction({ intakeId: props.intake.id, pasteText: props.paste, scopePath: props.scopePath });
+        if (result && typeof result === "object" && "ok" in result && result.ok === false) {
+          props.setErrors([result.error]);
+          throw new Error(result.error);
+        }
         if (result.errors?.length) {
           props.setErrors(result.errors);
           return;
@@ -1115,12 +1126,19 @@ function ReviewStep(props: {
   flushOpenQuestionSaves: () => Promise<void>;
   onProvisionReady: () => void;
 }) {
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const locked = isPostApproval(props.intake.status);
   return (
     <section className="space-y-[var(--space-4)]">
       <StepTitle title="Review" body="Check the generated setup artifacts, clear open questions, then approve the build." />
       {props.markdownOnlyWarning ? (
         <div data-stage-item className="flex gap-2 rounded-[var(--radius-3)] bg-[var(--errbg)] p-3 text-[var(--font-size-sm)] font-medium text-[var(--err)]">
           <AlertTriangle size={16} /> No structured reply found. You can continue, every review field will start empty and must be filled by hand.
+        </div>
+      ) : null}
+      {reviewError ? (
+        <div data-stage-item className="rounded-[var(--radius-3)] bg-[var(--errbg)] p-3 text-[var(--font-size-sm)] text-[var(--err)]">
+          {reviewError}
         </div>
       ) : null}
       {props.intake.packSnapshot ? (
@@ -1232,18 +1250,30 @@ function ReviewStep(props: {
         </label>
       ) : null}
       <div className="flex flex-wrap gap-2">
-        <button disabled={!props.canEdit || props.busy} onClick={() => props.runAction(async () => {
+        <button disabled={!props.canEdit || props.busy || locked} onClick={() => props.runAction(async () => {
           // Serialize behind the autosave queue: saveReviewAction also writes
           // openQuestions, so racing an in-flight toggle save could persist
           // whichever response lands last and lose the newer edit.
+          setReviewError(null);
           await props.flushOpenQuestionSaves();
-          props.mergeIntake(await saveReviewAction({ intakeId: props.intake.id, scopePath: props.scopePath, specJson: props.spec, docsJson: props.docs, tasksJson: props.tasks, wikiJson: props.wiki, questionsJson: props.questions, risksJson: props.risks }) as Intake);
+          const saved = await saveReviewAction({ intakeId: props.intake.id, scopePath: props.scopePath, specJson: props.spec, docsJson: props.docs, tasksJson: props.tasks, wikiJson: props.wiki, questionsJson: props.questions, risksJson: props.risks });
+          if (saved && typeof saved === "object" && "ok" in saved && saved.ok === false) {
+            setReviewError(saved.error);
+            throw new Error(saved.error);
+          }
+          props.mergeIntake(saved.intake as Intake);
         }, "Review saved.")} className="min-h-[44px] cursor-pointer rounded-[var(--radius-3)] border border-[var(--border)] px-3 py-2 text-[var(--font-size-sm)] hover:bg-[var(--hover)] disabled:cursor-not-allowed disabled:opacity-50">
           Save review
         </button>
-        <button disabled={!props.canAdmin || props.intake.status !== "needs_review" || props.busy} onClick={() => props.runAction(async () => {
+        <button disabled={!props.canAdmin || props.intake.status !== "needs_review" || props.busy || locked} onClick={() => props.runAction(async () => {
+          setReviewError(null);
           await props.flushOpenQuestionSaves();
-          props.mergeIntake(await approveIntakeAction({ intakeId: props.intake.id, scopePath: props.scopePath }) as Intake);
+          const approved = await approveIntakeAction({ intakeId: props.intake.id, scopePath: props.scopePath });
+          if (approved && typeof approved === "object" && "ok" in approved && approved.ok === false) {
+            setReviewError(approved.error);
+            throw new Error(approved.error);
+          }
+          props.mergeIntake(approved.intake as Intake);
           props.onProvisionReady();
         }, "Setup approved.")} className="inline-flex min-h-[44px] cursor-pointer items-center gap-1 rounded-[var(--radius-3)] bg-[var(--primary)] px-3 py-2 text-[var(--font-size-sm)] text-[var(--primaryfg)] hover:bg-[var(--primaryhover)] disabled:cursor-not-allowed disabled:opacity-50">
           <Check size={14} /> Approve
@@ -1274,7 +1304,7 @@ function ProvisionStep({ steps, running, error, live, canProvision, onProvision 
       {live ? (
         <div data-stage-item className="rounded-[var(--radius-4)] bg-[var(--okbg)] p-[var(--space-4)] text-[var(--ok)]">Project is live.</div>
       ) : null}
-      <button disabled={!canProvision || running || live} onClick={onProvision} className="inline-flex min-h-[44px] cursor-pointer items-center gap-1 rounded-[var(--radius-3)] bg-[var(--primary)] px-3 py-2 text-[var(--font-size-sm)] text-[var(--primaryfg)] hover:bg-[var(--primaryhover)] disabled:cursor-not-allowed disabled:opacity-50">
+      <button disabled={!canProvision || running || live} onClick={onProvision} className="inline-flex min-h-[44px] cursor-pointer items-center gap-1 rounded-[var(--radius-3)] bg-[var(--primary)] px-3 py-2 text-[var(--font-size-sm)] text-[var(--primaryfg)] hover:bg-[var(--primaryhover)] disabled:cursor-not-allowed disabled:opacity-50" aria-busy={running || undefined}>
         <Play size={14} /> {running ? "Creating…" : "Create everything"}
       </button>
     </section>

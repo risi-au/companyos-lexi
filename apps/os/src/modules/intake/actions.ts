@@ -16,6 +16,24 @@ function parseJson(text: string, fallback: unknown): unknown {
   return JSON.parse(trimmed);
 }
 
+// Known domain errors that should surface as structured action results (not raw
+// 500s). Kept to an explicit allowlist so unrelated library errors (whose names
+// might happen to end in "ValidationError") still throw. JSON parse failures are
+// handled locally at their call site, not here.
+const KNOWN_DOMAIN_ERROR_NAMES = new Set(["IntakeStateError"]);
+function isKnownDomainError(error: unknown): error is Error {
+  return error instanceof Error && KNOWN_DOMAIN_ERROR_NAMES.has(error.name);
+}
+
+type ActionFailure = { ok: false; error: string };
+
+function actionFailure(error: unknown): ActionFailure {
+  return {
+    ok: false,
+    error: error instanceof Error ? error.message : "Something went wrong with this setup action.",
+  };
+}
+
 export async function saveFramingAction(input: { intakeId: string; answersJson: string; scopePath: string }) {
   const actor = requireActor(await getCurrentActorPrincipalId());
   const answers = parseJson(input.answersJson, {});
@@ -88,9 +106,19 @@ export async function saveOpenQuestionsAction(input: {
 
 export async function submitPasteAction(input: { intakeId: string; pasteText: string; scopePath: string }) {
   const actor = requireActor(await getCurrentActorPrincipalId());
-  const result = await api.submitIntakePacket({ id: input.intakeId, pasteText: input.pasteText }, actor);
-  revalidatePath(`/s/${input.scopePath}`);
-  return result;
+  try {
+    const result = await api.submitIntakePacket({ id: input.intakeId, pasteText: input.pasteText }, actor);
+    revalidatePath(`/s/${input.scopePath}`);
+    return {
+      ok: true as const,
+      intake: result.intake,
+      markdownOnly: result.markdownOnly,
+      errors: result.errors,
+    };
+  } catch (error) {
+    if (isKnownDomainError(error)) return actionFailure(error);
+    throw error;
+  }
 }
 
 export async function saveReviewAction(input: {
@@ -104,24 +132,50 @@ export async function saveReviewAction(input: {
   risksJson: string;
 }) {
   const actor = requireActor(await getCurrentActorPrincipalId());
-  const updated = await api.updateIntakePacket({
-    id: input.intakeId,
-    proposedProvisionSpec: parseJson(input.specJson, {}),
-    proposedDocs: parseJson(input.docsJson, []),
-    proposedTasks: parseJson(input.tasksJson, []),
-    proposedWikiUpdates: parseJson(input.wikiJson, []),
-    openQuestions: parseJson(input.questionsJson, []),
-    riskNotes: parseJson(input.risksJson, []),
-  }, actor);
-  revalidatePath(`/s/${input.scopePath}`);
-  return updated;
+  let proposedProvisionSpec: unknown;
+  let proposedDocs: unknown;
+  let proposedTasks: unknown;
+  let proposedWikiUpdates: unknown;
+  let openQuestions: unknown;
+  let riskNotes: unknown;
+  try {
+    proposedProvisionSpec = parseJson(input.specJson, {});
+    proposedDocs = parseJson(input.docsJson, []);
+    proposedTasks = parseJson(input.tasksJson, []);
+    proposedWikiUpdates = parseJson(input.wikiJson, []);
+    openQuestions = parseJson(input.questionsJson, []);
+    riskNotes = parseJson(input.risksJson, []);
+  } catch {
+    return { ok: false as const, error: "One of the review fields is not valid JSON. Fix it and try again." };
+  }
+  try {
+    const updated = await api.updateIntakePacket({
+      id: input.intakeId,
+      proposedProvisionSpec,
+      proposedDocs,
+      proposedTasks,
+      proposedWikiUpdates,
+      openQuestions,
+      riskNotes,
+    }, actor);
+    revalidatePath(`/s/${input.scopePath}`);
+    return { ok: true as const, intake: updated };
+  } catch (error) {
+    if (isKnownDomainError(error)) return actionFailure(error);
+    throw error;
+  }
 }
 
 export async function approveIntakeAction(input: { intakeId: string; scopePath: string }) {
   const actor = requireActor(await getCurrentActorPrincipalId());
-  const updated = await api.approveIntakePacket({ id: input.intakeId }, actor);
-  revalidatePath(`/s/${input.scopePath}`);
-  return updated;
+  try {
+    const updated = await api.approveIntakePacket({ id: input.intakeId }, actor);
+    revalidatePath(`/s/${input.scopePath}`);
+    return { ok: true as const, intake: updated };
+  } catch (error) {
+    if (isKnownDomainError(error)) return actionFailure(error);
+    throw error;
+  }
 }
 
 export async function rejectIntakeAction(input: { intakeId: string; scopePath: string; reason: string }) {
@@ -147,9 +201,14 @@ export async function reopenIntakeAction(input: { intakeId: string; scopePath: s
 
 export async function provisionIntakeAction(input: { intakeId: string; scopePath: string }) {
   const actor = requireActor(await getCurrentActorPrincipalId());
-  const result = await api.provisionFromIntakePacket({ id: input.intakeId }, actor);
-  revalidatePath(`/s/${input.scopePath}`);
-  return result;
+  try {
+    const result = await api.provisionFromIntakePacket({ id: input.intakeId }, actor);
+    revalidatePath(`/s/${input.scopePath}`);
+    return { ok: true as const, result };
+  } catch (error) {
+    if (isKnownDomainError(error)) return actionFailure(error);
+    throw error;
+  }
 }
 
 export async function saveWizardTemplateAction(input: { path: string; body: string }) {

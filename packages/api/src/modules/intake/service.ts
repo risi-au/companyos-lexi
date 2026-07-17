@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { and, desc, eq, inArray, isNull, like, lt, or, sql } from "drizzle-orm";
+import { z } from "zod";
 import { documents, embeddings, intakePackets, scopes, skillsIndex, type IntakePacket } from "@companyos/db";
 import {
   assembleExternalPack,
@@ -62,6 +63,81 @@ export class IntakeStateError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "IntakeStateError";
+  }
+}
+
+const ALLOWED_PROVISION_MODULES = ["docs", "tasks", "workbench"] as const;
+
+/** Strict shape for proposedProvisionSpec at approval (rejects nested docs/tasks, etc.). */
+const proposedProvisionSpecSchema = z
+  .object({
+    scopePath: z.string().min(1, "proposedProvisionSpec.scopePath must be a non-empty string"),
+    name: z.string().optional(),
+    modules: z
+      .array(
+        z.enum(ALLOWED_PROVISION_MODULES, {
+          errorMap: () => ({ message: 'modules entries must be "docs", "tasks", or "workbench"' }),
+        }),
+      )
+      .optional(),
+    workbench: z
+      .object({
+        repo: z.string().min(1, "proposedProvisionSpec.workbench.repo must be a non-empty string").optional(),
+      })
+      .strict()
+      .optional(),
+    subprojects: z
+      .array(
+        z
+          .object({
+            slug: z.string(),
+            name: z.string(),
+          })
+          .strict(),
+      )
+      .optional(),
+    agent: z
+      .object({
+        name: z.string(),
+        tokenName: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+    planeWorkspaceSlug: z.string().optional(),
+  })
+  .strict();
+
+function validateProposedProvisionSpecForApproval(spec: unknown, expectedScopePath: string): void {
+  if (spec == null || typeof spec !== "object" || Array.isArray(spec)) {
+    throw new IntakeStateError(
+      "Cannot approve: proposedProvisionSpec is missing or not an object. Provide a provision spec with scopePath (and optional modules, workbench, subprojects).",
+    );
+  }
+  const parsed = proposedProvisionSpecSchema.safeParse(spec);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    if (issue) {
+      const path = issue.path.length > 0 ? issue.path.join(".") : "proposedProvisionSpec";
+      // Unrecognized keys (e.g. docs/tasks nested under the spec — the #43 shape).
+      if (issue.code === "unrecognized_keys") {
+        const keys = "keys" in issue && Array.isArray(issue.keys) ? issue.keys.join(", ") : "unknown";
+        throw new IntakeStateError(
+          `Cannot approve: proposedProvisionSpec has unexpected top-level key(s): ${keys}. Expected only scopePath, modules, workbench, subprojects (and optional name, agent, planeWorkspaceSlug).`,
+        );
+      }
+      if (issue.code === "invalid_type" && (path === "scopePath" || issue.path[0] === "scopePath")) {
+        throw new IntakeStateError(
+          "Cannot approve: proposedProvisionSpec.scopePath is required and must be a non-empty string matching this intake's scope.",
+        );
+      }
+      throw new IntakeStateError(`Cannot approve: invalid proposedProvisionSpec.${path}: ${issue.message}`);
+    }
+    throw new IntakeStateError("Cannot approve: proposedProvisionSpec is invalid.");
+  }
+  if (parsed.data.scopePath !== expectedScopePath) {
+    throw new IntakeStateError(
+      `Cannot approve: proposedProvisionSpec.scopePath must equal this intake's scopePath ("${expectedScopePath}"); got "${parsed.data.scopePath}".`,
+    );
   }
 }
 
@@ -878,7 +954,23 @@ export async function approveIntakePacket(db: DB, input: { id: string }, actorPr
   const intake = await getIntakePacket(db, input.id, actorPrincipalId);
   await requireAccess(db, actorPrincipalId, intake.scopePath, "admin");
   if (intake.status !== "needs_review") throw new IntakeStateError(`Only needs_review intakes can be approved; got ${intake.status}`);
-  await db.update(intakePackets).set({ status: "approved", approvedBy: actorPrincipalId, approvedAt: new Date(), updatedAt: new Date() }).where(eq(intakePackets.id, input.id));
+  // Validate against the row we read; fence the status flip on status + updatedAt so a
+  // concurrent save (allowed while needs_review) cannot land an unvalidated spec as approved.
+  validateProposedProvisionSpecForApproval(intake.proposedProvisionSpec, intake.scopePath);
+  const claimed = await db
+    .update(intakePackets)
+    .set({ status: "approved", approvedBy: actorPrincipalId, approvedAt: new Date(), updatedAt: new Date() })
+    .where(
+      and(
+        eq(intakePackets.id, input.id),
+        eq(intakePackets.status, "needs_review"),
+        eq(intakePackets.updatedAt, intake.updatedAt),
+      ),
+    )
+    .returning({ id: intakePackets.id });
+  if (claimed.length === 0) {
+    throw new IntakeStateError("Intake changed since it was validated; reload and approve again.");
+  }
   const updated = await getIntakeRow(db, input.id);
   await emitIntakeEvent(db, "intake.approved", updated, actorPrincipalId);
   return updated;
