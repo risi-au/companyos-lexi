@@ -15,7 +15,7 @@ import {
 import { emitEvent, type DB } from "../../kernel/events";
 import { grantRole, resolveAccess } from "../../kernel/grants";
 import { getScope } from "../../kernel/scopes";
-import { issueToken, revokeToken } from "../../kernel/tokens";
+import { issueToken, revokeToken, updateTokenExpiry } from "../../kernel/tokens";
 import { AccessDeniedError, ScopeNotFoundError, TokenNotFoundError } from "../../errors";
 import { createSystemAttentionItem, dismissAttentionItemsInternal } from "../attention/service";
 
@@ -462,6 +462,47 @@ export async function revokeConnectionToken(
       scopePath: row.scopePath,
       principalId: actorPrincipalId,
       payload: { tokenId: row.tokenId, scopePath: row.scopePath },
+    });
+  });
+}
+
+export async function updateConnectionTokenExpiry(
+  db: DB,
+  input: { tokenId: string; expiresAt: Date | null },
+  actorPrincipalId: string
+): Promise<void> {
+  const [row] = (await db
+    .select({
+      tokenId: tokens.id,
+      scopePath: scopes.path,
+    })
+    .from(connections)
+    .innerJoin(tokens, eq(connections.tokenId, tokens.id))
+    .innerJoin(scopes, eq(connections.scopeId, scopes.id))
+    .where(eq(connections.tokenId, input.tokenId))
+    .limit(1)) as Array<{ tokenId: string; scopePath: string }>;
+
+  if (!row) {
+    throw new TokenNotFoundError(input.tokenId);
+  }
+
+  // Admin-only: changing an expiry can extend a token's life, so it is held to a
+  // higher bar than revoke (which also allows an editor to revoke their own mint).
+  const actorRole = await resolveAccess(db, actorPrincipalId, row.scopePath);
+  if (rank(actorRole) < ROLE_RANK.admin) {
+    throw new AccessDeniedError(actorPrincipalId, row.scopePath, "admin");
+  }
+
+  await db.transaction(async (tx: DB) => {
+    await updateTokenExpiry(tx, row.tokenId, input.expiresAt, actorPrincipalId);
+    // The old expiry attention no longer reflects reality; the nightly sweep
+    // (ensureConnectionExpiryAttention) re-creates one if the new expiry still warrants it.
+    await dismissAttentionItemsInternal(tx, { kind: "connection_expiry", payloadTokenId: row.tokenId, note: "token expiry updated" });
+    await emitEvent(tx, {
+      type: "connection.expiry_updated",
+      scopePath: row.scopePath,
+      principalId: actorPrincipalId,
+      payload: { tokenId: row.tokenId, scopePath: row.scopePath, expiresAt: input.expiresAt ? input.expiresAt.toISOString() : null },
     });
   });
 }

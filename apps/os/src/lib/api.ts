@@ -56,6 +56,7 @@ import {
   listConnections,
   listOAuthConnections,
   revokeConnectionToken,
+  updateConnectionTokenExpiry,
   revokePrincipalAccess,
   revokeScopeAccess,
   setCredential,
@@ -291,6 +292,8 @@ export const api = {
     listConnectionTokens(db, input, actorPrincipalId),
   revokeConnectionToken: (input: Parameters<typeof revokeConnectionToken>[1], actorPrincipalId: string) =>
     revokeConnectionToken(db, input, actorPrincipalId),
+  updateConnectionTokenExpiry: (input: Parameters<typeof updateConnectionTokenExpiry>[1], actorPrincipalId: string) =>
+    updateConnectionTokenExpiry(db, input, actorPrincipalId),
   ensureConnectionExpiryAttention: () => ensureConnectionExpiryAttention(db),
   listConnections: (input: Parameters<typeof listConnections>[1], actorPrincipalId: string) =>
     listConnections(db, input, actorPrincipalId),

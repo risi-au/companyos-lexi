@@ -41,6 +41,18 @@ export async function revokeConnectionTokenAction(scopePath: string, tokenId: st
   revalidatePath(`/s/${scopePath}?tab=connect`);
 }
 
+export async function updateConnectionTokenExpiryAction(scopePath: string, tokenId: string, expiresAt: string | null) {
+  const actor = await getCurrentActorPrincipalId();
+  if (!actor) throw new Error("Your session expired. Sign in again.");
+  let parsedExpiry: Date | null = null;
+  if (expiresAt) {
+    parsedExpiry = new Date(expiresAt);
+    if (Number.isNaN(parsedExpiry.getTime())) throw new Error("Invalid expiry date.");
+  }
+  await api.updateConnectionTokenExpiry({ tokenId, expiresAt: parsedExpiry }, actor);
+  revalidatePath(`/s/${scopePath}?tab=connect`);
+}
+
 export async function getConnectConfigAction() {
   return { mcpPublicUrl: getMcpPublicUrl() };
 }

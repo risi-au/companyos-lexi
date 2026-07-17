@@ -117,6 +117,44 @@ export async function authenticateTokenWithMetadata(
   return principal ? { principal, tokenId: token.id } : null;
 }
 
+export async function updateTokenExpiry(
+  db: DB,
+  tokenId: string,
+  expiresAt: Date | null,
+  actor?: string | null
+): Promise<void> {
+  // Single conditional statement: only a live (non-revoked) token is updated, so a
+  // concurrent revoke cannot race between a check and the write. A revoked token is
+  // terminal — changing its expiry would imply it could be reactivated, which it
+  // cannot; callers must mint a new token instead.
+  const updated = (await db
+    .update(tokens)
+    .set({ expiresAt })
+    .where(and(eq(tokens.id, tokenId), isNull(tokens.revokedAt)))
+    .returning()) as Token[];
+
+  const row = updated[0];
+  if (!row) {
+    // Zero rows: either the token does not exist or it is revoked — disambiguate
+    // for a clear error only on this cold path.
+    const [existing] = (await db
+      .select()
+      .from(tokens)
+      .where(eq(tokens.id, tokenId))
+      .limit(1)) as Token[];
+    if (!existing) {
+      throw new TokenNotFoundError(tokenId);
+    }
+    throw new Error(`Token ${tokenId} is revoked; its expiry cannot be changed`);
+  }
+
+  await emitEvent(db, {
+    type: "token.expiry_updated",
+    principalId: actor ?? row.principalId ?? null,
+    payload: { tokenId, name: row.name, expiresAt: expiresAt ? expiresAt.toISOString() : null },
+  });
+}
+
 export async function revokeToken(
   db: DB,
   tokenId: string,

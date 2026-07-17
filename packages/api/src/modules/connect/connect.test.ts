@@ -26,10 +26,12 @@ import {
   mintConnectionToken,
   resolveAccess,
   revokeConnectionToken,
+  updateConnectionTokenExpiry,
   revokePrincipalAccess,
   revokeScopeAccess,
   touchOAuthConnection,
   listOAuthConnections,
+  TokenNotFoundError,
 } from "../../index";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -490,6 +492,49 @@ describe("connect module", () => {
 
     const future = await listOAuthConnections(db, { principalId: editorId, since: new Date(Date.now() + 60000) }, editorId);
     expect(future).toEqual([]);
+  });
+
+  describe("token expiry editing (#81)", () => {
+    it("admin can extend, clear, and shorten a token's expiry; auth + status follow", async () => {
+      const minted = await mintConnectionToken(db, { scopePath, name: "Expiry token", role: "viewer", expiresAt: new Date(Date.now() + 60_000) }, adminId);
+
+      // Extend far into the future.
+      const future = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+      await updateConnectionTokenExpiry(db, { tokenId: minted.tokenId, expiresAt: future }, adminId);
+      let [after] = (await db.select().from(schema.tokens).where(eq(schema.tokens.id, minted.tokenId)).limit(1)) as any[];
+      expect(new Date(after.expiresAt).getTime()).toBe(future.getTime());
+      expect(await authenticateToken(db, minted.token)).not.toBeNull();
+
+      // Clear to never-expires.
+      await updateConnectionTokenExpiry(db, { tokenId: minted.tokenId, expiresAt: null }, adminId);
+      [after] = (await db.select().from(schema.tokens).where(eq(schema.tokens.id, minted.tokenId)).limit(1)) as any[];
+      expect(after.expiresAt).toBeNull();
+      expect(await authenticateToken(db, minted.token)).not.toBeNull();
+
+      // Shorten into the past -> immediately expired.
+      await updateConnectionTokenExpiry(db, { tokenId: minted.tokenId, expiresAt: new Date(Date.now() - 1000) }, adminId);
+      expect(await authenticateToken(db, minted.token)).toBeNull();
+      const listed = await listConnectionTokens(db, { scopePath }, adminId);
+      expect(listed.find((t: any) => t.tokenId === minted.tokenId)?.status).toBe("expired");
+
+      const events = await listEvents(db, { type: "token.expiry_updated", limit: 20 });
+      expect(events.some((e: any) => e.payload?.tokenId === minted.tokenId)).toBe(true);
+    });
+
+    it("rejects expiry edits from non-admins (viewer, and editor even on own mint)", async () => {
+      const minted = await mintConnectionToken(db, { scopePath, name: "Editor mint", role: "viewer" }, editorId);
+      await expect(updateConnectionTokenExpiry(db, { tokenId: minted.tokenId, expiresAt: new Date(Date.now() + 60_000) }, editorId)).rejects.toThrow(AccessDeniedError);
+      await expect(updateConnectionTokenExpiry(db, { tokenId: minted.tokenId, expiresAt: null }, viewerId)).rejects.toThrow(AccessDeniedError);
+      const [row] = (await db.select().from(schema.tokens).where(eq(schema.tokens.id, minted.tokenId)).limit(1)) as any[];
+      expect(row.expiresAt).toBeNull();
+    });
+
+    it("cannot change expiry of a revoked or unknown token", async () => {
+      const minted = await mintConnectionToken(db, { scopePath, name: "To revoke", role: "viewer" }, adminId);
+      await revokeConnectionToken(db, { tokenId: minted.tokenId }, adminId);
+      await expect(updateConnectionTokenExpiry(db, { tokenId: minted.tokenId, expiresAt: new Date(Date.now() + 60_000) }, adminId)).rejects.toThrow();
+      await expect(updateConnectionTokenExpiry(db, { tokenId: "00000000-0000-0000-0000-000000000000", expiresAt: null }, adminId)).rejects.toThrow(TokenNotFoundError);
+    });
   });
 
 });

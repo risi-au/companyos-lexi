@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { useConfirm } from "@companyos/ui";
 import { labelForConnectionStatus, labelForMemoryAccess, labelForRole } from "@/lib/labels";
-import { Link2, PlugZap, RefreshCw, Shield, Trash2 } from "lucide-react";
+import { CalendarClock, Check, Link2, PlugZap, RefreshCw, Shield, Trash2, X } from "lucide-react";
 import {
   getConnectConfigAction,
   listConnectionTokensAction,
   listOAuthConnectionsAction,
   revokeConnectionTokenAction,
+  updateConnectionTokenExpiryAction,
 } from "./actions";
 import { ConnectWizard } from "./ConnectWizard";
 
@@ -47,8 +48,22 @@ function canRevoke(access: AccessRole | null, row: ConnectionRow): boolean {
   return false;
 }
 
+// Editing a token's expiry can extend its life, so it is admin-only (stricter than revoke).
+function canEditExpiry(access: AccessRole | null): boolean {
+  return access === "owner" || access === "admin";
+}
+
 function formatDate(value: string | Date | null | undefined): string {
   return value ? new Date(value).toLocaleString() : "-";
+}
+
+// Format a stored expiry into a <input type="datetime-local"> value (local time).
+function toDatetimeLocal(value: string | Date | null | undefined): string {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function statusClassName(status: ConnectionRow["status"]): string {
@@ -64,6 +79,9 @@ export function ConnectPanel({ scopePath, initialAccess }: { scopePath: string; 
   const [mcpUrl, setMcpUrl] = useState("<MCP_PUBLIC_URL>");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editingExpiryTokenId, setEditingExpiryTokenId] = useState<string | null>(null);
+  const [expiryDraft, setExpiryDraft] = useState("");
+  const [savingExpiry, setSavingExpiry] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -99,6 +117,31 @@ export function ConnectPanel({ scopePath, initialAccess }: { scopePath: string; 
       await refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Couldn't revoke the token. Refresh and try again.");
+    }
+  }
+
+  function startEditExpiry(row: ConnectionRow) {
+    setError(null);
+    setEditingExpiryTokenId(row.tokenId);
+    setExpiryDraft(toDatetimeLocal(row.expiresAt));
+  }
+
+  function cancelEditExpiry() {
+    setEditingExpiryTokenId(null);
+    setExpiryDraft("");
+  }
+
+  async function onSaveExpiry(tokenId: string, expiresAt: string | null) {
+    setSavingExpiry(true);
+    setError(null);
+    try {
+      await updateConnectionTokenExpiryAction(scopePath, tokenId, expiresAt);
+      cancelEditExpiry();
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Couldn't update the token expiry. Refresh and try again.");
+    } finally {
+      setSavingExpiry(false);
     }
   }
 
@@ -171,10 +214,21 @@ export function ConnectPanel({ scopePath, initialAccess }: { scopePath: string; 
                     <td className="py-[var(--space-2)]">{labelForRole(row.role)}</td>
                     <td className="py-[var(--space-2)]">{labelForMemoryAccess(row.memoryAccess)}</td>
                     <td className="py-[var(--space-2)] tabular-nums">{formatDate(row.createdAt)}</td>
-                    <td className="py-[var(--space-2)] tabular-nums">{formatDate(row.expiresAt)}</td>
+                    <td className="py-[var(--space-2)] tabular-nums">{editingExpiryTokenId === row.tokenId ? <input type="datetime-local" value={expiryDraft} onChange={(e) => setExpiryDraft(e.target.value)} disabled={savingExpiry} aria-label={"New expiry for " + row.name} className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--background)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-xs)]" /> : formatDate(row.expiresAt)}</td>
                     <td className="py-[var(--space-2)] tabular-nums">{formatDate(row.lastUsedAt)}</td>
                     <td className={`py-[var(--space-2)] ${statusClassName(row.status)}`}>{labelForConnectionStatus(row.status)}</td>
-                    <td className="py-[var(--space-2)]">{canRevoke(initialAccess, row) && !row.revoked ? <button type="button" aria-label={"Revoke " + row.name} title={"Revoke " + row.name} onClick={() => void onRevoke(row.tokenId)} className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--destructive)] text-[var(--destructive)] hover:bg-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"><Trash2 size={15} /></button> : <span className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">-</span>}</td>
+                    <td className="py-[var(--space-2)]">{editingExpiryTokenId === row.tokenId ? (
+                      <div className="flex items-center gap-[var(--space-1)]">
+                        <button type="button" aria-label="Save expiry" title="Save expiry" onClick={() => void onSaveExpiry(row.tokenId, expiryDraft || null)} disabled={savingExpiry} className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] hover:bg-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] disabled:opacity-50"><Check size={15} /></button>
+                        <button type="button" title="Never expires" onClick={() => void onSaveExpiry(row.tokenId, null)} disabled={savingExpiry} className="inline-flex h-8 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-2)] text-[var(--font-size-xs)] hover:bg-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] disabled:opacity-50">Never</button>
+                        <button type="button" aria-label="Cancel expiry edit" title="Cancel" onClick={cancelEditExpiry} disabled={savingExpiry} className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] hover:bg-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] disabled:opacity-50"><X size={15} /></button>
+                      </div>
+                    ) : (canEditExpiry(initialAccess) || canRevoke(initialAccess, row)) && !row.revoked ? (
+                      <div className="flex items-center gap-[var(--space-1)]">
+                        {canEditExpiry(initialAccess) ? <button type="button" aria-label={"Edit expiry for " + row.name} title={"Edit expiry for " + row.name} onClick={() => startEditExpiry(row)} className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] hover:bg-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"><CalendarClock size={15} /></button> : null}
+                        {canRevoke(initialAccess, row) ? <button type="button" aria-label={"Revoke " + row.name} title={"Revoke " + row.name} onClick={() => void onRevoke(row.tokenId)} className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--destructive)] text-[var(--destructive)] hover:bg-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"><Trash2 size={15} /></button> : null}
+                      </div>
+                    ) : <span className="text-[var(--font-size-xs)] text-[var(--muted-foreground)]">-</span>}</td>
                   </tr>
                 ))}
               </tbody>
