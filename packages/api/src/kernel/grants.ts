@@ -40,44 +40,25 @@ export async function grantRole(
     throw new ScopeNotFoundError(scopePath);
   }
 
-  // Check if principal exists? (optional, let FK fail or assume caller ensures)
-  const [existing] = await db
-    .select()
-    .from(grants)
-    .where(
-      and(
-        eq(grants.principalId, principalId),
-        eq(grants.scopeId, scope.id)
-      )
-    )
-    .limit(1);
-
-  let granted: Grant;
-  if (existing) {
-    const updatedRows = (await db
-      .update(grants)
-      .set({ role })
-      .where(eq(grants.id, existing.id))
-      .returning()) as Grant[];
-    const updated = updatedRows[0];
-    if (!updated) {
-      throw new Error("Failed to grant role");
-    }
-    granted = updated;
-  } else {
-    const insertedRows = (await db
-      .insert(grants)
-      .values({
-        principalId,
-        scopeId: scope.id,
-        role,
-      })
-      .returning()) as Grant[];
-    const inserted = insertedRows[0];
-    if (!inserted) {
-      throw new Error("Failed to grant role");
-    }
-    granted = inserted;
+  // Upsert on grants_principal_scope_unique: create the grant, or set the role if the
+  // principal already has one on this scope. A single atomic statement removes the
+  // check-then-write race (two concurrent first-render grants) and is transaction-safe
+  // (no raised unique violation to abort a surrounding transaction).
+  const rows = (await db
+    .insert(grants)
+    .values({
+      principalId,
+      scopeId: scope.id,
+      role,
+    })
+    .onConflictDoUpdate({
+      target: [grants.principalId, grants.scopeId],
+      set: { role },
+    })
+    .returning()) as Grant[];
+  const granted = rows[0];
+  if (!granted) {
+    throw new Error("Failed to grant role");
   }
 
   await emitEvent(db, {

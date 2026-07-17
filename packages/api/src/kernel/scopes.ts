@@ -92,6 +92,11 @@ export async function createScope(
     }
   }
 
+  // The pre-check above is a fast path; the scopes_path_unique constraint is the real
+  // guard. Two concurrent creators can both pass the pre-check, so DO NOTHING on
+  // conflict: the loser gets no row back and reports a duplicate. Using ON CONFLICT
+  // (rather than catching the 23505) keeps this safe inside a transaction, where a
+  // raised unique violation would abort the whole transaction.
   const [created] = (await db
     .insert(scopes)
     .values({
@@ -103,10 +108,11 @@ export async function createScope(
       settings,
       parentId,
     })
+    .onConflictDoNothing({ target: scopes.path })
     .returning()) as Scope[];
 
   if (!created) {
-    throw new Error("Failed to create scope");
+    throw new DuplicatePathError(path);
   }
 
   await emitEvent(db, {
