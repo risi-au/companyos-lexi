@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { createDb } from "@companyos/db";
 import { emitEvent, linkAuthUser } from "@companyos/api";
 import { auth } from "@/lib/auth";
+import { getCompanyOsPublicUrl } from "@/lib/mcp-public-url";
+import { buildOAuthConsentCall } from "@/lib/oauth-consent";
 
 const db = createDb();
 
@@ -26,10 +28,21 @@ export async function submitOAuthConsentAction(formData: FormData) {
     headers: requestHeaders,
     query: { client_id: clientId },
   });
-  const result = await auth.api.oauth2Consent({
-    headers: requestHeaders,
-    body: { accept, scope: requestedScope || undefined, oauth_query: oauthQuery },
-  });
+  // oauth2Consent re-enters better-auth's authorizeEndpoint, which requires a real
+  // ctx.request (else UNAUTHORIZED "request not found"). A programmatic auth.api call
+  // doesn't set ctx.request unless we pass one, so forward a synthetic request with the
+  // caller's cookies. See lib/oauth-consent.ts + DIAG-mcp-oauth-invalid-redirect.md (#95).
+  const forwardedHeaders = new Headers();
+  requestHeaders.forEach((value, key) => forwardedHeaders.set(key, value));
+  const result = await auth.api.oauth2Consent(
+    buildOAuthConsentCall({
+      headers: forwardedHeaders,
+      baseUrl: getCompanyOsPublicUrl(),
+      accept,
+      scope: requestedScope,
+      oauthQuery,
+    }),
+  );
 
   if (accept) {
     const linked = await linkAuthUser(db, {

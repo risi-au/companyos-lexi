@@ -132,8 +132,51 @@ normalization in `apps/os/src/lib/auth.ts`, preserving RFC-7591 DCR (#91 constra
 4. **#91 constraint reinforced:** any redirect_uri hardening must preserve
    loopback DCR for MCP clients — do not tighten in a way that re-breaks this.
 
+## FOLLOW-UP BUG (surfaced 2026-07-17 after the loopback fix deployed)
+**The loopback fix WORKS** — post-deploy, codex "Authenticate" now reaches the consent
+screen (no more `invalid_redirect`). But clicking **Approve** fails: the browser shows
+CompanyOS's error boundary ("Something went wrong. Sorry, CompanyOS couldn't load this
+view."). Container logs show `Error [APIError]: status:'UNAUTHORIZED', statusCode:401,
+body:[Object], digest:223797055` thrown from `submitOAuthConsentAction`
+(apps/os/src/app/oauth/consent/actions.ts) on Approve.
+
+### ROOT CAUSE — CONFIRMED (runtime evidence, 2026-07-17)
+Got the real error body via a temp debug-log deploy (throwaway tag `v0.5.3-dbg95` built from
+the branch; staging `COMPANYOS_TAG` pinned to it; owner reproduced Approve). Log:
+```
+[DEBUG-95] oauth2Consent threw {"status":"UNAUTHORIZED","statusCode":401,
+  "body":{"error_description":"request not found","error":"invalid_request"}}
+```
+- The failing call is **`oauth2Consent`**; `getOAuthClientPublic` (same `sessionMiddleware`)
+  **succeeded** → the session cookie IS present and session resolution works. The "session /
+  oAuthState cookie doesn't survive" hypotheses are **DISPROVEN**.
+- `"request not found"` is **unique** to `authorizeEndpoint` (oauth-provider index.mjs L3835:
+  `if (!ctx.request) throw APIError("UNAUTHORIZED", {error:"invalid_request", ...})`).
+- Also correcting the earlier note: `consentEndpoint` does **not** ignore `oauth_query`. A
+  `before` hook (matcher `ctx.body?.oauth_query`) verifies its signature and repopulates the
+  request-scoped `oAuthState` (which is `AsyncLocalStorage`, **not a cookie**). `consentEndpoint`
+  then re-enters `authorizeEndpoint`, which hard-requires `ctx.request`.
+- **Root cause (one sentence):** the server action invokes `auth.api.oauth2Consent(...)`
+  *programmatically* with only `headers` and no `request`, so the re-entered `authorizeEndpoint`
+  sees `ctx.request === undefined` and 401s. (The direct HTTP path via `toNextJsHandler` works
+  because it passes the real `Request`.)
+
+### FIX (shipped on fix/mcp-oauth-flow)
+Pass a synthetic `Request` (carrying the caller's cookies) **and** `asResponse: false` to the
+`oauth2Consent` call. `asResponse` defaults to `isRequestLike(request)`, so passing a Request
+would otherwise flip the return to a `Response` and break the `{ url }` the action consumes.
+Extracted to `apps/os/src/lib/oauth-consent.ts` (`buildOAuthConsentCall`) + unit test
+`oauth-consent.test.ts`; call site in `apps/os/src/app/oauth/consent/actions.ts`.
+Verification: environment-bound → re-run codex Approve after the fix deploys to staging.
+
 ## Housekeeping
 Throwaway staging clients created during diagnosis (no reg-token to self-delete;
 same as #90's): `oiUyRpAQLMEOuMiamYYiroaJYyCRGkHh`, `pQldAJYGyPelZzenSdtnLUgjrEAXSuSH`,
 `elcOdIryqLOvGPecyxMwasRFmbScfGAS`. Safe (localhost/loopback, public, no secret);
 remove when convenient.
+
+Debug-deploy leftovers from the #95 root-cause capture:
+- git tag `v0.5.3-dbg95` (points at throwaway DEBUG commit; not on any branch) + its GHCR
+  images `companyos-os:v0.5.3-dbg95` / `companyos-migrate:v0.5.3-dbg95` — delete after the fix.
+- staging `~/app/.env` `COMPANYOS_TAG` is pinned to `v0.5.3-dbg95`; merging the #95 fix to
+  `main` redeploys and repins it to `main` automatically (restores staging).
