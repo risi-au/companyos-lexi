@@ -27,6 +27,19 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Auth errors (e.g. from /api/auth/error) bounce to `/?error=...`; without this
+  // the error query is dropped by the `/` -> `/s/root` (or -> `/sign-in`) redirects
+  // below and the user dead-ends with no message (#90). Route it to /sign-in, which
+  // renders the error.
+  const authError = request.nextUrl.searchParams.get("error");
+  if (authError) {
+    const url = new URL("/sign-in", request.url);
+    url.searchParams.set("error", authError);
+    const desc = request.nextUrl.searchParams.get("error_description");
+    if (desc) url.searchParams.set("error_description", desc);
+    return NextResponse.redirect(url);
+  }
+
   const sessionCookie = getSessionCookie(request);
   if (!sessionCookie) {
     const url = new URL("/sign-in", request.url);

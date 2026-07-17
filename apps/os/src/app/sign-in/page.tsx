@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { Button } from "@companyos/ui";
 
@@ -18,10 +18,29 @@ function safeInternalPath(raw: string | null): string | null {
   }
 }
 
-export default function SignInPage() {
+function messageFromAuthError(code: string, description: string | null): string {
+  if (description) return description;
+  switch (code) {
+    case "invalid_client":
+      return "The connecting app is not registered or its client id is invalid.";
+    case "access_denied":
+      return "Authorization was denied.";
+    case "server_error":
+      return "The authorization server hit an error.";
+    default:
+      return code;
+  }
+}
+
+function SignInForm() {
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() => {
+    const code = searchParams.get("error");
+    if (!code) return null;
+    return messageFromAuthError(code, searchParams.get("error_description"));
+  });
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
@@ -116,5 +135,13 @@ export default function SignInPage() {
         </p>
       </div>
     </main>
+  );
+}
+
+export default function SignInPage() {
+  return (
+    <Suspense fallback={null}>
+      <SignInForm />
+    </Suspense>
   );
 }
