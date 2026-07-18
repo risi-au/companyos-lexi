@@ -216,3 +216,39 @@ request *authority* still normalizes to `localhost`.
 **Maintenance:** the patch is pinned to `next@15.5.19`. On any Next bump, re-base it; once a
 15.x release ships #90158, drop the patch and the `patchedDependencies` entry. The regression
 test fails loudly if the patch ever silently drops.
+
+---
+
+## FOLLOW-UP BUG #3 (#100) — "missing required issuer" after callback delivery
+
+**Symptom:** with #97 fixed, native clients receive the callback on `127.0.0.1`
+("Authentication complete") but never connect. Codex CLI:
+`Error: failed to handle OAuth callback / Authorization server response missing required
+issuer: expected https://cos-staging.risi.au`.
+
+**Root cause (confirmed, code-level — NOT ours to fully fix):** the callback DOES carry a
+correct `iss=https://cos-staging.risi.au` (verified in the browser address bar). But:
+- better-auth hardcodes `authorization_response_iss_parameter_supported: true` in the AS
+  metadata (`@better-auth/oauth-provider` `index.mjs` ~L4066; not settable via `advertisedMetadata`).
+- Codex uses the `rmcp` Rust MCP SDK. `rmcp` `auth.rs` sets `require_issuer` from that flag
+  (~L1399). Codex's `perform_oauth_login.rs` callback server (`parse_oauth_callback`) extracts
+  only `code`+`state` — it DROPS `iss` — then calls `exchange_code_for_token(code, csrf)` →
+  `exchange_code_for_token_with_issuer(code, csrf, None)` (~L1619).
+- `validate_authorization_response_issuer`: `require_issuer=true` + `received_issuer=None`
+  → `AuthorizationServerMissingIssuer` (rmcp `auth.rs` ~L1594-1597). Exact error.
+
+So it's a **client bug** (codex/rmcp doesn't forward the `iss` it received into the token
+exchange), triggered because we *advertise* RFC 9207 support.
+
+### FIX (shipped on fix/oauth-iss-advertise-compat)
+Stop *advertising* `authorization_response_iss_parameter_supported` while still *sending* `iss`.
+`apps/os/src/lib/oauth-metadata.ts` (`shouldAdvertiseIssParam` env gate + pure
+`applyIssParamAdvertisement`); `apps/os/src/app/.well-known/oauth-authorization-server/route.ts`
+wraps better-auth's metadata handler and downgrades the flag to `false` unless
+`OAUTH_ADVERTISE_ISS_PARAM=true`. Default OFF for client compatibility. Tradeoff (not free):
+this weakens metadata-driven RFC 9207 enforcement for clients that key off the flag; we still send
+`iss` so clients that inspect it independently can still validate, but flag-driven ones will not.
+Mix-up risk depends on whether a CLIENT talks to multiple ASes (an MCP client may), not on how many
+this service runs — prefer re-enabling once clients handle the callback `iss`. Upstream: codex/rmcp
+should retain the callback `iss` and pass it into its local issuer validation (the `_with_issuer`
+path) — file separately.
