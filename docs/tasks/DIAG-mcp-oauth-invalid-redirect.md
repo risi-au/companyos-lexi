@@ -180,3 +180,39 @@ Debug-deploy leftovers from the #95 root-cause capture:
   images `companyos-os:v0.5.3-dbg95` / `companyos-migrate:v0.5.3-dbg95` — delete after the fix.
 - staging `~/app/.env` `COMPANYOS_TAG` is pinned to `v0.5.3-dbg95`; merging the #95 fix to
   `main` redeploys and repins it to `main` automatically (restores staging).
+
+---
+
+## FOLLOW-UP BUG #2 (#97) — loopback code delivered to the wrong host
+
+**Symptom:** after Approve, the browser is sent to `http://localhost:PORT/callback/...`
+but the native client (Codex, VS Code) listens only on `127.0.0.1:PORT`, so "site can't
+be reached" and the client never reaches token exchange. Initial `/authorize` request
+carried `redirect_uri=http://127.0.0.1:PORT/...` (correct).
+
+**Root cause (confirmed):** Next.js `NextURL.parseURL`
+(`next/dist/server/web/next-url.js`) ran `REGEX_LOCALHOST_HOSTNAME` over the ENTIRE
+request-URL string, rewriting `127.0.0.1` / `[::1]` -> `localhost` even inside the
+percent-encoded `redirect_uri` query value — before any app or better-auth code runs.
+NOT better-auth, NOT dependency drift. `skipMiddlewareUrlNormalize` does not disable it.
+This is also the root of #93. Upstream fixed exactly this in vercel/next.js#90158
+(parse first, canonicalize only `parsed.hostname`); no released 15.x contains it at this
+cutoff (15.5.20 still affected; fix is canary-only).
+
+**Why not "restore the host in-app":** once `127.0.0.1` has become `localhost`, the
+server cannot know which host the client actually sent — canonicalizing back to
+`127.0.0.1` breaks genuine `localhost`-only clients (Claude Code, current Cursor). RFC
+8252 §8.4 requires exact host matching (only the loopback *port* may vary). Confirmed by
+web research (69 primary sources) + two Codex REQUEST_CHANGES cycles. Approach abandoned.
+
+### FIX (shipped on fix/oauth-loopback-next-patch)
+Version-pinned patch of upstream Next.js #90158 via pnpm:
+`patches/next@15.5.19.patch` (`patchedDependencies` in `pnpm-workspace.yaml`), patching both
+`dist/server/web/next-url.js` (CJS — production standalone loads this) and the ESM twin.
+Regression guard `apps/os/src/lib/next-url-loopback.test.ts` exercises `NextURL` directly:
+127.0.0.1 / [::1] / localhost `redirect_uri` values all survive intact, while a loopback
+request *authority* still normalizes to `localhost`.
+
+**Maintenance:** the patch is pinned to `next@15.5.19`. On any Next bump, re-base it; once a
+15.x release ships #90158, drop the patch and the `patchedDependencies` entry. The regression
+test fails loudly if the patch ever silently drops.

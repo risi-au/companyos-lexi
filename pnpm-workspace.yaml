@@ -10,3 +10,6 @@ allowBuilds:
 
 # Supply-chain policy: packages must be >=24h old (explicit; pnpm 11 enforces)
 minimumReleaseAge: 1440
+
+patchedDependencies:
+  next@15.5.19: patches/next@15.5.19.patch

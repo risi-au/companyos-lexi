@@ -8,6 +8,8 @@ RUN corepack enable
 
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json tsconfig.json ./
+# patchedDependencies (pnpm-workspace.yaml) references files here; install fails without them.
+COPY patches ./patches
 COPY apps/os/package.json ./apps/os/package.json
 COPY packages/api/package.json ./packages/api/package.json
 COPY packages/brain/package.json ./packages/brain/package.json
