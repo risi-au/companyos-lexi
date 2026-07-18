@@ -282,3 +282,27 @@ rejected the credentials it just issued."` (a 401 from /api/mcp).
   (`introspectEndpoint` requires client credentials; internal validate/hash helpers are not
   exported, so a secret-free DB lookup would be fragile). Part 1 makes this defense-in-depth,
   not required for current clients.
+
+---
+
+## FOLLOW-UP BUG #4b (#102) — real cause of Claude Desktop failure: EdDSA-signed tokens
+
+The #102 Part 1 `resource` defaulting was a **no-op for Claude Desktop** — runtime logs
+(throwaway dbg102b/c/d builds) showed claude.ai DOES send `resource` at token exchange, so it
+already got a JWT. The actual cause, confirmed by instrumenting `/api/mcp` entry + the
+`/oauth2/token` response:
+
+- Claude's token exchange returns a clean `200` with a valid access_token + id_token, both
+  **signed `alg: EdDSA`** (better-auth's default; our metadata advertised only `EdDSA`).
+- Over 15 min, `/api/mcp` saw 1731 `cos` worker-token calls, 1 unauth probe, and **zero** JWT
+  calls — i.e. **claude.ai discards our token client-side and never calls the resource server**.
+  codex works because our own server verifies its EdDSA access token and codex relays it.
+- EdDSA (Ed25519) has spotty client JWT-library support; RS256 is near-universal. A client that
+  can't verify EdDSA rejects the tokens right after exchange — exactly this symptom.
+
+### FIX (fix/oauth-jwt-rs256)
+Sign JWTs with **RS256**: `jwt({ jwks: { keyPairConfig: { alg: "RS256" } } })` in `lib/auth.ts`.
+better-auth reuses a stored signing key, so switching algs requires **rotating the `jwks` table**
+(remove the old EdDSA key) so a new RS256 key generates. Our `/api/mcp` verifier reads JWKS, so
+it verifies either alg; codex re-auths once. Confirmation is the staging RS256 deploy + a Claude
+Desktop retry (claude.ai-side validation isn't observable in our logs).

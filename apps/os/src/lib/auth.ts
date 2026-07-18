@@ -24,6 +24,14 @@ export const auth = betterAuth({
   plugins: [
     jwt({
       jwt: { issuer: getCompanyOsPublicUrl() },
+      // Sign JWTs (OAuth access + id tokens) with RS256. better-auth defaults to EdDSA, but
+      // many OAuth/OIDC clients — notably the Claude Desktop MCP connector — cannot verify
+      // EdDSA and silently reject the tokens client-side ("integration rejected the credentials
+      // it just issued") before ever calling the resource server. RS256 has ubiquitous library
+      // support. Our own /api/mcp verifier reads the published JWKS, so it works with either.
+      // NOTE: better-auth reuses an existing stored signing key, so switching algs requires
+      // rotating the `jwks` table (old EdDSA key removed) for a new RS256 key to be generated.
+      jwks: { keyPairConfig: { alg: "RS256" } },
       disableSettingJwtHeader: true,
     }),
     oauthProvider({
