@@ -252,3 +252,33 @@ Mix-up risk depends on whether a CLIENT talks to multiple ASes (an MCP client ma
 this service runs — prefer re-enabling once clients handle the callback `iss`. Upstream: codex/rmcp
 should retain the callback `iss` and pass it into its local issuer validation (the `_with_issuer`
 path) — file separately.
+
+---
+
+## FOLLOW-UP BUG #4 (#102) — /api/mcp rejects tokens for clients that omit `resource`
+
+**Symptom:** codex connects, but Claude Desktop reaches approval then fails:
+`oauth_error=McpAuthorizationError / "Your account was authorized, but the integration
+rejected the credentials it just issued."` (a 401 from /api/mcp).
+
+**Root cause (confirmed, code-level):**
+- Claude Desktop's authorize/token requests omit the RFC 8707 `resource` param (codex sends it).
+- better-auth `checkResource` only builds a JWT access token when `resource` is present;
+  without it → `createOpaqueAccessToken` (opaque, no audience) (oauth-provider index.mjs
+  ~L489-529).
+- `/api/mcp` → `authenticateOAuthAccessToken` → `verifyAccessToken(token, { jwksUrl,
+  verifyOptions })` with NO `remoteVerify`. For an opaque token the JWT path yields no payload
+  (JWSInvalid swallowed) and, without an introspection fallback, throws UNAUTHORIZED
+  (`@better-auth/core` verify.mjs L155-194). → 401.
+
+### FIX
+- **Part 1 (shipped, fixes #102):** default the token request's `resource` to the MCP URL when
+  a client omits it, in the `hooks.before` for `/oauth2/token` (`lib/oauth-resource.ts` +
+  `lib/auth.ts`). Every client then gets a JWT bound to `aud=<MCP URL>`; the resource server
+  keeps strict audience+issuer enforcement. codex unaffected (already sends `resource`). Token
+  grant does not cross-check `resource` vs the auth code, so token-endpoint injection suffices.
+- **Part 2 (follow-up, owner-gated):** opaque-token fallback at the resource server via
+  introspection. Requires a dedicated confidential introspection client + a vault secret
+  (`introspectEndpoint` requires client credentials; internal validate/hash helpers are not
+  exported, so a secret-free DB lookup would be fragile). Part 1 makes this defense-in-depth,
+  not required for current clients.
