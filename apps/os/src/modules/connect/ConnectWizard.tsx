@@ -9,6 +9,7 @@ import {
   mintConnectionTokenAction,
 } from "./actions";
 import { platforms, type Platform, type PlatformId } from "./platforms";
+import { shouldPollForConnection } from "./poll";
 
 interface MintResult {
   token: string;
@@ -83,7 +84,13 @@ export function ConnectWizard({
   const [connection, setConnection] = useState<{ clientName: string } | null>(null);
   const [waiting, setWaiting] = useState(false);
   const [pollDeadline, setPollDeadline] = useState(() => Date.now() + 120000);
-  const [wizardStartedAt] = useState(() => new Date().toISOString());
+  // Lower bound for detecting THIS attempt's OAuth connection. Set when the OAuth lane is
+  // entered (not at mount) so we don't attribute a connection first used while the admin was
+  // still on the platform-select step. Detection is necessarily actor+time scoped: the MCP
+  // client self-registers via DCR with a client_id/state the wizard never sees, so there is no
+  // per-attempt identifier to correlate on — a concurrent unrelated first-use by the same admin
+  // within the window is an accepted, low-probability limitation (see #98 / DIAG).
+  const [oauthSince, setOauthSince] = useState<string | null>(null);
 
   const platform = useMemo<Platform | null>(
     () => platforms.find((item) => item.id === platformId) || null,
@@ -91,7 +98,9 @@ export function ConnectWizard({
   );
 
   useEffect(() => {
-    if (current !== 3 || connection || waiting) return;
+    // OAuth connections auto-advance (#98): poll on the setup step too, so the wizard moves to
+    // "connected" the moment the client attaches — no manual "I have connected" click.
+    if (!shouldPollForConnection({ step: current, oauthLane: !useToken, connected: !!connection, waiting })) return;
     let active = true;
     const poll = async () => {
       try {
@@ -101,8 +110,14 @@ export function ConnectWizard({
           const row = (rows as Array<{ tokenId: string; lastUsedAt: string | Date | null }>).find((item) => item.tokenId === minted.tokenId);
           if (active && row?.lastUsedAt) setConnection({ clientName: "Worker token" });
         } else {
-          const rows = await getOAuthConnectionStatusAction({ since: wizardStartedAt });
-          if (active && rows[0]) setConnection({ clientName: rows[0].clientName || "CompanyOS client" });
+          if (!oauthSince) return;
+          const rows = await getOAuthConnectionStatusAction({ since: oauthSince });
+          if (active && rows[0]) {
+            setConnection({ clientName: rows[0].clientName || "CompanyOS client" });
+            // Surface the confirmed connection on the Verify step and complete the stepper.
+            setCurrent(3);
+            setMaxReached((value) => Math.max(value, 3));
+          }
         }
       } catch {
         // A temporary polling error should not end the setup flow.
@@ -118,7 +133,7 @@ export function ConnectWizard({
       window.clearInterval(interval);
       window.clearTimeout(timeout);
     };
-  }, [connection, current, minted, pollDeadline, scopePath, useToken, waiting, wizardStartedAt]);
+  }, [connection, current, minted, oauthSince, pollDeadline, scopePath, useToken, waiting]);
 
   function advance(step: number) {
     setCurrent(step);
@@ -167,6 +182,14 @@ export function ConnectWizard({
                     onClick={() => {
                       setPlatformId(item.id);
                       setUseToken(!item.oauth);
+                      if (item.oauth) {
+                        // Start a fresh detection + deadline window on OAuth-lane entry — time
+                        // spent on platform-select must not consume the polling deadline, and
+                        // re-entering after a lapsed window must start clean.
+                        setOauthSince(new Date().toISOString());
+                        setPollDeadline(Date.now() + 120000);
+                        setWaiting(false);
+                      }
                       advance(2);
                     }}
                     className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--background)] p-[var(--space-3)] text-left text-[var(--font-size-sm)] font-medium hover:bg-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
@@ -201,8 +224,15 @@ export function ConnectWizard({
                     {platform.oauth.steps.map((step) => <li key={step}>{step}</li>)}
                   </ol>
                   {platform.oauth.note && <p className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--background)] p-[var(--space-3)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">{platform.oauth.note}</p>}
-                  <div className="flex flex-wrap items-center gap-[var(--space-3)]">
-                    <button type="button" onClick={() => advance(3)} className="h-10 rounded-[var(--radius-sm)] bg-[var(--primary)] px-[var(--space-3)] text-[var(--font-size-sm)] text-[var(--primary-foreground)]">I have connected</button>
+                  <div className="flex flex-wrap items-center justify-between gap-[var(--space-3)]">
+                    {waiting ? (
+                      <div className="flex flex-wrap items-center gap-[var(--space-3)]">
+                        <span className="text-[var(--font-size-sm)] text-[var(--muted-foreground)]">Still waiting for {platform.label} to connect.</span>
+                        <button type="button" onClick={() => { setWaiting(false); setPollDeadline(Date.now() + 120000); }} className="h-9 rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-3)] text-[var(--font-size-sm)]">Keep waiting</button>
+                      </div>
+                    ) : (
+                      <p className="flex items-center gap-[var(--space-2)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]"><LoaderCircle className="animate-spin" size={16} />Waiting for {platform.label} to connect...</p>
+                    )}
                     <button type="button" onClick={() => setUseToken(true)} className="text-[var(--font-size-sm)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]">Use a worker token instead</button>
                   </div>
                 </div>
