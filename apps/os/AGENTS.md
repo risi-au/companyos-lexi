@@ -112,6 +112,7 @@ Update this file when API surface or auth wiring changes. (canvas added M3-03)
 ## OAuth MCP auth (FEAT-connect-oauth-pr1)
 - /api/mcp accepts either a legacy cos_ bearer token or an OAuth access JWT. OAuth JWTs are verified in-process through Better Auth, must have the exact MCP endpoint audience, and map sub to principals.auth_user_id.
 - Missing or invalid MCP auth returns 401 with RFC 9728 WWW-Authenticate resource metadata. Protected-resource metadata is available at both /.well-known/oauth-protected-resource paths.
+- OAuth discovery is served at both `/.well-known/oauth-authorization-server` and `/.well-known/openid-configuration`; both keep `authorization_response_iss_parameter_supported` false by default for Codex/rmcp compatibility.
 - Better Auth uses BETTER_AUTH_URL as the preferred public origin, falling back to COMPANYOS_URL, then the origin of MCP_PUBLIC_URL. MCP_PUBLIC_URL remains the canonical explicit MCP endpoint override.
 - OAuth provider endpoints, JWKS, DCR, and consent are mounted under Better Auth. The consent page is /oauth/consent and approval emits connection.authorized.
 
