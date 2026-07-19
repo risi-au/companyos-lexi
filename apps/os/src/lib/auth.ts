@@ -6,6 +6,7 @@ import { jwt } from "better-auth/plugins";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { createAuthMiddleware } from "better-auth/api";
 import { getCompanyOsPublicUrl, getMcpPublicUrl } from "@/lib/mcp-public-url";
+import { getOauthDcrRateLimit } from "@/lib/oauth-dcr-rate-limit";
 import { expandLoopbackRedirects } from "@/lib/oauth-loopback";
 import { tokenRequestWithDefaultResource } from "@/lib/oauth-resource";
 
@@ -42,6 +43,7 @@ export const auth = betterAuth({
       refreshTokenExpiresIn: 60 * 60 * 24 * 30,
       allowDynamicClientRegistration: true,
       allowUnauthenticatedClientRegistration: true,
+      rateLimit: { register: getOauthDcrRateLimit() },
       scopes: ["openid", "profile", "email", "offline_access"],
     }),
     nextCookies(),

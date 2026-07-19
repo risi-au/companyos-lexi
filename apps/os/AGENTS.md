@@ -115,6 +115,7 @@ Update this file when API surface or auth wiring changes. (canvas added M3-03)
 - OAuth discovery is served at both `/.well-known/oauth-authorization-server` and `/.well-known/openid-configuration`; both keep `authorization_response_iss_parameter_supported` false by default for Codex/rmcp compatibility.
 - Better Auth uses BETTER_AUTH_URL as the preferred public origin, falling back to COMPANYOS_URL, then the origin of MCP_PUBLIC_URL. MCP_PUBLIC_URL remains the canonical explicit MCP endpoint override.
 - OAuth provider endpoints, JWKS, DCR, and consent are mounted under Better Auth. The consent page is /oauth/consent and approval emits connection.authorized.
+- Public unauthenticated DCR remains enabled for MCP client onboarding. Better Auth's built-in registration limiter is explicitly pinned to 5 registrations per 60 seconds; positive-integer `OAUTH_DCR_RATE_LIMIT_MAX` and `OAUTH_DCR_RATE_LIMIT_WINDOW_SECONDS` values override those defaults per instance.
 
 
 ## OAuth MCP auth (FEAT-connect-oauth-pr2)
