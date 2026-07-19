@@ -1,6 +1,6 @@
 # FEAT-google-sign-in: Add optional Google social login
 
-status: implemented
+status: done
 type: feature
 issue: #86
 modules: apps/os auth UI, infra runtime config
@@ -140,6 +140,7 @@ Auth user and therefore the existing CompanyOS principal and personal scope.
 - [x] Focused tests and the full gate pass.
 - [x] Fresh inline read-only review returns APPROVED.
 - [x] No secret value, database write, or staging mutation is performed.
+- [x] Owner verifies the existing root owner and a normal Google user on staging.
 
 ## Finish report
 
@@ -149,7 +150,10 @@ Auth user and therefore the existing CompanyOS principal and personal scope.
 - Deviations from plan: both auth pages are forced dynamic so runtime credentials are evaluated
   after image build. The installed Better Auth 1.6.23 pre-hijacking guard is explicit: an
   unverified local account is not implicitly linked even when Google verifies the same email.
-- Left undone: owner-gated Google Cloud and staging activation/verification.
+- Left undone: none. The owner configured Google Cloud/staging, then verified both
+  the existing root owner and a normal Google user on 2026-07-19. Follow-up #111
+  fixed explicit linking for an unverified local credential account and personal-only
+  user landing; PR #112 is merged and verified on staging.
 - Gate: lint: PASS | typecheck: PASS | tests: PASS (57 files, 482 tests) | build: PASS
   (inline non-secret build placeholders; sign-in/sign-up dynamic) | compose: PASS (Google unset) |
   review: APPROVED (fresh read-only Orca task `task_8af81d96f642`)

@@ -38,6 +38,9 @@ Purpose: Development and production Docker Compose bundles for the shared data/m
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are optional prod OS pass-through
   values. Both must be non-empty to enable Google social login; either missing or
   blank keeps the instance bootable with email/password auth only.
+- Existing same-email password users link Google through the authenticated
+  link-after-password flow; never weaken Better Auth's implicit-link verification
+  guard. Personal-only Google users must land on their own personal scope.
 - `.github/workflows/release.yml` - gates, builds/pushes GHCR images, deploys staging over SSH, and smoke-tests staging.
 - `packages/db/scripts/migrate.mjs` runs migrations via the drizzle-orm programmatic migrator (delegated from root db:migrate; drizzle-kit remains for generate only).
 

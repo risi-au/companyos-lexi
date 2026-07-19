@@ -116,6 +116,8 @@ only visible top-level scope is personal.
 - Files changed: auth redirect helpers/tests; sign-in explicit-link continuation;
   root-scope fallback; `apps/os` auth contract; this plan.
 - Deviations from plan: none.
-- Left undone: staging verification after owner merge/deploy.
+- Left undone: none. PR #112 merged as `5f2e130`; the owner verified both the
+  existing root-owner linking flow and the normal-user personal-scope landing on
+  staging on 2026-07-19.
 - Gate: typecheck PASS | lint/encoding/tokens PASS | tests 57 files / 490 tests PASS.
 - Review: fresh Codex read-only review APPROVED with no blocking findings.

@@ -106,10 +106,12 @@ client:
 - Staging: `https://cos-staging.risi.au/api/auth/callback/google`
 
 Staging activation is owner-gated: register the staging callback in Google Cloud, add
-both values to the VPS `~/app/.env`, restart/redeploy the OS stack, then verify a new
-Google user and, when available, a same-email existing user whose local email is already
-verified. Better Auth deliberately blocks implicit linking into unverified local accounts
-to prevent account pre-hijacking. Do not commit credential values or print them in logs.
+both values to the VPS `~/app/.env`, restart/redeploy the OS stack, then verify both a
+new Google user and a same-email existing password user. Better Auth deliberately blocks
+implicit linking into an unverified local account to prevent account pre-hijacking. When
+that guard fires, CompanyOS asks for the existing password and only then starts Better
+Auth's authenticated Google linking flow. A new user without a root or project grant
+lands on their personal scope. Do not commit credential values or print them in logs.
 
 ### First deploy
 
