@@ -1,9 +1,12 @@
 import { and, desc, eq, inArray, isNull, like, or } from "drizzle-orm";
 import {
+  attentionItems,
   capabilities,
   capabilityRuns,
   docLinks,
   documents,
+  isReservedOperationalWikiReportSlug,
+  notReservedOperationalWikiReportSlug,
   scopes,
   workbenches,
   type CapabilityRun,
@@ -12,6 +15,7 @@ import { type DB } from "../../kernel/events";
 import { requireAccess } from "../../kernel/grants";
 import { getScope } from "../../kernel/scopes";
 import { ScopeNotFoundError } from "../../errors";
+import { parseWikiQuestionPayload } from "../attention/service";
 import { queryUsage, type UsageSummaryRow } from "../usage/service";
 
 const ROOT_SCOPE = "root";
@@ -20,7 +24,6 @@ const DEFAULT_NODE_LIMIT = 1200;
 const MAX_NODE_LIMIT = 3000;
 const DEFAULT_EDGE_LIMIT = 4000;
 const MAX_EDGE_LIMIT = 8000;
-const WIKILINK_REGEX = /\[\[([^\]\n|]+)(?:\|[^\]\n]+)?\]\]/g;
 
 export type BrainGraphNodeType = "scope" | "wiki-page" | "root-pattern" | "workbench" | "unresolved";
 export type BrainGraphEdgeType = "wikilink" | "source-record" | "scope-hierarchy" | "workbench";
@@ -77,13 +80,17 @@ export interface BrainEngineRunSummary {
 
 export interface BrainLintFindingSummary {
   id: string;
+  title: string;
   scopePath: string;
   pageSlug: string;
   pageTitle: string;
   severity: "info" | "warning" | "critical";
+  status: "open" | "approved" | "rejected" | "dismissed";
   message: string;
   href: string;
+  createdAt: Date;
   updatedAt: Date;
+  resolvedAt: Date | null;
 }
 
 export interface BrainEngineOpsResult {
@@ -125,39 +132,60 @@ function workbenchHref(scopePath: string): string {
   return `/s/${scopePath}?tab=overview`;
 }
 
-function parseLintSlugs(bodyMd: string): string[] {
-  const slugs = new Set<string>();
-  for (const match of bodyMd.matchAll(WIKILINK_REGEX)) {
-    const raw = (match[1] ?? "").trim();
-    if (!raw) continue;
-    const slug = raw.includes(":") ? raw.slice(raw.lastIndexOf(":") + 1) : raw;
-    if (slug) slugs.add(slug);
-  }
-  return Array.from(slugs);
-}
-
 async function requireRootAdmin(db: DB, actorPrincipalId: string): Promise<void> {
   const root = await getScope(db, ROOT_SCOPE);
   if (!root) throw new ScopeNotFoundError(ROOT_SCOPE);
   await requireAccess(db, actorPrincipalId, ROOT_SCOPE, "admin");
 }
 
+function safeSlug(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const slug = value.trim();
+  if (!slug || isReservedOperationalWikiReportSlug(slug)) return null;
+  return slug;
+}
+
+function safeTitle(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+function pageRefsFromPayload(payload: Record<string, unknown>): Array<{ slug: string; title?: string }> {
+  const parsed = parseWikiQuestionPayload(payload);
+  if (parsed.state === "v2-contradiction") {
+    return parsed.payload.claims.flatMap((claim) => {
+      const slug = safeSlug(claim.slug);
+      return slug ? [{ slug, title: safeTitle(claim.title, slug) }] : [];
+    });
+  }
+  if (parsed.state === "v2-stale") {
+    const slug = safeSlug(parsed.payload.slug);
+    return slug ? [{ slug, title: safeTitle(parsed.payload.title, slug) }] : [];
+  }
+  if (parsed.state === "legacy") {
+    return parsed.slugs.flatMap((entry) => {
+      const slug = safeSlug(entry.slug);
+      return slug ? [{ slug, title: safeTitle(entry.title, slug) }] : [];
+    });
+  }
+  return [];
+}
+
 async function lintFlagKeys(db: DB): Promise<Set<string>> {
   const rows = (await db
     .select({
       scopePath: scopes.path,
-      bodyMd: documents.bodyMd,
+      payload: attentionItems.payload,
     })
-    .from(documents)
-    .innerJoin(scopes, eq(documents.scopeId, scopes.id))
-    .where(and(like(documents.slug, "lint-report%"), isNull(documents.archivedAt)))) as Array<{
+    .from(attentionItems)
+    .innerJoin(scopes, eq(attentionItems.scopeId, scopes.id))
+    .where(and(eq(attentionItems.kind, "lint_finding"), eq(attentionItems.status, "open")))) as Array<{
       scopePath: string;
-      bodyMd: string;
+      payload: Record<string, unknown>;
     }>;
 
   const keys = new Set<string>();
   for (const row of rows) {
-    for (const slug of parseLintSlugs(row.bodyMd || "")) {
+    for (const { slug } of pageRefsFromPayload(row.payload || {})) {
       keys.add(`${row.scopePath}:${slug}`);
     }
   }
@@ -203,7 +231,7 @@ export async function getBrainGraph(
     })
     .from(documents)
     .innerJoin(scopes, eq(documents.scopeId, scopes.id))
-    .where(and(subtreeCondition(ROOT_SCOPE), isNull(documents.archivedAt)))
+    .where(and(subtreeCondition(ROOT_SCOPE), isNull(documents.archivedAt), notReservedOperationalWikiReportSlug(documents.slug)))
     .orderBy(scopes.path, documents.slug)
     .limit(nodeLimit)) as Array<{
       id: string;
@@ -323,6 +351,7 @@ export async function getBrainGraph(
     for (const link of linkRows) {
       const source = docNodeIdByDocId.get(link.fromDocumentId);
       if (!source) continue;
+      if (isReservedOperationalWikiReportSlug(link.toSlug)) continue;
       let target = link.toDocumentId ? docNodeIdByDocId.get(link.toDocumentId) : undefined;
       if (!target) {
         target = `unresolved:${link.toScopePath}:${link.toSlug}`;
@@ -394,54 +423,72 @@ function runToSummary(run: CapabilityRun): BrainEngineRunSummary {
   };
 }
 
-function severityFromLine(line: string): "info" | "warning" | "critical" {
-  if (/critical/i.test(line)) return "critical";
-  if (/warning/i.test(line)) return "warning";
+function severityFromPayload(payload: Record<string, unknown>): "info" | "warning" | "critical" {
+  if (payload.type === "contradiction") return "warning";
   return "info";
 }
 
+function titleFromPayload(payload: Record<string, unknown>): string {
+  if (payload.type === "contradiction") return "Two wiki pages disagree";
+  if (payload.type === "stale") return "This page may be out of date";
+  return "Wiki question";
+}
+
+function messageFromPayload(payload: Record<string, unknown>, summary: string | null): string {
+  if (typeof payload.explanation === "string" && payload.explanation.trim()) return payload.explanation.trim();
+  if (payload.type === "stale" && typeof payload.reviewDueAt === "string" && payload.reviewDueAt.trim()) {
+    return "This page has reached its review date.";
+  }
+  if (summary?.trim()) return summary.trim();
+  return "Review this Wiki question.";
+}
+
 async function lintFindings(db: DB): Promise<BrainLintFindingSummary[]> {
-  const reports = (await db
+  const rows = (await db
     .select({
-      id: documents.id,
-      slug: documents.slug,
-      title: documents.title,
-      bodyMd: documents.bodyMd,
-      updatedAt: documents.updatedAt,
+      id: attentionItems.id,
+      status: attentionItems.status,
+      summary: attentionItems.summary,
+      payload: attentionItems.payload,
+      createdAt: attentionItems.createdAt,
+      updatedAt: attentionItems.updatedAt,
+      resolvedAt: attentionItems.resolvedAt,
       scopePath: scopes.path,
     })
-    .from(documents)
-    .innerJoin(scopes, eq(documents.scopeId, scopes.id))
-    .where(and(like(documents.slug, "lint-report%"), isNull(documents.archivedAt)))
-    .orderBy(desc(documents.updatedAt))
-    .limit(50)) as Array<{
+    .from(attentionItems)
+    .innerJoin(scopes, eq(attentionItems.scopeId, scopes.id))
+    .where(eq(attentionItems.kind, "lint_finding"))
+    .orderBy(desc(attentionItems.updatedAt))
+    .limit(100)) as Array<{
       id: string;
-      slug: string;
-      title: string;
-      bodyMd: string;
+      status: "open" | "approved" | "rejected" | "dismissed";
+      summary: string | null;
+      payload: Record<string, unknown>;
+      createdAt: Date;
       updatedAt: Date;
+      resolvedAt: Date | null;
       scopePath: string;
     }>;
 
-  const findings: BrainLintFindingSummary[] = [];
-  for (const report of reports) {
-    const lines = (report.bodyMd || "").split(/\r?\n/).filter((line) => line.trim().startsWith("- "));
-    for (const line of lines) {
-      const slugs = parseLintSlugs(line);
-      const pageSlug = slugs[0] ?? report.slug;
-      findings.push({
-        id: `${report.id}:${findings.length}`,
-        scopePath: report.scopePath,
-        pageSlug,
-        pageTitle: pageSlug === report.slug ? report.title : pageSlug,
-        severity: severityFromLine(line),
-        message: line.replace(/^-+\s*/, "").trim(),
-        href: docHref(report.scopePath, pageSlug),
-        updatedAt: report.updatedAt,
-      });
-    }
-  }
-  return findings.slice(0, 100);
+  return rows.map((row) => {
+    const [page] = pageRefsFromPayload(row.payload || {});
+    const pageSlug = page?.slug ?? "";
+    const pageTitle = page?.title ?? "Wiki";
+    return {
+      id: row.id,
+      title: titleFromPayload(row.payload || {}),
+      scopePath: row.scopePath,
+      pageSlug,
+      pageTitle,
+      severity: severityFromPayload(row.payload || {}),
+      status: row.status,
+      message: messageFromPayload(row.payload || {}, row.summary),
+      href: pageSlug ? docHref(row.scopePath, pageSlug) : scopeHref(row.scopePath),
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      resolvedAt: row.resolvedAt,
+    };
+  });
 }
 
 export async function getBrainEngineOps(

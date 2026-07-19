@@ -1,6 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { eq, and, desc, inArray, not, isNull, like, or } from "drizzle-orm";
-import { attentionItems, docLinks, documents, documentRevisions, principals, scopes } from "@companyos/db";
+import {
+  attentionItems,
+  docLinks,
+  documents,
+  documentRevisions,
+  isReservedOperationalWikiReportSlug,
+  notReservedOperationalWikiReportSlug,
+  principals,
+  scopes,
+} from "@companyos/db";
 import type { AttentionItem, Document, DocumentRevision } from "@companyos/db";
 import {
   emitEvent,
@@ -21,6 +30,21 @@ const SLUG_REGEX = /^[a-z0-9-]+$/;
 const WIKILINK_REGEX = /\[\[([^\]\n]+)\]\]/g;
 
 type PrincipalKind = "human" | "agent" | "system";
+export type PageCategory = "current-work" | "decisions-policies" | "guides-processes" | "reference";
+export type DocDisplayCategory =
+  | "Start here"
+  | "Current work"
+  | "Decisions and policies"
+  | "Guides and processes"
+  | "Reference"
+  | "Other pages";
+
+const PAGE_CATEGORY_LABELS: Record<PageCategory, DocDisplayCategory> = {
+  "current-work": "Current work",
+  "decisions-policies": "Decisions and policies",
+  "guides-processes": "Guides and processes",
+  "reference": "Reference",
+};
 
 interface ParsedFrontmatter {
   body: string;
@@ -163,6 +187,25 @@ function frontmatterDate(metadata: Record<string, string>, key: string): number 
   if (!value) return null;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function parsePageCategory(markdown: string): PageCategory | null {
+  const value = parseFrontmatter(markdown).metadata.category;
+  return value === "current-work"
+    || value === "decisions-policies"
+    || value === "guides-processes"
+    || value === "reference"
+    ? value
+    : null;
+}
+
+export function pageDisplayCategory(input: { scopePath: string; slug: string; bodyMd: string }): DocDisplayCategory {
+  const slug = input.slug.trim().toLowerCase();
+  if (slug === "wiki" || slug === "overview") return "Start here";
+  if (input.scopePath === "root" && (slug === "critical-facts" || slug === "scope-map")) return "Start here";
+  if (input.scopePath === "root" && slug.startsWith("pattern-")) return "Guides and processes";
+  const category = parsePageCategory(input.bodyMd || "");
+  return category ? PAGE_CATEGORY_LABELS[category] : "Other pages";
 }
 
 function isUnreviewedBody(bodyMd: string, latestAuthorKind: PrincipalKind | null): boolean {
@@ -595,6 +638,31 @@ export async function getDoc(
 export interface VerifyDocInput {
   scopePath: string;
   slug: string;
+  nextReviewAt?: string | Date | null;
+}
+
+export function parseFutureReviewDate(value: string | Date, now = new Date()): Date {
+  let reviewDate: Date;
+  if (value instanceof Date) {
+    reviewDate = new Date(value.getTime());
+  } else {
+    const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (dateOnly) {
+      const year = Number(dateOnly[1]);
+      const month = Number(dateOnly[2]);
+      const day = Number(dateOnly[3]);
+      reviewDate = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
+      if (reviewDate.getUTCFullYear() !== year || reviewDate.getUTCMonth() !== month - 1 || reviewDate.getUTCDate() !== day) {
+        throw new Error("nextReviewAt must be a future date.");
+      }
+    } else {
+      reviewDate = new Date(value);
+    }
+  }
+  if (!Number.isFinite(reviewDate.getTime()) || reviewDate.getTime() <= now.getTime()) {
+    throw new Error("nextReviewAt must be a future date.");
+  }
+  return reviewDate;
 }
 
 export async function verifyDoc(
@@ -632,10 +700,15 @@ export async function verifyDoc(
   }
 
   const verifiedAt = new Date().toISOString();
-  const bodyMd = setFrontmatterKeys(doc.bodyMd || "", {
+  const updates: Record<string, string | null> = {
     verified_at: verifiedAt,
     verified_by: principal.name,
-  });
+  };
+  if (input.nextReviewAt !== undefined && input.nextReviewAt !== null) {
+    const reviewDate = parseFutureReviewDate(input.nextReviewAt);
+    updates.stale_after = reviewDate.toISOString();
+  }
+  const bodyMd = setFrontmatterKeys(doc.bodyMd || "", updates);
 
   const [updated] = (await db
     .update(documents)
@@ -716,7 +789,7 @@ export async function getBacklinks(
     .from(docLinks)
     .innerJoin(documents, eq(docLinks.fromDocumentId, documents.id))
     .innerJoin(scopes, eq(documents.scopeId, scopes.id))
-    .where(and(eq(docLinks.toScopeId, scope.id), backlinkTarget))
+    .where(and(eq(docLinks.toScopeId, scope.id), backlinkTarget, notReservedOperationalWikiReportSlug(documents.slug)))
     .orderBy(scopes.path, documents.slug)) as Array<{
       fromDocumentId: string;
       fromScopePath: string;
@@ -778,7 +851,7 @@ export async function getLinkGraph(
     })
     .from(documents)
     .innerJoin(scopes, eq(documents.scopeId, scopes.id))
-    .where(and(subtreeCondition(scopePath), isNull(documents.archivedAt)))
+    .where(and(subtreeCondition(scopePath), isNull(documents.archivedAt), notReservedOperationalWikiReportSlug(documents.slug)))
     .orderBy(scopes.path, documents.slug)) as Array<{ id: string; scopePath: string; slug: string; title: string }>;
 
   const docIds = docRows.map((doc) => doc.id);
@@ -809,6 +882,7 @@ export async function getLinkGraph(
 
   const edges: LinkGraphEdge[] = [];
   for (const link of linkRows) {
+    if (isReservedOperationalWikiReportSlug(link.toSlug)) continue;
     const unresolvedId = `unresolved:${link.toScopePath}:${link.toSlug}`;
     const to = link.toDocumentId ?? unresolvedId;
     if (link.toDocumentId && !nodesById.has(link.toDocumentId)) {
@@ -856,8 +930,9 @@ export interface ListDocRow {
   title: string;
   updatedAt: Date;
   createdByKind: PrincipalKind | null;
-  scopePath: string;
-  unreviewed: boolean;
+    scopePath: string;
+    unreviewed: boolean;
+    displayCategory: DocDisplayCategory;
 }
 
 export async function listDocs(
@@ -878,6 +953,7 @@ export async function listDocs(
   if (!includeArchived) {
     conditions.push(isNull(documents.archivedAt));
   }
+  conditions.push(notReservedOperationalWikiReportSlug(documents.slug));
 
   const rows = (await db
     .select({
@@ -936,6 +1012,7 @@ export async function listDocs(
     createdByKind: row.createdByKind,
     scopePath: row.scopePath,
     unreviewed: isUnreviewedBody(row.bodyMd, latestKinds.get(row.id) ?? null),
+    displayCategory: pageDisplayCategory({ scopePath: row.scopePath, slug: row.slug, bodyMd: row.bodyMd }),
   }));
 }
 

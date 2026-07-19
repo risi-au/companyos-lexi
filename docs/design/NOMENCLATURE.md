@@ -16,6 +16,30 @@
 | **Connected apps** | **Connected apps** | Admin MCP Manager (`/admin/mcp`) — account-level MCP clients (Claude, Hermes…) | `mcp`, `list_connections` |
 | **Attention queue** | **Things to resolve** | Scope overview card (`AttentionCard`) | `attention_items` |
 
+### Wiki clarity vocabulary (ratified for issue 115 - 2026-07-19)
+
+These names are for people using CompanyOS. Internal routes, enum values, event names, API parameters, MCP tool names, database fields, and the repository's developer `lint` command stay unchanged.
+
+| Internal or former wording | User-facing term |
+|---|---|
+| Wiki lint | **Wiki health** |
+| lint finding | **Wiki question** |
+| contradiction | **Two wiki pages disagree** |
+| stale page | **This page may be out of date** |
+| AI-maintained | **Kept up to date by CompanyOS** |
+| Backlinks | **Links from other pages** |
+| Unreviewed | **Needs a quick check** |
+| Mark verified | **Mark as correct** |
+| Follow / Following | **Notify me / Notifications on** |
+| Aliases | **Also known as** |
+| Definition | **What this is** |
+| Details | **More detail** |
+| Sections | **Page sections** |
+| Form / Markdown | **Simple / Advanced** |
+| History | **Past versions** |
+| wiki proposal | **Suggested wiki update** |
+| Approve / Reject on a suggested update | **Apply update / Keep current page** |
+
 **Connect split rationale:** one overloaded word (*Connect* / *connections* / *credentials*) previously covered all three surfaces. Each now has a distinct user-facing name; M11-01 implements the panel IA fix.
 
 ### Pending owner confirmation (do not apply until decided)
@@ -54,8 +78,8 @@
 | **grant / Grants** (admin tab, "Project members (grants on this scope)") | `admin/layout:12`, `s/[...path]:514` | **Access** (admin tab); "Members" for the project surface (already exists); "grant" survives in admin table detail where precision helps (`root:owner`) | Access is what's being granted; the tab should name the outcome | Code |
 | **Plane** ("via Plane", "Plane not configured — tasks hidden.", "Task Manager") | `s/[...path]:314,318`, `Sidebar.tsx:185`, `TasksWidget:20` | **Tasks** everywhere; provenance as tooltip/detail ("Synced from Plane"). Keep "Task Manager ↗" link but rename **"Open task board ↗"** | Vendor names in primary chrome undercut the "tools are disposable" bet (DESIGN.md §1). If Plane is swapped, the UI shouldn't need renaming | Code |
 | **capability / Capability** (table headers) vs **Automations** (tab) | `admin/automations`, `labels.ts`, `admin/health` | **Automations** (tab landed). *Candidate (pending):* **Automation** everywhere user-facing including event labels; "capability" remains the registry/API term. Watch n8n overlap | See §0 pending table | Code |
-| **Brain / Brain Engine** | `brain/page:23`, `brain/engine:28` | Keep **Brain** (distinctive, owner vocabulary). Engine page: **Brain · Engine room** → or keep "Engine"; subtitle must explain: "How the Brain distills records into the wiki" | Brand-worthy internal name; just needs one explanatory subtitle instead of "Runs, lint, and spend" | Code |
-| **ingest / lint / backfill** (trigger buttons) | `brain/engine:61-66` | **"Run ingest now" / "Run lint now" / "Run backfill now"** with one-line descriptions under each; confirmation before run | Bare lowercase enums as buttons that spend money | Code |
+| **Brain / Brain Engine** | `brain/page:23`, `brain/engine:28` | Keep **Brain** for the knowledge map; name the maintenance page **Wiki health** | The maintenance page should name the outcome a business owner cares about | Code |
+| **ingest / lint / backfill** (trigger buttons) | `brain/engine:61-66` | **Update Wiki knowledge / Check Wiki health / Review older records**, each with a description and confirmation | Bare enums are implementation details and the actions can spend money | Code |
 | **Ops Health** | `Sidebar.tsx:113`, `admin/health:56` | Keep **Ops Health** | Accurate, short, already consistent in both sites | — |
 | **Tenant Admin** (h1) vs **Admin** (sidebar) | `admin/layout:28` vs `Sidebar.tsx:119` | **Admin** in both; the tenant/instance distinction belongs to the control plane, not this UI | Same destination, two names = broken wayfinding; "tenant" is SaaS-internal vocabulary (DESIGN.md: never conflate — so don't surface it here) | Code |
 | **Mint / minted / Mint virtual key** | `ConnectPanel`, `LiteLlmMintForm`, `admin/settings` | **Create worker token** (ConnectPanel, landed) / **Create key**; "Minted by" column → **"Created by"** | "Mint" is crypto-flavored; "create" is calm. (Keep `mint` in API names) | Code |

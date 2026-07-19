@@ -56,8 +56,13 @@ Stdio auth uses `COS_TOKEN` env. HTTP auth uses `Authorization: Bearer cos_...` 
 - `rename_doc`, `archive_doc`, `get_backlinks`, `get_link_graph` - wiki gardening tools for agents. Rename/archive require editor/agent; backlinks/link graph require viewer. They delegate to docs services and rely on existing doc link/event upkeep.
 - `save_canvas`, `get_canvas`, `list_canvases` - Excalidraw scene JSON. Writes require editor/agent.
 
-`resolve_attention_item` requires a non-empty `note` when approving an `open_question`;
-the note is the answer and is written into the resulting decision record. Other
+`list_attention_items` returns additive plain-language labels and a structured summary
+for wiki questions. `resolve_attention_item` requires a non-empty `note` when approving
+an `open_question`; the note is the answer and is written into the resulting decision
+record. It cannot resolve any `lint_finding` item. Use `resolve_wiki_question` for wiki
+questions: `choose` with `choice_id` first/second, `not-a-conflict` with an explanatory
+`note`, `mark-current` with
+a future `next_review_at`, or `close-unclear` for older/malformed checks only. Other
 attention kinds keep their existing optional-note behavior.
 
 All protected tools: unauthenticated calls return a clear error. AccessDenied is surfaced as `Access denied: requires <role> on <path>`.

@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useConfirm, useToast } from "@companyos/ui";
 import { Archive, BookOpen, History, Link2, ListTree, Plus, X } from "lucide-react";
 import { DocEditor } from "./DocEditor";
-import { extractMarkdownOutline, type KnownWikiPage, type MarkdownOutlineItem } from "./structured-editor";
+import { extractMarkdownOutline, type DocDisplayCategory, type KnownWikiPage, type MarkdownOutlineItem } from "./structured-editor";
 import { createLoadSequence, DOC_LOAD_TIMEOUT_MS, withTimeout } from "./doc-load";
 import {
   listDocsAction,
@@ -34,6 +34,7 @@ interface DocListItem {
   createdByKind: AuthorKind | null;
   scopePath: string;
   unreviewed: boolean;
+  displayCategory: DocDisplayCategory;
 }
 
 interface RawDocListItem {
@@ -44,6 +45,7 @@ interface RawDocListItem {
   createdByKind?: AuthorKind | null;
   scopePath?: string;
   unreviewed?: boolean;
+  displayCategory?: DocDisplayCategory;
 }
 
 interface CurrentDoc {
@@ -58,7 +60,6 @@ interface RevisionItem {
   id: string;
   title: string;
   createdAt: string | Date;
-  savedBy: string;
 }
 
 interface BacklinkItem {
@@ -132,6 +133,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
       createdByKind: r.createdByKind ?? null,
       scopePath: r.scopePath ?? scopePath,
       unreviewed: Boolean(r.unreviewed),
+      displayCategory: r.displayCategory ?? "Other pages",
     })), [scopePath]);
 
   const updateUrlDoc = useCallback(
@@ -290,21 +292,18 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
   }, [docs, scopePath]);
 
   const groupedDocs = useMemo(() => {
-    const scopePaths = Array.from(new Set(sortedDocs.map((doc) => doc.scopePath)));
-    if (scopePaths.length <= 1) {
-      const yours = sortedDocs.filter((doc) => doc.createdByKind === "human");
-      const ai = sortedDocs.filter((doc) => doc.createdByKind !== "human");
-      return [
-        { title: "Your pages", docs: yours },
-        { title: "AI-maintained", docs: ai },
-      ].filter((group) => group.docs.length > 0);
-    }
-
-    return scopePaths.map((path) => ({
-      title: path === scopePath ? "This scope" : path,
-      docs: sortedDocs.filter((doc) => doc.scopePath === path),
-    }));
-  }, [scopePath, sortedDocs]);
+    const order: DocDisplayCategory[] = [
+      "Start here",
+      "Current work",
+      "Decisions and policies",
+      "Guides and processes",
+      "Reference",
+      "Other pages",
+    ];
+    return order
+      .map((title) => ({ title, docs: sortedDocs.filter((doc) => doc.displayCategory === title) }))
+      .filter((group) => group.docs.length > 0);
+  }, [sortedDocs]);
 
   const knownPages = useMemo<KnownWikiPage[]>(() => {
     const pages = docs.map((doc) => ({ scopePath: doc.scopePath, slug: doc.slug }));
@@ -408,7 +407,6 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
         id: r.id,
         title: r.title,
         createdAt: r.createdAt,
-        savedBy: r.savedBy,
       }));
       setHistoryRevs(mapped);
     } catch {
@@ -480,7 +478,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
         setIsFollowingCurrent(true);
       }
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Couldn't update following for this page. Refresh and try again.";
+      const msg = e instanceof Error ? e.message : "Couldn't update notifications for this page. Refresh and try again.";
       toast.error(msg);
     } finally {
       setIsFollowBusy(false);
@@ -494,7 +492,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
   const renderOutline = (items: MarkdownOutlineItem[]) => (
     <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-2)]">
       <div className="mb-[var(--space-2)] flex items-center gap-[var(--space-1)] px-[var(--space-1)] text-[var(--font-size-sm)] font-medium">
-        <ListTree size={14} /> On this page
+        <ListTree size={14} /> Page sections
       </div>
       {items.length === 0 ? (
         <div className="px-[var(--space-1)] py-[var(--space-2)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
@@ -554,7 +552,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
             )}
             {d.unreviewed && !isEditing && (
               <span className="shrink-0 rounded-[var(--radius-sm)] border border-[var(--accent)] px-[var(--space-1)] text-[var(--font-size-xs)] text-[var(--accent)]">
-                Unreviewed
+                    Needs a quick check
               </span>
             )}
           </button>
@@ -566,8 +564,8 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
             {!readOnly && (
               <>
                 <button
-                  aria-label={`History for ${d.title}`}
-                  title="History"
+                  aria-label={`Past versions for ${d.title}`}
+                  title="Past versions"
                   onClick={(e) => {
                     e.stopPropagation();
                     openHistory(d.scopePath, d.slug);
@@ -618,7 +616,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
         {inheritedWiki && (
           <div className="mb-[var(--space-2)] rounded-[var(--radius-sm)] border border-[var(--primary)] px-[var(--space-2)] py-[var(--space-2)] text-[var(--font-size-xs)]">
             <div className="mb-[var(--space-1)] flex items-center gap-[var(--space-1)] font-medium text-[var(--primary)]">
-              <BookOpen size={13} /> Inherited wiki from {inheritedWiki.scopePath}
+              <BookOpen size={13} /> Shared wiki from {inheritedWiki.scopePath}
             </div>
             <ul className="space-y-[var(--space-1)]">
               {inheritedWiki.docs.map((d) => (
@@ -656,11 +654,11 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
 
         <div className="mt-[var(--space-3)] border-t border-[var(--border)] pt-[var(--space-3)]">
           <div className="mb-[var(--space-2)] flex items-center gap-[var(--space-1)] px-[var(--space-1)] text-[var(--font-size-sm)] font-medium">
-            <Link2 size={14} /> Backlinks
+            <Link2 size={14} /> Links from other pages
           </div>
           {!currentDoc ? (
             <div className="px-[var(--space-2)] py-[var(--space-2)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
-              Select a page to see backlinks.
+              Select a page to see links from other pages.
             </div>
           ) : isLoadingBacklinks ? (
             <div className="px-[var(--space-2)] py-[var(--space-2)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Loading...</div>
@@ -695,11 +693,11 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
 
         {isLoadingDoc ? (
           <div className="flex h-full items-center justify-center rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
-            Loading page...
+            Opening page...
           </div>
         ) : docLoadError ? (
           <div className="flex h-full flex-col items-center justify-center gap-[var(--space-3)] rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">
-            <div>This page didn&apos;t load.</div>
+            <div>This page could not be opened.</div>
             <button
               type="button"
               onClick={() => loadDoc(docLoadError.scopePath, docLoadError.slug)}
@@ -784,15 +782,15 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-[var(--space-2)] flex items-center justify-between">
-              <div className="text-[var(--font-size-sm)] font-medium">History (last 10)</div>
+              <div className="text-[var(--font-size-sm)] font-medium">Past versions (last 10)</div>
               <button onClick={closeHistory} aria-label="Close">
                 <X size={16} />
               </button>
             </div>
             {isLoadingHistory ? (
-              <div className="py-[var(--space-2)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">Loading...</div>
+              <div className="py-[var(--space-2)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">Opening past versions...</div>
             ) : historyRevs.length === 0 ? (
-              <div className="py-[var(--space-2)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No revisions.</div>
+              <div className="py-[var(--space-2)] text-[var(--font-size-sm)] text-[var(--muted-foreground)]">No past versions.</div>
             ) : (
               <ul className="max-h-[260px] space-y-[var(--space-1)] overflow-auto text-[var(--font-size-sm)]">
                 {historyRevs.map((r) => (
@@ -800,7 +798,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
                     <div className="min-w-0">
                       <div className="truncate">{r.title}</div>
                       <div className="text-[var(--font-size-xs)] text-[var(--muted-foreground)] tabular-nums">
-                        {new Date(r.createdAt).toLocaleString()}, by {r.savedBy}
+                        Saved {new Date(r.createdAt).toLocaleString()}
                       </div>
                     </div>
                     {!readOnly && (
@@ -815,7 +813,7 @@ export function DocsView({ scopePath, initialDocSlug, initialAccess }: DocsViewP
                 ))}
               </ul>
             )}
-            <div className="mt-[var(--space-3)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Reverting creates a new revision.</div>
+            <div className="mt-[var(--space-3)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">Restoring keeps the current version in Past versions.</div>
           </div>
         </div>
       )}

@@ -8,6 +8,7 @@ import {
   uniqueIndex,
   customType,
 } from "drizzle-orm/pg-core";
+import { sql, type SQL } from "drizzle-orm";
 
 import { scopes, principals } from "./kernel";
 
@@ -131,6 +132,14 @@ export const docFollows = pgTable(
     principalIdx: index("doc_follows_principal_idx").on(t.principalId),
   })
 );
+
+export function isReservedOperationalWikiReportSlug(slug: string): boolean {
+  return slug === "lint-report" || slug.startsWith("lint-report");
+}
+
+export function notReservedOperationalWikiReportSlug(slugColumn: typeof documents.slug): SQL {
+  return sql`${slugColumn} not like 'lint-report%'`;
+}
 // Typed models (inferred shape preserved manually for TS strict)
 export interface Document {
   id: string;

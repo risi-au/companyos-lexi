@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, isNull, like, ne, or, sql } from "drizzle-orm";
-import { documents, documentRevisions, embeddings, grants, scopes } from "@companyos/db";
+import { documents, documentRevisions, embeddings, grants, notReservedOperationalWikiReportSlug, scopes } from "@companyos/db";
 import { AccessDeniedError, ScopeNotFoundError } from "../../errors";
 import { type DB } from "../../kernel/events";
 import { resolveAccess } from "../../kernel/grants";
@@ -80,7 +80,7 @@ async function findNearestWikiScopePath(db: DB, scopePath: string): Promise<stri
     .select({ scopePath: scopes.path })
     .from(scopes)
     .innerJoin(documents, eq(documents.scopeId, scopes.id))
-    .where(and(inArray(scopes.path, candidates), eq(documents.slug, "wiki"), isNull(documents.archivedAt)))) as Array<{ scopePath: string }>;
+    .where(and(inArray(scopes.path, candidates), eq(documents.slug, "wiki"), isNull(documents.archivedAt), notReservedOperationalWikiReportSlug(documents.slug)))) as Array<{ scopePath: string }>;
 
   for (const candidate of candidates) {
     if (rows.some((row) => row.scopePath === candidate)) return candidate;
@@ -329,7 +329,7 @@ export async function recallMemory(
     })
     .from(documents)
     .innerJoin(scopes, eq(documents.scopeId, scopes.id))
-    .where(and(predicates, isNull(documents.archivedAt), sql`${vector} @@ ${tsquery}`))
+    .where(and(predicates, isNull(documents.archivedAt), notReservedOperationalWikiReportSlug(documents.slug), sql`${vector} @@ ${tsquery}`))
     .orderBy(desc(sql`rank`), desc(documents.updatedAt))
     .limit(limit)) as Array<{
       id: string;
@@ -352,7 +352,7 @@ export async function recallMemory(
       .from(embeddings)
       .innerJoin(documents, eq(embeddings.entityId, documents.id))
       .innerJoin(scopes, eq(documents.scopeId, scopes.id))
-      .where(and(predicates, eq(embeddings.entityType, "doc"), isNull(documents.archivedAt)))
+      .where(and(predicates, eq(embeddings.entityType, "doc"), isNull(documents.archivedAt), notReservedOperationalWikiReportSlug(documents.slug)))
       .limit(1);
 
     if (embeddedDoc) {
@@ -374,7 +374,7 @@ export async function recallMemory(
             .from(embeddings)
             .innerJoin(documents, eq(embeddings.entityId, documents.id))
             .innerJoin(scopes, eq(documents.scopeId, scopes.id))
-            .where(and(predicates, eq(embeddings.entityType, "doc"), isNull(documents.archivedAt)))
+            .where(and(predicates, eq(embeddings.entityType, "doc"), isNull(documents.archivedAt), notReservedOperationalWikiReportSlug(documents.slug)))
             .orderBy(sql`${embeddings.embedding} <=> ${queryVector}`)
             .limit(limit)) as Array<{
               id: string;

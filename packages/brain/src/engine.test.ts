@@ -10,6 +10,7 @@ import fs from "fs";
 import { eq } from "drizzle-orm";
 import * as dbMod from "@companyos/db";
 import {
+  createAttentionItem,
   createRecord,
   createScope,
   ensurePersonalScope,
@@ -191,6 +192,45 @@ describe("brain engine", () => {
     await saveDoc(db, { scopePath: slug, slug: "wiki", title: "Wiki", bodyMd: "# Wiki\n\n- [[operations]]" }, adminPrincipalId);
   }
 
+  function v2Conflict(overrides: any = {}) {
+    const pricingA = overrides.pricingA ?? "Price is 10 USD for 2026.";
+    const pricingB = overrides.pricingB ?? "Price is 20 USD for 2026.";
+    return {
+      version: 2,
+      type: "contradiction",
+      relation: "scalar-mismatch",
+      subject: { entity: "standard plan", property: "price", timeframe: "2026" },
+      explanation: "Two wiki pages list different 2026 prices for the standard plan.",
+      claims: [
+        { slug: "pricing-a", title: "Pricing A", quote: pricingA, normalizedValue: "10 USD" },
+        { slug: "pricing-b", title: "Pricing B", quote: pricingB, normalizedValue: "20 USD" },
+      ],
+      choices: [
+        {
+          id: "first",
+          label: "Use the 10 USD price",
+          repair: {
+            slug: "pricing-b",
+            title: "Pricing B",
+            currentMd: pricingB,
+            proposedMd: pricingA,
+          },
+        },
+        {
+          id: "second",
+          label: "Use the 20 USD price",
+          repair: {
+            slug: "pricing-a",
+            title: "Pricing A",
+            currentMd: pricingA,
+            proposedMd: pricingB,
+          },
+        },
+      ],
+      ...overrides.finding,
+    };
+  }
+
   it("ingests deltas into existing topic pages with frontmatter and provenance, then no-ops with no new inputs", async () => {
     await createProject("alpha");
     const record = await createRecord(db, {
@@ -280,34 +320,216 @@ describe("brain engine", () => {
     expect(revisionsAfter).toHaveLength(revisionsBefore.length);
     expect(llm.calls.filter((call) => call.purpose === "project-overview")).toHaveLength(1);
   });
-  it("lint flags contradictions and stale claims, reports orphans, and auto-fixes only index links and exact duplicates", async () => {
+  it("lint creates a V2 conflict item, keeps run payload history, and auto-fixes only index links and exact duplicates", async () => {
     await createProject("linty");
     await saveDoc(db, { scopePath: "linty", slug: "wiki", title: "Wiki", bodyMd: "# Wiki\n\n- [[pricing-a]]" }, adminPrincipalId);
-    await saveDoc(db, {
-      scopePath: "linty",
-      slug: "pricing-a",
-      title: "Pricing A",
-      bodyMd: "---\nlearned_at: \"2026-01-01T00:00:00.000Z\"\nverified_at: \"2026-01-01T00:00:00.000Z\"\nstale_after: \"2026-02-01T00:00:00.000Z\"\nconfidence: medium\n---\n\nPrice is $10.\n\n## Sources\n\n- extracted: record:r1",
-    }, adminPrincipalId);
-    await saveDoc(db, { scopePath: "linty", slug: "pricing-b", title: "Pricing B", bodyMd: "Price is $20.\n\n## Sources\n\n- extracted: record:r2" }, adminPrincipalId);
+    await saveDoc(db, { scopePath: "linty", slug: "pricing-a", title: "Pricing A", bodyMd: "Price is 10 USD for 2026." }, adminPrincipalId);
+    await saveDoc(db, { scopePath: "linty", slug: "pricing-b", title: "Pricing B", bodyMd: "Price is 20 USD for 2026." }, adminPrincipalId);
     await saveDoc(db, { scopePath: "linty", slug: "dupe-a", title: "Dupe A", bodyMd: "Same body.\n\n## Sources\n\n- extracted: record:r3" }, adminPrincipalId);
     await saveDoc(db, { scopePath: "linty", slug: "dupe-b", title: "Dupe B", bodyMd: "Same body.\n\n## Sources\n\n- extracted: record:r4" }, adminPrincipalId);
+    const legacyReportBody = "# Old health report\n\nHistorical only.";
+    await saveDoc(db, { scopePath: "linty", slug: "lint-report", title: "Old health report", bodyMd: legacyReportBody }, adminPrincipalId);
+    const llm = new ScriptedLlm({ "lint-scope": JSON.stringify({ findings: [v2Conflict()] }) });
 
     const result = await runBrainEngine(db, { mode: "lint", scopePath: "linty", runRef: "lint-1" }, adminPrincipalId, {
-      llm: fixture,
+      llm,
       now: new Date("2026-07-07T00:00:00.000Z"),
     });
     expect(result.lintFindings.some((finding) => finding.type === "orphan")).toBe(true);
-    expect(result.lintFindings.some((finding) => finding.type === "stale")).toBe(true);
     expect(result.lintFindings.some((finding) => finding.type === "contradiction")).toBe(true);
     const report = await getDoc(db, { scopePath: "linty", slug: "lint-report" }, adminPrincipalId);
-    expect(report?.bodyMd).toContain("Conflicting pricing claims");
+    expect(report?.bodyMd).toBe(legacyReportBody);
+    const lintPrompt = JSON.parse(llm.calls.find((call) => call.purpose === "lint-scope")!.prompt);
+    expect(lintPrompt.pages.some((page: any) => page.slug.startsWith("lint-report"))).toBe(false);
+    const items = await listAttentionItems(db, { scopePath: "linty", kind: "lint_finding", status: "open" }, adminPrincipalId);
+    expect(items).toHaveLength(1);
+    expect(items[0]?.title).toBe("Two wiki pages disagree");
+    expect(items[0]?.payload).toMatchObject({
+      version: 2,
+      type: "contradiction",
+      relation: "scalar-mismatch",
+      claims: [
+        { slug: "pricing-a", quote: "Price is 10 USD for 2026.", normalizedValue: "10 USD" },
+        { slug: "pricing-b", quote: "Price is 20 USD for 2026.", normalizedValue: "20 USD" },
+      ],
+    });
+    const runs = await listCapabilityRuns(db, { scopePath: "root", name: "brain-engine", limit: 5 }, adminPrincipalId);
+    expect(runs[0]?.payload).toMatchObject({
+      lintFindings: expect.arrayContaining([
+        expect.objectContaining({ payload: expect.objectContaining({ version: 2, type: "contradiction" }) }),
+      ]),
+    });
     const index = await getDoc(db, { scopePath: "linty", slug: "wiki" }, adminPrincipalId);
     expect(index?.bodyMd).toContain("[[pricing-b]]");
     const docs = await listDocs(db, { scopePath: "linty" }, adminPrincipalId);
     expect(docs.some((doc) => doc.slug === "dupe-b")).toBe(false);
     const alerts = await listAlerts(db, { scopePath: "root", severity: "warning" }, adminPrincipalId);
     expect(alerts.length).toBeGreaterThan(0);
+  });
+
+  async function seedPricingConflict(scopePath: string) {
+    await createProject(scopePath);
+    await saveDoc(db, { scopePath, slug: "wiki", title: "Wiki", bodyMd: "# Wiki\n\n- [[pricing-a]]\n- [[pricing-b]]" }, adminPrincipalId);
+    await saveDoc(db, { scopePath, slug: "pricing-a", title: "Pricing A", bodyMd: "Price is 10 USD for 2026." }, adminPrincipalId);
+    await saveDoc(db, { scopePath, slug: "pricing-b", title: "Pricing B", bodyMd: "Price is 20 USD for 2026." }, adminPrincipalId);
+  }
+
+  async function runRejectedFinding(scopePath: string, finding: any) {
+    const llm = new ScriptedLlm({ "lint-scope": JSON.stringify({ findings: [finding] }) });
+    const result = await runBrainEngine(db, { mode: "lint", scopePath, runRef: `reject-${scopePath}` }, adminPrincipalId, {
+      llm,
+      now: new Date("2026-07-07T00:00:00.000Z"),
+    });
+    const items = await listAttentionItems(db, { scopePath, kind: "lint_finding", status: "open" }, adminPrincipalId);
+    expect(result.status).toBe("error");
+    expect(result.lintFindings.some((finding) => finding.type === "contradiction")).toBe(false);
+    expect(items).toHaveLength(0);
+    expect(result.scopeRuns[0]?.parseFailed).toBe(true);
+  }
+
+  it.each([
+    ["missing quote", (finding: any) => {
+      finding.claims[0].quote = "Price is 11 USD for 2026.";
+      return finding;
+    }],
+    ["missing page", (finding: any) => {
+      finding.claims[1].slug = "missing";
+      return finding;
+    }],
+    ["same slug", (finding: any) => {
+      finding.claims[1].slug = "pricing-a";
+      return finding;
+    }],
+    ["mismatched subject", (finding: any) => {
+      finding.claims[1].subject = { entity: "premium plan", property: "price", timeframe: "2026" };
+      return finding;
+    }],
+    ["invalid relation and value pair", (finding: any) => {
+      finding.relation = "opposite-boolean";
+      return finding;
+    }],
+    ["unsafe current markdown", (finding: any) => {
+      finding.choices[0].repair.currentMd = "Price is 19 USD for 2026.";
+      return finding;
+    }],
+    ["no-op repair", (finding: any) => {
+      finding.choices[0].repair.proposedMd = finding.choices[0].repair.currentMd;
+      return finding;
+    }],
+    ["multi-page repair", (finding: any) => {
+      finding.choices.push({ ...finding.choices[0], id: "extra" });
+      return finding;
+    }],
+  ])("rejects V2 conflict output with %s", async (_name, mutate) => {
+    const scopePath = `reject-${unique}`;
+    await seedPricingConflict(scopePath);
+    await runRejectedFinding(scopePath, mutate(v2Conflict()));
+  });
+
+  it("rejects completion versus dismissal as an unsupported conflict", async () => {
+    const scopePath = "completion-dismissal";
+    await createProject(scopePath);
+    await saveDoc(db, { scopePath, slug: "intake-complete", title: "Intake Complete", bodyMd: "The intake workflow completed." }, adminPrincipalId);
+    await saveDoc(db, { scopePath, slug: "intake-dismissed", title: "Intake Dismissed", bodyMd: "The intake dismissed the request." }, adminPrincipalId);
+    await runRejectedFinding(scopePath, {
+      version: 2,
+      type: "contradiction",
+      relation: "exclusive-status",
+      subject: { entity: "intake request", property: "approval status", timeframe: "current" },
+      explanation: "The intake outcome appears inconsistent.",
+      claims: [
+        { slug: "intake-complete", title: "Intake Complete", quote: "The intake workflow completed.", normalizedValue: "approved" },
+        { slug: "intake-dismissed", title: "Intake Dismissed", quote: "The intake dismissed the request.", normalizedValue: "dismissed" },
+      ],
+      choices: [
+        { id: "first", label: "Use completed", repair: { slug: "intake-dismissed", title: "Intake Dismissed", currentMd: "The intake dismissed the request.", proposedMd: "The intake workflow completed." } },
+        { id: "second", label: "Use dismissed", repair: { slug: "intake-complete", title: "Intake Complete", currentMd: "The intake workflow completed.", proposedMd: "The intake dismissed the request." } },
+      ],
+    });
+  });
+
+  it("does not let a legacy weak finding suppress a later valid V2 finding", async () => {
+    await seedPricingConflict("legacy-dedupe");
+    await createAttentionItem(db, {
+      scopePath: "legacy-dedupe",
+      kind: "lint_finding",
+      title: "Wiki lint: contradiction",
+      summary: "Old weak conflict.",
+      payload: { type: "contradiction", slugs: ["pricing-a", "pricing-b"], message: "Old weak conflict." },
+    }, adminPrincipalId);
+    const llm = new ScriptedLlm({ "lint-scope": JSON.stringify({ findings: [v2Conflict()] }) });
+
+    await runBrainEngine(db, { mode: "lint", scopePath: "legacy-dedupe", runRef: "legacy-dedupe" }, adminPrincipalId, { llm });
+
+    const items = await listAttentionItems(db, { scopePath: "legacy-dedupe", kind: "lint_finding", status: "open" }, adminPrincipalId);
+    expect(items).toHaveLength(2);
+    expect(items.some((item) => (item.payload as any)?.version === 2)).toBe(true);
+  });
+
+  it("deduplicates the same valid V2 finding on later runs", async () => {
+    await seedPricingConflict("v2-dedupe");
+    const llm = new ScriptedLlm({
+      "lint-scope": [
+        JSON.stringify({ findings: [v2Conflict()] }),
+        JSON.stringify({ findings: [v2Conflict()] }),
+      ],
+    });
+
+    await runBrainEngine(db, { mode: "lint", scopePath: "v2-dedupe", runRef: "v2-dedupe-1" }, adminPrincipalId, { llm });
+    await runBrainEngine(db, { mode: "lint", scopePath: "v2-dedupe", runRef: "v2-dedupe-2" }, adminPrincipalId, { llm });
+
+    const items = await listAttentionItems(db, { scopePath: "v2-dedupe", kind: "lint_finding", status: "open" }, adminPrincipalId);
+    expect(items).toHaveLength(1);
+    expect((items[0]?.payload as any)?.fingerprint).toMatch(/^v2\|/);
+    expect((items[0]?.payload as any)?.payload).toBeUndefined();
+  });
+
+  it("accepts matching prefix currency units", async () => {
+    await createProject("supported-relations");
+    await saveDoc(db, { scopePath: "supported-relations", slug: "pricing-a", title: "Pricing A", bodyMd: "Price is $10 for 2026." }, adminPrincipalId);
+    await saveDoc(db, { scopePath: "supported-relations", slug: "pricing-b", title: "Pricing B", bodyMd: "Price is $20 for 2026." }, adminPrincipalId);
+    const currency = v2Conflict({ pricingA: "Price is $10 for 2026.", pricingB: "Price is $20 for 2026." });
+    currency.claims[0].normalizedValue = "$10";
+    currency.claims[1].normalizedValue = "$20";
+    const llm = new ScriptedLlm({ "lint-scope": JSON.stringify({ findings: [currency] }) });
+
+    const result = await runBrainEngine(db, { mode: "lint", scopePath: "supported-relations", runRef: "currency" }, adminPrincipalId, { llm });
+
+    expect(result.lintFindings.some((finding) => finding.type === "contradiction")).toBe(true);
+  });
+
+  it("creates V2 stale payloads from elapsed frontmatter only", async () => {
+    await createProject("stale-v2");
+    const staleBody = [
+      "---",
+      "stale_after: \"2026-02-01T00:00:00.000Z\"",
+      "confidence: medium",
+      "---",
+      "",
+      "This page should be reviewed.",
+    ].join("\n");
+    await saveDoc(db, { scopePath: "stale-v2", slug: "elapsed", title: "Elapsed", bodyMd: staleBody }, adminPrincipalId);
+    await saveDoc(db, { scopePath: "stale-v2", slug: "future", title: "Future", bodyMd: "---\nstale_after: \"2026-12-01T00:00:00.000Z\"\n---\n\nNot due yet." }, adminPrincipalId);
+    await saveDoc(db, { scopePath: "stale-v2", slug: "invalid", title: "Invalid", bodyMd: "---\nstale_after: \"not a date\"\n---\n\nBad date." }, adminPrincipalId);
+
+    const result = await runBrainEngine(db, { mode: "lint", scopePath: "stale-v2", runRef: "stale-v2" }, adminPrincipalId, {
+      llm: new ScriptedLlm({ "lint-scope": JSON.stringify({ findings: [] }) }),
+      now: new Date("2026-07-07T00:00:00.000Z"),
+    });
+
+    const stale = result.lintFindings.filter((finding) => finding.type === "stale");
+    expect(stale).toHaveLength(1);
+    expect(stale[0]?.payload).toEqual({
+      version: 2,
+      type: "stale",
+      slug: "elapsed",
+      title: "Elapsed",
+      currentMd: staleBody,
+      reviewDueAt: "2026-02-01T00:00:00.000Z",
+    });
+    const items = await listAttentionItems(db, { scopePath: "stale-v2", kind: "lint_finding", status: "open" }, adminPrincipalId);
+    expect(items).toHaveLength(1);
+    expect(items[0]?.payload).toMatchObject({ version: 2, type: "stale", currentMd: staleBody });
   });
 
   it("targets event-hook ingest to the event scope's top-level project", async () => {
@@ -552,7 +774,17 @@ describe("brain engine", () => {
     for (const purpose of ["scope-ingest", "project-overview", "root-distill", "lint-scope"] as const) {
       const call = fixture.calls.find((entry) => entry.purpose === purpose);
       expect(call, purpose).toBeTruthy();
-      expect(JSON.parse(call!.prompt).outputFormatMandatory).toContain("Return only one JSON object");
+      const prompt = JSON.parse(call!.prompt);
+      expect(prompt.outputFormatMandatory).toContain("Return only one JSON object");
+      if (purpose === "lint-scope") {
+        expect(prompt.outputFormatMandatory).toContain("\"version\":2");
+        expect(prompt.instruction).toContain("Never treat process completion");
+      } else {
+        expect(JSON.stringify(prompt)).toContain("current-work");
+        expect(JSON.stringify(prompt)).toContain("decisions-policies");
+        expect(JSON.stringify(prompt)).toContain("guides-processes");
+        expect(JSON.stringify(prompt)).toContain("reference");
+      }
     }
   });
 });

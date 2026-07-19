@@ -62,6 +62,7 @@ export * from "./modules/intake/service";
 
 // Attention queue / approvals (M10-01)
 export * from "./modules/attention/service";
+export { isReservedOperationalWikiReportSlug } from "@companyos/db";
 
 // Credential vault (M8-09)
 export * from "./modules/credentials/service";

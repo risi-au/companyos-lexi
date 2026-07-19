@@ -17,6 +17,8 @@ import {
   grantRole,
   recallMemory,
   saveDoc,
+  setEmbeddingClientForTests,
+  backfillSemanticLayer,
 } from "../../index";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -51,6 +53,7 @@ describe("memory module", () => {
   });
 
   beforeEach(async () => {
+    setEmbeddingClientForTests(null);
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const [root] = await db.insert(schema.principals).values({ kind: "human", name: `Root ${suffix}`, status: "active" }).returning();
     rootPrincipalId = root.id;
@@ -249,5 +252,36 @@ describe("memory module", () => {
     expect(audit).toContain("resultCount");
     expect(audit).not.toContain("needle-secret-query");
     expect(audit).not.toContain("secret-body-value");
+  });
+
+  it("excludes legacy operational report pages from keyword and semantic recall", async () => {
+    await saveDoc(db, {
+      scopePath: clientA,
+      slug: "customer-truth",
+      title: "Customer Truth",
+      bodyMd: "Operational-clean-memory visible topic.",
+    }, rootPrincipalId);
+    await saveDoc(db, {
+      scopePath: clientA,
+      slug: "lint-report-2026-07-19",
+      title: "Old Wiki Health Report",
+      bodyMd: "Operational-clean-memory hidden report.",
+    }, rootPrincipalId);
+
+    const keywordHits = await recallMemory(db, { scopePath: clientA, query: "operational-clean-memory", limit: 10 }, agentPrincipalId);
+    expect(keywordHits.some((hit) => hit.slug === "customer-truth")).toBe(true);
+    expect(keywordHits.some((hit) => hit.slug === "lint-report-2026-07-19")).toBe(false);
+
+    setEmbeddingClientForTests({
+      async embed() {
+        const vector = Array.from({ length: 1536 }, () => 0);
+        vector[2] = 1;
+        return vector;
+      },
+    });
+    await backfillSemanticLayer(db, { scopePath: clientA }, rootPrincipalId);
+    const semanticHits = await recallMemory(db, { scopePath: clientA, query: "operational-clean-memory", limit: 10 }, agentPrincipalId);
+    expect(semanticHits.some((hit) => hit.slug === "customer-truth")).toBe(true);
+    expect(semanticHits.some((hit) => hit.slug === "lint-report-2026-07-19")).toBe(false);
   });
 });

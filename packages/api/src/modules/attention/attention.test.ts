@@ -19,12 +19,16 @@ import {
   createScope,
   dismissAttentionItemsInternal,
   ensurePersonalScope,
+  getAttentionItem,
   getDoc,
   grantRole,
   listAttentionItems,
   listEvents,
+  listDocRevisions,
   listRecords,
+  parseWikiQuestionPayload,
   resolveAttentionItem,
+  resolveWikiQuestionAttentionItem,
   saveDoc,
 } from "../../index";
 
@@ -51,6 +55,7 @@ describe("attention module (PGlite + migrations)", () => {
   let adminPrincipalId: string;
   let editorPrincipalId: string;
   let viewerPrincipalId: string;
+  let agentPrincipalId: string;
 
   beforeAll(async () => {
     client = new PGlite({ extensions: { vector } });
@@ -67,9 +72,11 @@ describe("attention module (PGlite + migrations)", () => {
     const [admin] = await db.insert(schema.principals).values({ kind: "human", name: `Attention Admin ${now}` }).returning();
     const [editor] = await db.insert(schema.principals).values({ kind: "human", name: `Attention Editor ${now}` }).returning();
     const [viewer] = await db.insert(schema.principals).values({ kind: "human", name: `Attention Viewer ${now}` }).returning();
+    const [agent] = await db.insert(schema.principals).values({ kind: "agent", name: `Attention Agent ${now}` }).returning();
     adminPrincipalId = admin.id;
     editorPrincipalId = editor.id;
     viewerPrincipalId = viewer.id;
+    agentPrincipalId = agent.id;
 
     const [root] = await db.select().from(schema.scopes).where(eq(schema.scopes.path, "root")).limit(1);
     if (!root) {
@@ -84,7 +91,27 @@ describe("attention module (PGlite + migrations)", () => {
     await grantRole(db, { principalId: adminPrincipalId, scopePath: slug, role: "admin" }, adminPrincipalId);
     await grantRole(db, { principalId: editorPrincipalId, scopePath: slug, role: "editor" }, adminPrincipalId);
     await grantRole(db, { principalId: viewerPrincipalId, scopePath: slug, role: "viewer" }, adminPrincipalId);
+    await grantRole(db, { principalId: agentPrincipalId, scopePath: slug, role: "admin" }, adminPrincipalId);
     return slug;
+  }
+
+  function contradictionPayload(currentA = "# A\n\nLaunch status is live.", currentB = "# B\n\nLaunch status is draft.") {
+    return {
+      version: 2,
+      type: "contradiction",
+      relation: "exclusive-status",
+      subject: { entity: "Launch", property: "status", timeframe: "current" },
+      explanation: "The launch cannot be both live and draft.",
+      claims: [
+        { slug: "alpha", title: "Alpha", quote: "Launch status is live.", normalizedValue: "live" },
+        { slug: "beta", title: "Beta", quote: "Launch status is draft.", normalizedValue: "draft" },
+      ],
+      choices: [
+        { id: "first", label: "Keep live", repair: { slug: "beta", title: "Beta", currentMd: currentB, proposedMd: "# B\n\nLaunch status is live." } },
+        { id: "second", label: "Keep draft", repair: { slug: "alpha", title: "Alpha", currentMd: currentA, proposedMd: "# A\n\nLaunch status is draft." } },
+      ],
+      scopePath: "filled-by-test",
+    };
   }
 
   it("creates, lists, and counts open attention items", async () => {
@@ -102,6 +129,8 @@ describe("attention module (PGlite + migrations)", () => {
 
     const scoped = await listAttentionItems(db, { scopePath, status: "open", limit: 10 }, viewerPrincipalId);
     expect(scoped.map((row) => row.id)).toContain(item.id);
+    await expect(getAttentionItem(db, { id: item.id }, viewerPrincipalId)).resolves.toMatchObject({ id: item.id });
+    await expect(getAttentionItem(db, { id: "00000000-0000-0000-0000-000000000000" }, viewerPrincipalId)).resolves.toBeNull();
 
     const aggregate = await listAttentionItems(db, { scopePath: "root", status: "open", includeDescendants: true }, adminPrincipalId);
     expect(aggregate.map((row) => row.id)).toContain(item.id);
@@ -125,6 +154,7 @@ describe("attention module (PGlite + migrations)", () => {
 
     expect(item.status).toBe("open");
     expect(item.createdBy).toBe(ungranted.id);
+    await expect(getAttentionItem(db, { id: item.id }, ungranted.id)).resolves.toBeNull();
     const createdEvents = await listEvents(db, { scopePath, type: "attention.created", limit: 10 });
     expect(createdEvents.some((event: any) => event.payload?.attentionItemId === item.id)).toBe(true);
 
@@ -164,7 +194,8 @@ describe("attention module (PGlite + migrations)", () => {
 
     const decisions = await listRecords(db, { scopePath, kind: "decision", limit: 10 }, adminPrincipalId);
     expect(decisions[0]?.title).toBe("Resolved: Update wiki");
-    expect(decisions[0]?.bodyMd).toContain("[[wiki]]");
+    expect(decisions[0]?.bodyMd).toContain("[[Wiki|wiki]]");
+    expect(decisions[0]?.bodyMd).not.toContain(item.id);
 
     const events = await listEvents(db, { scopePath, limit: 20 });
     expect(events.map((event) => event.type)).toEqual(expect.arrayContaining(["attention.created", "attention.resolved", "doc.saved", "record.created"]));
@@ -260,7 +291,7 @@ describe("attention module (PGlite + migrations)", () => {
     const open = await listAttentionItems(db, { scopePath, kind: "page_update", status: "open" }, viewerPrincipalId);
     expect(open).toHaveLength(0);
   });
-  it("rejects double resolve and viewer resolve", async () => {
+  it("generic resolver blocks every lint finding and viewer resolve", async () => {
     const scopePath = await createProject("attention-guards");
     const item = await createAttentionItem(db, {
       scopePath,
@@ -270,8 +301,220 @@ describe("attention module (PGlite + migrations)", () => {
     }, editorPrincipalId);
 
     await expect(resolveAttentionItem(db, { id: item.id, resolution: "dismissed" }, viewerPrincipalId)).rejects.toBeInstanceOf(AccessDeniedError);
-    await resolveAttentionItem(db, { id: item.id, resolution: "dismissed" }, adminPrincipalId);
-    await expect(resolveAttentionItem(db, { id: item.id, resolution: "rejected" }, adminPrincipalId)).rejects.toBeInstanceOf(AttentionStateError);
+    await expect(resolveAttentionItem(db, { id: item.id, resolution: "dismissed" }, adminPrincipalId)).rejects.toThrow("specific outcome action");
+  });
+
+  it("allows only a human administrator to resolve a wiki question", async () => {
+    const scopePath = await createProject("attention-wiki-access");
+    const item = await createAttentionItem(db, {
+      scopePath,
+      kind: "lint_finding",
+      title: "Wiki question",
+      payload: { type: "stale", slug: "page", title: "Page" },
+    }, editorPrincipalId);
+
+    await expect(resolveWikiQuestionAttentionItem(db, { id: item.id, action: { type: "close-unclear" } }, editorPrincipalId)).rejects.toBeInstanceOf(AccessDeniedError);
+    await expect(resolveWikiQuestionAttentionItem(db, { id: item.id, action: { type: "close-unclear" } }, viewerPrincipalId)).rejects.toBeInstanceOf(AccessDeniedError);
+    await expect(resolveWikiQuestionAttentionItem(db, { id: item.id, action: { type: "close-unclear" } }, agentPrincipalId)).rejects.toBeInstanceOf(AccessDeniedError);
+
+    const resolved = await resolveWikiQuestionAttentionItem(db, { id: item.id, action: { type: "close-unclear" } }, adminPrincipalId);
+    expect(resolved.status).toBe("dismissed");
+  });
+
+  it("accepts only the exact current wiki question contract", () => {
+    const payload = contradictionPayload();
+    expect(parseWikiQuestionPayload(payload)).toMatchObject({ state: "v2-contradiction" });
+    expect(parseWikiQuestionPayload({
+      ...payload,
+      choices: [payload.choices[0], { ...payload.choices[1], label: "" }],
+    })).toMatchObject({ state: "legacy", type: "contradiction" });
+    expect(parseWikiQuestionPayload({
+      ...payload,
+      choices: [...payload.choices, { id: "third" }],
+    })).toMatchObject({ state: "legacy", type: "contradiction" });
+    expect(parseWikiQuestionPayload({
+      ...payload,
+      choices: [payload.choices[0], { ...payload.choices[1], repair: { ...payload.choices[1]!.repair, slug: "beta" } }],
+    })).toMatchObject({ state: "legacy", type: "contradiction" });
+  });
+
+  it("applies a selected wiki correction with revision, events, decision, and audit data together", async () => {
+    const scopePath = await createProject("attention-wiki-choose");
+    const alpha = "# A\n\nLaunch status is live.";
+    const beta = "# B\n\nLaunch status is draft.";
+    await saveDoc(db, { scopePath, slug: "alpha", title: "Alpha", bodyMd: alpha }, adminPrincipalId);
+    await saveDoc(db, { scopePath, slug: "beta", title: "Beta", bodyMd: beta }, adminPrincipalId);
+    const payload = { ...contradictionPayload(alpha, beta), scopePath };
+    const item = await createAttentionItem(db, {
+      scopePath,
+      kind: "lint_finding",
+      title: "Wiki lint: contradiction",
+      payload,
+    }, editorPrincipalId);
+
+    const resolved = await resolveWikiQuestionAttentionItem(db, { id: item.id, action: { type: "choose", choiceId: "first" } }, adminPrincipalId);
+
+    expect(resolved.status).toBe("approved");
+    const doc = await getDoc(db, { scopePath, slug: "beta" }, adminPrincipalId);
+    expect(doc?.bodyMd).toBe("# B\n\nLaunch status is live.");
+    const revisions = await listDocRevisions(db, { scopePath, slug: "beta", limit: 10 }, adminPrincipalId);
+    expect(revisions[0]?.bodyMd).toBe("# B\n\nLaunch status is live.");
+    const decisions = await listRecords(db, { scopePath, kind: "decision", limit: 10 }, adminPrincipalId);
+    expect(decisions[0]?.data?.wikiQuestion).toMatchObject({
+      selectedChoiceId: "first",
+      selectedLabel: "Keep live",
+      selectedValue: "live",
+      changedSlug: "beta",
+    });
+    expect(JSON.stringify(decisions[0]?.data)).toContain("beforeContentHash");
+    expect(JSON.stringify(decisions[0]?.data)).toContain("afterContentHash");
+    const primaryDecisionCopy = String(decisions[0]?.bodyMd ?? "").split("<!--")[0];
+    expect(primaryDecisionCopy).toContain("Changed page: [[Beta|beta]]");
+    expect(primaryDecisionCopy).not.toContain(item.id);
+    expect(primaryDecisionCopy).not.toContain("Wiki lint");
+    expect(primaryDecisionCopy).not.toContain("ContentHash");
+    const events = await listEvents(db, { scopePath, limit: 20 });
+    expect(events.map((event) => event.type)).toEqual(expect.arrayContaining(["doc.saved", "attention.resolved", "record.created"]));
+    expect(events.some((event) => event.type === "attention.resolved" && (event.payload as any)?.wikiQuestion?.selectedChoiceId === "first")).toBe(true);
+  });
+
+  it("rolls back the selected repair when a later transaction step fails", async () => {
+    const scopePath = await createProject("attention-wiki-rollback");
+    const alpha = "# A\n\nLaunch status is live.";
+    const beta = "# B\n\nLaunch status is draft.";
+    await saveDoc(db, { scopePath, slug: "alpha", title: "Alpha", bodyMd: alpha }, adminPrincipalId);
+    await saveDoc(db, { scopePath, slug: "beta", title: "Beta", bodyMd: beta }, adminPrincipalId);
+    const item = await createAttentionItem(db, {
+      scopePath,
+      kind: "lint_finding",
+      title: "Wiki lint: contradiction",
+      payload: { ...contradictionPayload(alpha, beta), scopePath },
+    }, editorPrincipalId);
+    const revisionsBefore = await listDocRevisions(db, { scopePath, slug: "beta", limit: 10 }, adminPrincipalId);
+    const eventsBefore = await listEvents(db, { scopePath, limit: 100 });
+
+    await expect(resolveWikiQuestionAttentionItem(db, {
+      id: item.id,
+      action: { type: "choose", choiceId: "first" },
+    }, adminPrincipalId, { failAfterDocWrite: true })).rejects.toThrow("Injected wiki question transaction failure");
+
+    const doc = await getDoc(db, { scopePath, slug: "beta" }, adminPrincipalId);
+    expect(doc?.bodyMd).toBe(beta);
+    const [open] = await db.select().from(schema.attentionItems).where(eq(schema.attentionItems.id, item.id)).limit(1);
+    expect(open.status).toBe("open");
+    const decisions = await listRecords(db, { scopePath, kind: "decision", limit: 10 }, adminPrincipalId);
+    expect(decisions.some((record: any) => record.data?.attentionItemId === item.id)).toBe(false);
+    const revisionsAfter = await listDocRevisions(db, { scopePath, slug: "beta", limit: 10 }, adminPrincipalId);
+    const eventsAfter = await listEvents(db, { scopePath, limit: 100 });
+    expect(revisionsAfter).toHaveLength(revisionsBefore.length);
+    expect(eventsAfter).toHaveLength(eventsBefore.length);
+  });
+
+  it("keeps a concurrent wiki correction open and changes nothing", async () => {
+    const scopePath = await createProject("attention-wiki-stale-body");
+    const alpha = "# A\n\nLaunch status is live.";
+    const beta = "# B\n\nLaunch status is draft.";
+    await saveDoc(db, { scopePath, slug: "alpha", title: "Alpha", bodyMd: alpha }, adminPrincipalId);
+    await saveDoc(db, { scopePath, slug: "beta", title: "Beta", bodyMd: beta }, adminPrincipalId);
+    const item = await createAttentionItem(db, {
+      scopePath,
+      kind: "lint_finding",
+      title: "Wiki lint: contradiction",
+      payload: { ...contradictionPayload(alpha, beta), scopePath },
+    }, editorPrincipalId);
+    await saveDoc(db, { scopePath, slug: "beta", title: "Beta", bodyMd: "# B\n\nLaunch status is paused." }, adminPrincipalId);
+
+    await expect(resolveWikiQuestionAttentionItem(db, { id: item.id, action: { type: "choose", choiceId: "first" } }, adminPrincipalId)).rejects.toThrow(/changed|latest/);
+    const [open] = await db.select().from(schema.attentionItems).where(eq(schema.attentionItems.id, item.id)).limit(1);
+    expect(open.status).toBe("open");
+    const doc = await getDoc(db, { scopePath, slug: "beta" }, adminPrincipalId);
+    expect(doc?.bodyMd).toBe("# B\n\nLaunch status is paused.");
+  });
+
+  it("marks a contradiction as not a conflict without changing pages", async () => {
+    const scopePath = await createProject("attention-wiki-not-conflict");
+    const alpha = "# A\n\nLaunch status is live.";
+    const beta = "# B\n\nLaunch status is draft.";
+    await saveDoc(db, { scopePath, slug: "alpha", title: "Alpha", bodyMd: alpha }, adminPrincipalId);
+    await saveDoc(db, { scopePath, slug: "beta", title: "Beta", bodyMd: beta }, adminPrincipalId);
+    const item = await createAttentionItem(db, {
+      scopePath,
+      kind: "lint_finding",
+      title: "Wiki lint: contradiction",
+      payload: { ...contradictionPayload(alpha, beta), scopePath },
+    }, editorPrincipalId);
+
+    await expect(resolveWikiQuestionAttentionItem(db, { id: item.id, action: { type: "not-a-conflict" } }, adminPrincipalId)).rejects.toThrow("Briefly explain");
+    const resolved = await resolveWikiQuestionAttentionItem(db, { id: item.id, action: { type: "not-a-conflict", note: "Different contexts." } }, adminPrincipalId);
+    expect(resolved.status).toBe("dismissed");
+    await expect(getDoc(db, { scopePath, slug: "alpha" }, adminPrincipalId)).resolves.toMatchObject({ bodyMd: alpha });
+    await expect(getDoc(db, { scopePath, slug: "beta" }, adminPrincipalId)).resolves.toMatchObject({ bodyMd: beta });
+    const decisions = await listRecords(db, { scopePath, kind: "decision", limit: 10 }, adminPrincipalId);
+    expect(decisions[0]?.data?.wikiQuestion).toMatchObject({ action: "not-a-conflict", changedSlug: null });
+  });
+
+  it("marks a stale wiki page current with a future next review date and rejects past dates", async () => {
+    const scopePath = await createProject("attention-wiki-stale");
+    const body = "---\nstale_after: 2026-01-01T00:00:00.000Z\n---\n# Page\n\nStill accurate.";
+    await saveDoc(db, { scopePath, slug: "page", title: "Page", bodyMd: body }, adminPrincipalId);
+    const item = await createAttentionItem(db, {
+      scopePath,
+      kind: "lint_finding",
+      title: "Wiki lint: stale",
+      payload: { version: 2, type: "stale", slug: "page", title: "Page", currentMd: body, reviewDueAt: "2026-01-01T00:00:00.000Z" },
+    }, editorPrincipalId);
+    await expect(resolveWikiQuestionAttentionItem(db, { id: item.id, action: { type: "mark-current", nextReviewAt: "2020-01-01" } }, adminPrincipalId)).rejects.toThrow("future");
+
+    const resolved = await resolveWikiQuestionAttentionItem(db, { id: item.id, action: { type: "mark-current", nextReviewAt: "2099-01-01" } }, adminPrincipalId);
+    expect(resolved.status).toBe("approved");
+    const doc = await getDoc(db, { scopePath, slug: "page" }, adminPrincipalId);
+    expect(doc?.bodyMd).toContain("verified_at:");
+    expect(doc?.bodyMd).toContain("verified_by:");
+    expect(doc?.bodyMd).toContain("stale_after: 2099-01-01T23:59:59.999Z");
+    const decisions = await listRecords(db, { scopePath, kind: "decision", limit: 10 }, adminPrincipalId);
+    expect(decisions[0]?.data?.wikiQuestion).toMatchObject({ action: "mark-current", changedSlug: "page" });
+  });
+
+  it("rolls back a stale-page review and its audit trail together", async () => {
+    const scopePath = await createProject("attention-wiki-stale-rollback");
+    const body = "---\nstale_after: 2026-01-01T00:00:00.000Z\n---\n# Page\n\nStill accurate.";
+    await saveDoc(db, { scopePath, slug: "page", title: "Page", bodyMd: body }, adminPrincipalId);
+    const item = await createAttentionItem(db, {
+      scopePath,
+      kind: "lint_finding",
+      title: "Wiki lint: stale",
+      payload: { version: 2, type: "stale", slug: "page", title: "Page", currentMd: body, reviewDueAt: "2026-01-01T00:00:00.000Z" },
+    }, editorPrincipalId);
+    const revisionsBefore = await listDocRevisions(db, { scopePath, slug: "page", limit: 10 }, adminPrincipalId);
+    const eventsBefore = await listEvents(db, { scopePath, limit: 100 });
+
+    await expect(resolveWikiQuestionAttentionItem(db, {
+      id: item.id,
+      action: { type: "mark-current", nextReviewAt: "2099-01-01" },
+    }, adminPrincipalId, { failAfterDocWrite: true })).rejects.toThrow("Injected wiki question transaction failure");
+
+    await expect(getDoc(db, { scopePath, slug: "page" }, adminPrincipalId)).resolves.toMatchObject({ bodyMd: body });
+    const [open] = await db.select().from(schema.attentionItems).where(eq(schema.attentionItems.id, item.id)).limit(1);
+    expect(open.status).toBe("open");
+    expect(await listDocRevisions(db, { scopePath, slug: "page", limit: 10 }, adminPrincipalId)).toHaveLength(revisionsBefore.length);
+    expect(await listEvents(db, { scopePath, limit: 100 })).toHaveLength(eventsBefore.length);
+    const decisions = await listRecords(db, { scopePath, kind: "decision", limit: 10 }, adminPrincipalId);
+    expect(decisions.some((record: any) => record.data?.attentionItemId === item.id)).toBe(false);
+  });
+
+  it("lets legacy wiki findings close only as unclear and denies viewers", async () => {
+    const scopePath = await createProject("attention-wiki-legacy");
+    const item = await createAttentionItem(db, {
+      scopePath,
+      kind: "lint_finding",
+      title: "Wiki lint: stale",
+      payload: { type: "stale", slug: "page", title: "Page" },
+    }, editorPrincipalId);
+
+    await expect(resolveWikiQuestionAttentionItem(db, { id: item.id, action: { type: "mark-current", nextReviewAt: "2099-01-01" } }, adminPrincipalId)).rejects.toThrow("current out-of-date");
+    await expect(resolveWikiQuestionAttentionItem(db, { id: item.id, action: { type: "close-unclear" } }, viewerPrincipalId)).rejects.toBeInstanceOf(AccessDeniedError);
+    const resolved = await resolveWikiQuestionAttentionItem(db, { id: item.id, action: { type: "close-unclear" } }, adminPrincipalId);
+    expect(resolved.status).toBe("dismissed");
   });
 
   it("validates open questions and requires an answer when approving", async () => {

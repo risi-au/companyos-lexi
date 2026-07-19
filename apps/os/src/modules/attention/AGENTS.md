@@ -12,18 +12,27 @@ only expose Dismiss.
 
 ## Files
 
-- `AttentionCard.tsx`: server component rendered by `apps/os/src/app/(app)/s/[...path]/page.tsx`; splits ordinary decision items from `page_update` following notifications and renders `connection_expiry` as dismiss-only.
-- `actions.ts`: server action wrapper for `api.resolveAttentionItem`.
+- `AttentionCard.tsx`: server component rendered by `apps/os/src/app/(app)/s/[...path]/page.tsx`; splits ordinary decision items from `page_update` following notifications, renders `connection_expiry` as dismiss-only, and renders wiki questions with outcome-specific actions.
+- `actions.ts`: server action wrapper for `api.resolveAttentionItem` plus `api.resolveWikiQuestionAttentionItem`.
+- `wiki-question.ts`: pure parser/display helper for V2 wiki-question payloads and legacy compatibility state.
+- `WikiQuestionSubmitButton.tsx`: accessible pending state for Wiki question forms.
+- `WikiQuestionForm.tsx`: client form shell that announces calm server-action errors.
 - `AGENTS.md`: this contract.
 
 ## Contract
 
 - Fetch data through `@/lib/api` wrappers only.
-- Resolve writes go through `resolveAttentionItem`; the service applies wiki proposals,
+- Generic resolve writes go through `resolveAttentionItem`; the service applies wiki proposals,
   writes events/decision records for approval items, and dismisses targeted page updates.
+- `lint_finding` rows never render generic Approve/Reject. Current contradiction
+  questions show claim panels, one keyboard-accessible radio group for the mutually
+  exclusive choices, before/after previews, Apply this correction,
+  Open pages to compare, and Not a conflict. Current stale checks show Open page, Next
+  review date, and Mark as current. Legacy or malformed checks show only Close as unclear.
+- Page previews omit frontmatter metadata, and mutating Wiki question buttons expose a disabled pending state with an announced status.
 - `connection_expiry` rows show title/summary and only the Dismiss action; approve/reject buttons must not render for them.
 - `page_update` rows link back to the wiki page, show the last event and coalesced change
-  count, and never render approve/reject affordances.
+  count under Notifications on, and never render approve/reject affordances.
 - Use design tokens only. Keep this as an operational card, not a chat/thread surface.
 
 ## Do Not

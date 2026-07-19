@@ -36,6 +36,9 @@ reads before working. Records are what happened; the wiki is what is true now.
   `learned_at` is the earliest source represented on the page, `verified_at` is the
   latest verification time, `stale_after` marks known review expiry, and `confidence` is
   the page-level synthesis confidence.
+  Topic pages may also carry `category` with one of `current-work`,
+  `decisions-policies`, `guides-processes`, or `reference`. Missing or unknown values
+  show under Other pages.
 
 - **Index page**: slug `wiki`, title "Wiki". What this scope is + a linked map of every
   topic page. The index is the front door; if a page isn't linked from the index
@@ -68,6 +71,9 @@ still apply elsewhere; root wiki pages are root-admin territory.
   spec. They may cite scope references in Sources, but must not contain
   client-confidential specifics.
 - `cos-*`: shipped CompanyOS product-manual pages. They explain how this instance works for Ask OS and agents. Seeders create them only when missing and never overwrite admin edits.
+
+Reserved page placement is deterministic: `wiki`, `overview`, `critical-facts`, and
+`scope-map` appear in Start here; root `pattern-*` pages appear in Guides and processes.
 
 ## Links and backlinks
 
@@ -114,10 +120,40 @@ agents and Ask OS do not directly edit existing pages: they file a `wiki_proposa
 attention item containing the current markdown and proposed markdown. New pages can
 still be created directly as additive, unreviewed knowledge.
 
-Attention items are the generic "Things to resolve" primitive. Wiki proposals, brain
-lint findings, stale-page reviews, graduation suggestions, and external publish gates
-all converge there instead of creating Talk pages, chat threads, or notification
-pollers.
+Attention items are the generic "Things to resolve" primitive. Wiki proposals, Wiki
+questions from Brain health checks, page review prompts, graduation suggestions, and
+external publish gates all converge there instead of creating Talk pages, chat threads,
+or notification pollers. The stable internal kind for Wiki health questions remains
+`lint_finding`; the stable Brain mode remains `lint`.
+
+Wiki health questions must be structured evidence, not a model opinion. A two-page
+disagreement can become a Thing to resolve only when the Brain returns the V2 contract:
+
+- `version: 2`, `type: "contradiction"`, and relation
+  `scalar-mismatch`, `opposite-boolean`, or `exclusive-status`.
+- One normalized subject with non-empty `entity`, `property`, and `timeframe`.
+- Exactly two claims from two current pages, each with page slug, title, exact quote, and
+  normalized value. The quote must still exist in that page.
+- Exactly two choices, one for each claim, each changing one cited page only with
+  `{slug,title,currentMd,proposedMd}`.
+- Plain-language explanation suitable for users.
+
+The Brain validates this contract against the pages it already loaded. Scalar conflicts
+need different scalar values with the same unit. Boolean conflicts need opposite true/false
+polarity. Status conflicts need different members of one explicit status family. Process
+completion is not approval, acceptance, or success; for example, "intake workflow
+completed" and "intake dismissed" is not enough evidence for an outcome conflict.
+Unsupported, weak, missing-quote, unsafe, no-op, or multi-page repairs remain only in the
+capability-run diagnostics and do not create Things to resolve.
+
+Page review prompts use a V2 `stale` payload created only from deterministic frontmatter:
+slug, title, current markdown snapshot, and `reviewDueAt` copied from an elapsed
+`stale_after` value. The Brain does not invent review periods.
+
+Operational data is not current business knowledge. Wiki health run history lives in
+capability-run payloads and Things to resolve. New runs must not create or update
+`lint-report` wiki documents. Legacy `lint-report*` documents remain available as history
+to authorized callers, but they should not be treated as current wiki truth.
 
 Resolving an attention item writes the durable trail. Approval of a wiki proposal applies
 the proposed markdown through the docs service; approval, rejection, or dismissal emits

@@ -21,6 +21,9 @@ import {
   listDocRevisions,
   revertDoc,
   verifyDoc,
+  parsePageCategory,
+  parseFutureReviewDate,
+  pageDisplayCategory,
   followDoc,
   unfollowDoc,
   isFollowing,
@@ -191,6 +194,16 @@ describe("docs module (PGlite + migrations)", () => {
     const docs = await Promise.all(COS_SELF_DOCS.map((page) => getDoc(db, { scopePath: "root", slug: page.slug }, rootPrincipalId)));
     expect(docs.every(Boolean)).toBe(true);
     expect(docs.find((doc) => doc?.slug === "cos-tokens")?.bodyMd).toContain("Worker tokens");
+    const wikiGuide = docs.find((doc) => doc?.slug === "cos-wiki")?.bodyMd ?? "";
+    const resolutionGuide = docs.find((doc) => doc?.slug === "cos-attention")?.bodyMd ?? "";
+    const agentGuide = docs.find((doc) => doc?.slug === "cos-agents")?.bodyMd ?? "";
+    expect(wikiGuide).toContain("Wiki Health");
+    expect(wikiGuide).toContain("Needs a quick check");
+    expect(wikiGuide).toContain("Notifications on");
+    expect(resolutionGuide).toContain("Two wiki pages disagree");
+    expect(resolutionGuide).toContain("Apply update");
+    expect(agentGuide).toContain("inspect_thing_to_resolve");
+    expect(`${wikiGuide}\n${resolutionGuide}`).not.toMatch(/lint findings|unreviewed pages|following section/i);
 
     const beforeRevisions = await db.select().from(schema.documentRevisions);
     const second = await ensureSelfDocs(db);
@@ -295,6 +308,42 @@ describe("docs module (PGlite + migrations)", () => {
   });
 
   describe("wiki review state and subtree listing", () => {
+    it("parses page category frontmatter and maps pages into ordered purpose groups", async () => {
+      expect(dbMod.isReservedOperationalWikiReportSlug("lint-report")).toBe(true);
+      expect(dbMod.isReservedOperationalWikiReportSlug("lint-report20260719")).toBe(true);
+      expect(dbMod.isReservedOperationalWikiReportSlug("health-report")).toBe(false);
+      expect(parsePageCategory("---\ncategory: current-work\n---\nBody")).toBe("current-work");
+      expect(parsePageCategory("---\ncategory: legacy\n---\nBody")).toBeNull();
+      expect(pageDisplayCategory({ scopePath: "client", slug: "wiki", bodyMd: "" })).toBe("Start here");
+      expect(pageDisplayCategory({ scopePath: "root", slug: "critical-facts", bodyMd: "" })).toBe("Start here");
+      expect(pageDisplayCategory({ scopePath: "root", slug: "pattern-margin", bodyMd: "" })).toBe("Guides and processes");
+      expect(pageDisplayCategory({ scopePath: "client", slug: "policy", bodyMd: "---\ncategory: decisions-policies\n---\nBody" })).toBe("Decisions and policies");
+      expect(pageDisplayCategory({ scopePath: "client", slug: "legacy", bodyMd: "---\ncategory: old-value\n---\nBody" })).toBe("Other pages");
+    });
+
+    it("excludes legacy operational reports from normal list and graph but keeps direct retrieval", async () => {
+      const suffix = Date.now();
+      const sp = `doc-system-${suffix}`;
+      await createScope(db, { slug: sp, name: "Doc System", type: "project" }, rootPrincipalId);
+      await grantRole(db, { principalId: rootPrincipalId, scopePath: sp, role: "editor" }, rootPrincipalId);
+
+      await saveDoc(db, { scopePath: sp, slug: "wiki", title: "Wiki", bodyMd: "See [[lint-report-2026-07-19]] and [[customer-facts]]." }, rootPrincipalId);
+      await saveDoc(db, { scopePath: sp, slug: "customer-facts", title: "Customer Facts", bodyMd: "---\ncategory: reference\n---\nCustomer truth." }, rootPrincipalId);
+      const report = await saveDoc(db, { scopePath: sp, slug: "lint-report-2026-07-19", title: "Old report", bodyMd: "Operational history only." }, rootPrincipalId);
+
+      const listed = await listDocs(db, { scopePath: sp }, rootPrincipalId);
+      expect(listed.map((row) => row.slug)).not.toContain("lint-report-2026-07-19");
+      expect(listed.find((row) => row.slug === "wiki")?.displayCategory).toBe("Start here");
+      expect(listed.find((row) => row.slug === "customer-facts")?.displayCategory).toBe("Reference");
+
+      const got = await getDoc(db, { scopePath: sp, slug: "lint-report-2026-07-19" }, rootPrincipalId);
+      expect(got?.id).toBe(report.id);
+
+      const graph = await getLinkGraph(db, { scopePath: sp }, rootPrincipalId);
+      expect(graph.nodes.some((node) => node.slug === "lint-report-2026-07-19")).toBe(false);
+      expect(graph.edges.some((edge) => edge.toSlug === "lint-report-2026-07-19")).toBe(false);
+    });
+
     it("lists descendants with scope paths and marks agent learned pages unreviewed until human verify", async () => {
       const suffix = Date.now();
       const sp = `doc-review-${suffix}`;
@@ -339,6 +388,47 @@ describe("docs module (PGlite + migrations)", () => {
 
       const events = await listEvents(db, { scopePath: child, type: "doc.verified", limit: 1 });
       expect(events.length).toBe(1);
+    });
+
+    it("verifyDoc accepts a future next review date and rejects invalid or past dates without mutation", async () => {
+      const suffix = Date.now();
+      const sp = `doc-next-review-${suffix}`;
+      await createScope(db, { slug: sp, name: "Doc Next Review", type: "project" }, rootPrincipalId);
+      await grantRole(db, { principalId: rootPrincipalId, scopePath: sp, role: "editor" }, rootPrincipalId);
+
+      await saveDoc(
+        db,
+        {
+          scopePath: sp,
+          slug: "reviewed",
+          title: "Reviewed",
+          bodyMd: "---\ncategory: current-work\nunknown_key: keep-me\n---\nBody stays exact.",
+        },
+        rootPrincipalId
+      );
+
+      await expect(verifyDoc(db, { scopePath: sp, slug: "reviewed", nextReviewAt: "not-a-date" }, rootPrincipalId)).rejects.toThrow(/future date/);
+      await expect(verifyDoc(db, { scopePath: sp, slug: "reviewed", nextReviewAt: "2020-01-01T00:00:00.000Z" }, rootPrincipalId)).rejects.toThrow(/future date/);
+      const current = await getDoc(db, { scopePath: sp, slug: "reviewed" }, rootPrincipalId);
+      expect(current?.bodyMd).not.toContain("verified_at:");
+      expect(current?.bodyMd).not.toContain("stale_after:");
+
+      const future = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      const verified = await verifyDoc(db, { scopePath: sp, slug: "reviewed", nextReviewAt: future }, rootPrincipalId);
+
+      expect(verified.bodyMd).toContain("category: current-work");
+      expect(verified.bodyMd).toContain("unknown_key: keep-me");
+      expect(verified.bodyMd).toContain("verified_at:");
+      expect(verified.bodyMd).toContain("verified_by: Root");
+      expect(verified.bodyMd).toContain(`stale_after: ${future}`);
+      expect(verified.bodyMd.endsWith("Body stays exact.")).toBe(true);
+    });
+
+    it("treats a selected review day as the end of that UTC calendar day", () => {
+      const justBeforeEnd = new Date("2099-01-01T23:59:59.998Z");
+      expect(parseFutureReviewDate("2099-01-01", justBeforeEnd).toISOString()).toBe("2099-01-01T23:59:59.999Z");
+      expect(() => parseFutureReviewDate("2099-01-01", new Date("2099-01-02T00:00:00.000Z"))).toThrow(/future date/);
+      expect(() => parseFutureReviewDate("2099-02-31", new Date("2099-01-01T00:00:00.000Z"))).toThrow(/future date/);
     });
   });
 

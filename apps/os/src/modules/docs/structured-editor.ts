@@ -27,6 +27,8 @@ export type StructuredSection =
 
 export interface StructuredDocForm {
   title: string;
+  category: PageCategory | "";
+  originalCategory: PageCategory | "";
   aliases: string[];
   originalAliases: string[];
   definition: string;
@@ -48,6 +50,22 @@ export interface KnownWikiPage {
   scopePath: string;
   slug: string;
 }
+
+export type PageCategory = "current-work" | "decisions-policies" | "guides-processes" | "reference";
+export type DocDisplayCategory =
+  | "Start here"
+  | "Current work"
+  | "Decisions and policies"
+  | "Guides and processes"
+  | "Reference"
+  | "Other pages";
+
+export const PAGE_CATEGORY_OPTIONS: Array<{ value: PageCategory; label: DocDisplayCategory }> = [
+  { value: "current-work", label: "Current work" },
+  { value: "decisions-policies", label: "Decisions and policies" },
+  { value: "guides-processes", label: "Guides and processes" },
+  { value: "reference", label: "Reference" },
+];
 
 const WIKILINK_REGEX = /\[\[([^\]\n]+)\]\]/g;
 
@@ -177,6 +195,45 @@ export function updateFrontmatterList(markdown: string, key: string, values: str
   return `---\n${lines.join("\n")}\n---\n${parsed.body}`;
 }
 
+function yamlScalar(value: string): string {
+  return /^[A-Za-z0-9 _./:-]+$/.test(value) ? value : JSON.stringify(value);
+}
+
+export function updateFrontmatterScalar(markdown: string, key: string, value: string | null): string {
+  const parsed = parseFrontmatter(markdown);
+  const existingLines = parsed.raw ? splitFrontmatterContent(parsed.raw).split(/\r?\n/) : [];
+  const lines = removeFrontmatterKey(existingLines, key).filter((line, index, all) => {
+    if (line.trim()) return true;
+    return index > 0 && index < all.length - 1;
+  });
+
+  if (value) {
+    lines.push(`${key}: ${yamlScalar(value)}`);
+  }
+
+  if (lines.length === 0) return parsed.body;
+  return `---\n${lines.join("\n")}\n---\n${parsed.body}`;
+}
+
+export function parsePageCategory(markdown: string): PageCategory | null {
+  const value = parseFrontmatter(markdown).metadata.category;
+  return value === "current-work"
+    || value === "decisions-policies"
+    || value === "guides-processes"
+    || value === "reference"
+    ? value
+    : null;
+}
+
+export function pageDisplayCategory(input: { scopePath: string; slug: string; markdown: string }): DocDisplayCategory {
+  const slug = input.slug.trim().toLowerCase();
+  if (slug === "wiki" || slug === "overview") return "Start here";
+  if (input.scopePath === "root" && (slug === "critical-facts" || slug === "scope-map")) return "Start here";
+  if (input.scopePath === "root" && slug.startsWith("pattern-")) return "Guides and processes";
+  const category = parsePageCategory(input.markdown || "");
+  return category ? PAGE_CATEGORY_OPTIONS.find((option) => option.value === category)!.label : "Other pages";
+}
+
 export function splitTrailingSources(markdown: string): SplitSourcesResult {
   const matches = Array.from(markdown.matchAll(/^##\s+Sources\s*$/gim));
   const last = matches.at(-1);
@@ -286,9 +343,12 @@ export function parseStructuredMarkdown(title: string, markdown: string): Struct
     return parseSection(body.slice(start, end), index);
   });
   const aliases = aliasesFromFrontmatter(markdown);
+  const category = parsePageCategory(markdown) ?? "";
 
   return {
     title,
+    category,
+    originalCategory: category,
     aliases,
     originalAliases: aliases,
     definition: intro.definition,
@@ -325,10 +385,14 @@ export function serializeStructuredMarkdown(form: StructuredDocForm): string {
 
   if (form.trailingNewline && body && !body.endsWith("\n")) body += "\n";
 
-  const withFrontmatter = reattachFrontmatter(form.frontmatterRaw, body);
-  return aliasesEqual(form.aliases, form.originalAliases)
-    ? withFrontmatter
-    : updateFrontmatterList(withFrontmatter, "aliases", form.aliases);
+  let withFrontmatter = reattachFrontmatter(form.frontmatterRaw, body);
+  if (!aliasesEqual(form.aliases, form.originalAliases)) {
+    withFrontmatter = updateFrontmatterList(withFrontmatter, "aliases", form.aliases);
+  }
+  if (form.category !== form.originalCategory) {
+    withFrontmatter = updateFrontmatterScalar(withFrontmatter, "category", form.category || null);
+  }
+  return withFrontmatter;
 }
 
 export function slugifyHeading(input: string): string {

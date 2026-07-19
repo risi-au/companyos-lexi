@@ -197,6 +197,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "rename_doc",
       "report_run",
       "resolve_attention_item",
+      "resolve_wiki_question",
       "revert_dashboard",
       "revert_doc",
       "save_canvas",
@@ -369,7 +370,9 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     const { mcpClient } = await makeRoundtrip(rootPrincipalId);
     const listed = await mcpClient.callTool({ name: "list_attention_items", arguments: { scopePath: testScope, status: "open", limit: 10 } });
     expect((listed as any).isError).toBeFalsy();
-    expect((listed as any).content?.[0]?.text || "").toContain(item.id);
+    const listedText = (listed as any).content?.[0]?.text || "";
+    expect(listedText).toContain(item.id);
+    expect(listedText.split("\n")[0]).toBe("id\tstatus\tkind\tscope\ttitle\tlabel\tsummary");
 
     const resolved = await mcpClient.callTool({ name: "resolve_attention_item", arguments: { id: item.id, resolution: "approved", note: "ok" } });
     expect((resolved as any).isError).toBeFalsy();
@@ -405,6 +408,30 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
     });
     expect((resolved as any).isError).toBeFalsy();
     expect((resolved as any).content?.[0]?.text || "").toContain("approved");
+  });
+
+  it("blocks generic MCP resolution for wiki questions and exposes the dedicated resolver", async () => {
+    await grantRole(db, { principalId: rootPrincipalId, scopePath: testScope, role: "admin" }, rootPrincipalId);
+    const item = await createAttentionItem(db, {
+      scopePath: testScope,
+      kind: "lint_finding",
+      title: "Wiki lint: stale",
+      payload: { type: "stale", slug: "page", title: "Page" },
+    }, agentPrincipalId);
+
+    const { mcpClient } = await makeRoundtrip(rootPrincipalId);
+    const listed = await mcpClient.callTool({ name: "list_attention_items", arguments: { scopePath: testScope, status: "open", limit: 10 } });
+    expect((listed as any).isError).toBeFalsy();
+    expect((listed as any).content?.[0]?.text || "").toContain("Wiki question");
+    expect((listed as any).content?.[0]?.text || "").toContain("close-unclear");
+
+    const generic = await mcpClient.callTool({ name: "resolve_attention_item", arguments: { id: item.id, resolution: "dismissed" } });
+    expect((generic as any).isError).toBe(true);
+    expect((generic as any).content?.[0]?.text || "").toContain("specific outcome action");
+
+    const dedicated = await mcpClient.callTool({ name: "resolve_wiki_question", arguments: { id: item.id, action: "close-unclear" } });
+    expect((dedicated as any).isError).toBeFalsy();
+    expect((dedicated as any).content?.[0]?.text || "").toContain("dismissed");
   });
 
   it("credential tools list metadata and return values only to agent-and-above principals", async () => {

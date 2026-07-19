@@ -8,8 +8,8 @@ Generic attention and approval primitive for CompanyOS. User-facing surfaces cal
 Stores human-resolvable items such as wiki edit proposals, brain lint findings,
 graduation suggestions, external gates, open questions, and targeted followed-page updates. The
 primitive is generic, with typed JSON payloads per `kind`. Wiki proposals can be
-approved into docs; followed-page updates are dismiss-only notifications for exactly
-one principal.
+approved into docs; wiki-health findings require the dedicated wiki-question resolver;
+followed-page updates are dismiss-only notifications for exactly one principal.
 
 ## Tables
 
@@ -30,6 +30,8 @@ one principal.
   aggregate lists use the actor's visible tree so non-root users see only granted
   scopes. Targeted items are visible only when `target_principal_id` is null or equals
   the viewing principal.
+- `getAttentionItem(db, { id }, actor)`: exact authorized lookup for one item. Returns
+  null for a missing item or an item targeted to another principal.
 - `countOpenAttentionItems(db, input, actor)`: count-only helper for context banners
   with the same target-principal visibility filter as list.
 - `createSystemAttentionItem(db, input)`: internal helper for system-created rows. Inserts without grant checks using the provided `createdBy` principal and emits `attention.created`.
@@ -40,8 +42,18 @@ one principal.
   the same way. `open_question` approval requires a non-empty resolution note; the
   note is the answer and is included in the decision record. `connection_expiry` items are admin/owner dismiss-only and create no decision records. `page_update` items are
   target-principal-only and may only be dismissed by that principal with viewer access;
-  they emit `attention.resolved` but do not create decision records. Other resolutions
+  they emit `attention.resolved` but do not create decision records. Every
+  `lint_finding` is hard-blocked here and must use `resolveWikiQuestionAttentionItem`.
+  Other resolutions
   emit `attention.resolved` and create a `decision` record.
+- `resolveWikiQuestionAttentionItem(db, input, actor)`: requires a human administrator and
+  resolves `lint_finding` rows only. V2 contradictions can choose `first`/`second` to
+  apply one exact quoted repair, or `not-a-conflict` to resolve without changing a page.
+  V2 stale checks can `mark-current` with a caller-supplied future `nextReviewAt`.
+  A date-only value means the end of that named UTC calendar day.
+  Legacy or malformed findings can only `close-unclear`. Page saves/verifications,
+  doc events, attention status, resolution events, and decision records are written in
+  one transaction with compare-before-write checks and audit hashes.
 
 ## Payloads
 
@@ -87,6 +99,12 @@ Connection expiry items are created by the connect service sweep for worker toke
 
 One open `page_update` exists per followed page and follower. Dismissal clears it; the
 next page change creates a fresh item.
+
+`lint_finding` wiki-question payloads:
+
+- V2 contradiction: `{ version: 2, type: "contradiction", relation, subject, explanation, claims: [..2], choices: [{ id: "first"|"second", label, repair }] }`
+- V2 stale: `{ version: 2, type: "stale", slug, title, currentMd, reviewDueAt }`
+- Anything else is legacy or insufficient evidence and can only close as unclear.
 
 ## Tests
 

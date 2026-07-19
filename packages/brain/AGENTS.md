@@ -10,6 +10,9 @@ Runs the wiki maintenance loops for M8:
 - root distillation for `critical-facts`, `scope-map`, and `pattern-*` pages
 - per-project distillation for the reserved top-level project `overview` page
 - lint pass with safe auto-fixes and warning alerts
+- Wiki health output: internal mode and API names stay `lint`, `lint-scope`,
+  `lint_finding`, and `LintFinding`, but user-facing output uses plain terms
+  such as Wiki health and Wiki question
 - personal wiki routing: routine sweeps skip personal scopes, event-driven/explicit
   personal targets are valid, and scope ingest prompts apply the person-vs-work test
 - graduation proposals: lint maintenance can file two-way personal<->scope wiki
@@ -28,10 +31,29 @@ Runs the wiki maintenance loops for M8:
 - LLM model names are role aliases only: `cheap` and `analysis`.
 - Every LLM user prompt carries an engine-owned JSON envelope instruction; do not rely on
   skill prose alone to define output shape. `project-overview` must return only the reserved `overview` page.
+- Scope ingest/root distill prompts carry page-purpose guidance. Topic page
+  markdown should use frontmatter `category` values `current-work`,
+  `decisions-policies`, `guides-processes`, or `reference`. Reserved pages are
+  placed deterministically by the app: `wiki`, `overview`, `critical-facts`, and
+  `scope-map` are Start here; root `pattern-*` pages are Guides and processes.
 - Non-empty malformed LLM output, truncated JSON, or output filtered to zero usable pages
   is surfaced in run payloads with `parseFailed: true` and a bounded response excerpt
   (about 2KB). Runs with output-contract failures report capability status `error`; they
   are not retried automatically.
+- Contradiction output must use the V2 evidence contract before it can become a
+  `lint_finding` attention item: `version: 2`, `type: "contradiction"`,
+  relation `scalar-mismatch`, `opposite-boolean`, or `exclusive-status`, one
+  normalized subject `{entity, property, timeframe}`, two exact quoted claims
+  from two current pages, and two one-page repair choices with byte-equal
+  `currentMd` snapshots. Unsupported, weak, missing-quote, unsafe, no-op, or
+  multi-page repairs are retained only as capability-run diagnostics.
+- Stale Wiki health output is V2 structured data created deterministically from
+  current frontmatter only: `version: 2`, `type: "stale"`, slug, title,
+  current markdown snapshot, and `reviewDueAt` copied from an elapsed
+  `stale_after` value.
+- Process completion is not an outcome. The engine must not treat completed as
+  approved, accepted, or successful, and weak completion-versus-dismissal output
+  must not create an attention item.
 - Tests use fixture LLM clients only. No live calls and no `.env` reads in tests.
 - All OS reads/writes go through `@companyos/api` services: docs, records, events, search, skills, capabilities, usage, and scopes.
 - Project overview writes use `saveDoc` as the brain actor, skip identical regenerated bodies to avoid follower notification noise, and intentionally notify followers on real changes.
@@ -49,7 +71,11 @@ Runs the wiki maintenance loops for M8:
 
 ## Reporting
 
-Every run reports `brain-engine` through the capabilities module with pages touched, records distilled, token counts, partial/budget state, and output-contract failures. Lint findings emit a warning alert on the same report. Root distillation reports dropped non-reserved slugs instead of silently discarding all root output.
+Every run reports `brain-engine` through the capabilities module with pages touched, records distilled, token counts, partial/budget state, structured Wiki health payloads, and output-contract failures. Lint findings emit a warning alert on the same report. Root distillation reports dropped non-reserved slugs instead of silently discarding all root output.
+
+Wiki health run history lives in capability-run payloads and open/closed
+attention items. The Brain must not create or update `lint-report` wiki
+documents; legacy report pages remain historical docs only.
 
 ## Tests
 

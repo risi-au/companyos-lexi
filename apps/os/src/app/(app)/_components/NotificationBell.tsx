@@ -7,9 +7,9 @@ import { refreshNotificationsAction, type NotificationItem } from "./notificatio
 
 const KIND_LABELS: Record<string, string> = {
   open_question: "Open question",
-  wiki_proposal: "Wiki proposal",
+  wiki_proposal: "Suggested wiki update",
   graduation: "Graduation",
-  lint_finding: "Lint finding",
+  lint_finding: "Wiki question",
   page_update: "Page update",
   external_gate: "External gate",
   connection_expiry: "Worker token",
@@ -24,6 +24,12 @@ function ageLabel(value: string): string {
   const hours = Math.floor(minutes / 60);
   if (hours < 48) return `${hours}h`;
   return `${Math.floor(hours / 24)}d`;
+}
+
+function itemTitle(item: NotificationItem): string {
+  if (item.kind === "lint_finding") return "Wiki question";
+  if (item.kind === "wiki_proposal") return "Suggested wiki update";
+  return item.title;
 }
 
 function kindLabel(kind: string): string {
@@ -147,7 +153,7 @@ export function NotificationBell({ initialItems, initialTotal }: { initialItems:
                   className="block rounded-[var(--radius-3)] px-[var(--space-2)] py-[var(--space-2)] hover:bg-[var(--hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--primary)]"
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <span className="min-w-0 truncate text-[var(--font-size-sm)] font-medium text-[var(--fg)]">{item.title}</span>
+                    <span className="min-w-0 truncate text-[var(--font-size-sm)] font-medium text-[var(--fg)]">{itemTitle(item)}</span>
                     <span className="shrink-0 font-mono text-[var(--font-size-xs)] text-[var(--mutedfg)]">{ageLabel(item.createdAt)}</span>
                   </div>
                   <div className="mt-1 flex items-center gap-2 text-[var(--font-size-xs)] text-[var(--mutedfg)]">

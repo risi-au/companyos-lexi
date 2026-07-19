@@ -5,6 +5,7 @@ import { eq, desc } from "drizzle-orm";
 import {
   agentConversations,
   agentMessages,
+  isReservedOperationalWikiReportSlug,
   scopes,
   type AgentConversation,
   type AgentMessage,
@@ -33,10 +34,15 @@ import {
   createAttentionItem,
   search,
   recallMemory,
+  getAttentionItem,
+  listAttentionItems,
+  parseWikiQuestionPayload,
   getRootCriticalFacts,
   type Citation,
   type RecallMemoryHit,
   type SearchHit,
+  type AttentionItemView,
+  type ParsedWikiQuestionPayload,
 } from "../..";
 import { PlaneClient } from "../tasks/plane-client";
 import { AccessDeniedError, ScopeNotFoundError } from "../../errors";
@@ -107,6 +113,12 @@ const RecallMemorySchema = z.object({
   query: z.string().min(1),
   limit: z.number().min(1).max(25).optional(),
 });
+const ListThingsToResolveSchema = z.object({
+  limit: z.number().min(1).max(25).optional(),
+});
+const InspectThingToResolveSchema = z.object({
+  id: z.string().min(1),
+});
 
 // Convert zod to OpenAI tool params
 function zodToOpenAIParams(schema: z.ZodTypeAny) {
@@ -139,10 +151,12 @@ const ALL_TOOLS = [
   makeTool("save_dashboard", "Save (upsert) a dashboard spec.", SaveDashboardSchema),
   makeTool("list_widget_types", "List supported dashboard widget types.", ListWidgetTypesSchema),
   makeTool("list_docs", "List documents in the scope KB.", ListDocsSchema),
-  makeTool("get_doc", "Fetch full document by slug.", GetDocSchema),
+  makeTool("get_doc", "Fetch a current Wiki page by slug. Reserved Wiki health history pages are not available through Ask OS.", GetDocSchema),
   makeTool("save_doc", "Save (create or update) a markdown doc by slug or title.", SaveDocSchema),
   makeTool("search", "Search records and docs in the current scope subtree. Use this for grounded answers about recent or historical OS facts.", SearchSchema),
   makeTool("recall_memory", "Recall distilled second-brain memory scoped to the current subtree, plus allowed root critical facts and root patterns.", RecallMemorySchema),
+  makeTool("list_things_to_resolve", "List open Things to resolve in the current scope subtree, including Wiki questions and Suggested wiki update items, for disambiguation.", ListThingsToResolveSchema),
+  makeTool("inspect_thing_to_resolve", "Inspect one Thing to resolve by id and return the current cited Wiki pages in the same authorized read.", InspectThingToResolveSchema),
 ];
 
 export interface LLMConfig {
@@ -192,12 +206,47 @@ function citationFromRecallHit(hit: RecallMemoryHit): Citation {
   };
 }
 
+function citationFromDoc(doc: { slug: string; scopePath?: string; title?: string }, fallbackScopePath: string): Citation {
+  return {
+    slug: doc.slug,
+    scopePath: doc.scopePath ?? fallbackScopePath,
+    source: "scope",
+    title: doc.title,
+  };
+}
+
+function collectCitationsFromInspectedThing(
+  structuredResult: unknown,
+  citations: Citation[],
+  seenCitations: Set<string>
+): void {
+  if (!structuredResult || typeof structuredResult !== "object") return;
+  const pages = (structuredResult as any).referencedPages;
+  if (!Array.isArray(pages)) return;
+  for (const page of pages) {
+    if (!page?.slug || !page?.scopePath) continue;
+    addCitation(citations, seenCitations, citationFromDoc(page, page.scopePath));
+  }
+}
+
 function collectCitationsFromToolResult(
   name: string,
   structuredResult: unknown,
   citations: Citation[],
   seenCitations: Set<string>
 ): void {
+  if (name === "inspect_thing_to_resolve") {
+    collectCitationsFromInspectedThing(structuredResult, citations, seenCitations);
+    return;
+  }
+
+  if (name === "get_doc") {
+    if (structuredResult && typeof structuredResult === "object" && (structuredResult as any).slug) {
+      addCitation(citations, seenCitations, citationFromDoc(structuredResult as any, (structuredResult as any).scopePath));
+    }
+    return;
+  }
+
   if (!Array.isArray(structuredResult)) return;
 
   if (name === "recall_memory") {
@@ -219,6 +268,144 @@ function collectCitationsFromToolResult(
       });
     }
   }
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value as Record<string, unknown>).sort().map((key) => `${JSON.stringify(key)}:${stableStringify((value as Record<string, unknown>)[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function toolCallKey(name: string, args: unknown): string {
+  return `${name}:${stableStringify(args)}`;
+}
+
+function isWikiQuestionRequest(userMessage: string): boolean {
+  if (/\b(notification|things? to resolve|wiki question|wiki lint|lint finding|two wiki pages disagree|out[- ]of[- ]date)\b/i.test(userMessage)) {
+    return true;
+  }
+  return /\b(?:attention|notification|resolve|item)\b/i.test(userMessage)
+    && /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i.test(userMessage);
+}
+
+function plainThingKind(kind: string, parsed?: ParsedWikiQuestionPayload): string {
+  if (kind === "lint_finding") {
+    if (parsed?.state === "v2-contradiction") return "Two wiki pages disagree";
+    if (parsed?.state === "v2-stale") return "This page may be out of date";
+    return "Wiki question";
+  }
+  if (kind === "wiki_proposal") return "Suggested wiki update";
+  return kind.replace(/_/g, " ");
+}
+
+function referencedWikiPages(item: AttentionItemView): Array<{ slug: string; title?: string }> {
+  if (item.kind === "lint_finding") {
+    const parsed = parseWikiQuestionPayload(item.payload);
+    if (parsed.state === "v2-contradiction") {
+      return parsed.payload.claims.map((claim) => ({ slug: claim.slug, title: claim.title }));
+    }
+    if (parsed.state === "v2-stale") {
+      return [{ slug: parsed.payload.slug, title: parsed.payload.title }];
+    }
+    return parsed.slugs.map((entry) => ({ slug: entry.slug, title: entry.title }));
+  }
+
+  if (item.kind === "wiki_proposal" && item.payload && typeof item.payload === "object") {
+    const slug = typeof (item.payload as any).slug === "string" ? (item.payload as any).slug : null;
+    const title = typeof (item.payload as any).title === "string" ? (item.payload as any).title : undefined;
+    return slug ? [{ slug, title }] : [];
+  }
+
+  return [];
+}
+
+function summarizeThing(item: AttentionItemView) {
+  const parsed = item.kind === "lint_finding" ? parseWikiQuestionPayload(item.payload) : undefined;
+  const summary = parsed?.state === "v2-contradiction"
+    ? parsed.payload.explanation
+    : parsed?.state === "v2-stale"
+      ? "This page has reached its review date."
+      : item.summary;
+  return {
+    id: item.id,
+    kind: item.kind,
+    label: plainThingKind(item.kind, parsed),
+    status: item.status,
+    title: item.kind === "lint_finding" ? "Wiki question" : item.title,
+    summary,
+    scopePath: item.scopePath,
+    createdAt: item.createdAt,
+    referencedPages: referencedWikiPages(item).map((page) => ({ slug: page.slug, title: page.title })),
+  };
+}
+
+async function listThingsToResolveForAgent(
+  db: DB,
+  input: { limit?: number },
+  scopePath: string,
+  actorPrincipalId: string
+) {
+  const items = await listAttentionItems(
+    db,
+    { scopePath, status: "open", includeDescendants: true, limit: input.limit ?? 25 },
+    actorPrincipalId
+  );
+  return items.map(summarizeThing);
+}
+
+async function inspectThingToResolveForAgent(
+  db: DB,
+  input: { id: string },
+  scopePath: string,
+  actorPrincipalId: string
+) {
+  const item = await getAttentionItem(db, { id: input.id }, actorPrincipalId);
+  const inCurrentSubtree = item && (scopePath === "root" || item.scopePath === scopePath || item.scopePath.startsWith(`${scopePath}/`));
+  if (!item || !inCurrentSubtree || item.status !== "open") {
+    return {
+      found: false,
+      message: "That Thing to resolve is not open or is not visible from the current scope.",
+    };
+  }
+
+  const pages = [];
+  const seen = new Set<string>();
+  for (const ref of referencedWikiPages(item)) {
+    if (isReservedOperationalWikiReportSlug(ref.slug) || seen.has(ref.slug)) continue;
+    seen.add(ref.slug);
+    const doc = await getDoc(db, { scopePath: item.scopePath, slug: ref.slug }, actorPrincipalId);
+    if (!doc) continue;
+    pages.push({
+      id: doc.id,
+      slug: doc.slug,
+      title: doc.title,
+      scopePath: item.scopePath,
+      bodyMd: doc.bodyMd,
+      updatedAt: doc.updatedAt,
+      source: "scope",
+    });
+  }
+
+  return {
+    found: true,
+    item: summarizeThing(item),
+    structuredItem: {
+      id: item.id,
+      kind: item.kind,
+      status: item.status,
+      label: plainThingKind(item.kind, item.kind === "lint_finding" ? parseWikiQuestionPayload(item.payload) : undefined),
+      title: item.kind === "lint_finding" ? "Wiki question" : item.title,
+      summary: summarizeThing(item).summary,
+      scopePath: item.scopePath,
+      payload: item.payload,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    },
+    referencedPages: pages,
+    citations: pages.map((page) => citationFromDoc(page, page.scopePath)),
+  };
 }
 
 async function callLiteLLM(
@@ -419,8 +606,11 @@ async function executeToolCall(
       return { result: res };
     }
     if (name === "get_doc") {
+      if (isReservedOperationalWikiReportSlug(args.slug)) {
+        return { error: "Reserved Wiki health history pages are not available through Ask OS." };
+      }
       const res = await getDoc(db, { scopePath, slug: args.slug }, actorPrincipalId);
-      return { result: res };
+      return { result: res ? { ...res, scopePath } : res };
     }
     if (name === "save_doc") {
       const existing = args.slug
@@ -468,6 +658,14 @@ async function executeToolCall(
       const res = await recallMemory(db, { scopePath, query: args.query, limit: args.limit }, actorPrincipalId);
       return { result: res };
     }
+    if (name === "list_things_to_resolve") {
+      const res = await listThingsToResolveForAgent(db, { limit: args.limit }, scopePath, actorPrincipalId);
+      return { result: res };
+    }
+    if (name === "inspect_thing_to_resolve") {
+      const res = await inspectThingToResolveForAgent(db, { id: args.id }, scopePath, actorPrincipalId);
+      return { result: res };
+    }
     return { error: `Unknown tool: ${name}` };
   } catch (e) {
     return { error: formatError(e) };
@@ -482,6 +680,7 @@ export async function runTurn(
   planeClient?: PlaneClient | null
 ): Promise<RunTurnResult> {
   const { conversationId: existingConv, userMessage, model = "analysis" } = input;
+  const wikiQuestionPath = isWikiQuestionRequest(userMessage);
 
   const { conversationId, scopePath } = await getOrCreateConversation(
     db,
@@ -513,11 +712,13 @@ ${contextMd}
 Rules:
 - Use tools to fetch live data (metrics, tasks, records, docs, dashboards, search, and scoped memory).
 - Durable outcomes (changes, decisions, reports) MUST be logged via log_change / log_decision / save_report / save_doc — do not rely on chat history for records.
+- If the user asks about a notification, Things to resolve, or a Wiki question, inspect that item first. If no id is available, call list_things_to_resolve once to disambiguate, then inspect the selected item. Do not begin that path with broad search or recall_memory; inspect_thing_to_resolve already returns the current cited Wiki pages. Use get_doc only for a genuinely missing follow-up page.
+- Explain Wiki question evidence and actions in plain language: Wiki question, Two wiki pages disagree, This page may be out of date, Suggested wiki update, and Things to resolve.
 - Be concise and factual. Report tool results clearly.
 - If a write tool fails with access error, surface the error gracefully to the user.
-- Stop after at most 8 tool rounds.
+- Ordinary requests may use at most eight model responses. Wiki-question requests must finish within three model responses.
 
-Available tools: get_context, list_records, log_change, log_decision, save_report, list_tasks, create_task, complete_task, query_metrics, list_metric_names, get_dashboard, save_dashboard, list_widget_types, list_docs, get_doc, save_doc, search, recall_memory.`;
+Available tools: get_context, list_records, log_change, log_decision, save_report, list_tasks, create_task, complete_task, query_metrics, list_metric_names, get_dashboard, save_dashboard, list_widget_types, list_docs, get_doc, save_doc, search, recall_memory, list_things_to_resolve, inspect_thing_to_resolve.`;
 
   // Load prior + add current user turn
   const history = await loadHistory(db, conversationId);
@@ -537,10 +738,14 @@ Available tools: get_context, list_records, log_change, log_decision, save_repor
   let finalText = "";
   let lastUsage: any = {};
   let finalPersisted = false;
+  const toolResultCache = new Map<string, any>();
+  let wikiQuestionInspected = false;
 
-  const MAX_ITERS = 8;
+  const DEFAULT_MAX_MODEL_RESPONSES = 8;
+  const WIKI_QUESTION_MAX_MODEL_RESPONSES = 3;
+  let maxModelResponses = wikiQuestionPath ? WIKI_QUESTION_MAX_MODEL_RESPONSES : DEFAULT_MAX_MODEL_RESPONSES;
 
-  while (iterations < MAX_ITERS) {
+  while (iterations < maxModelResponses) {
     iterations += 1;
     const resp = await callLiteLLM(messages, ALL_TOOLS, model, llm);
     const msg = resp.choices?.[0]?.message || {};
@@ -569,7 +774,29 @@ Available tools: get_context, list_records, log_change, log_decision, save_repor
           args = {};
         }
         toolTrace.push({ name, args });
-        const toolRes = await executeToolCall(name, args, db, scopePath, actorPrincipalId, planeClient);
+        const cacheKey = toolCallKey(name, args);
+        const cachedToolRes = toolResultCache.get(cacheKey);
+        const broadLookupBlocked = wikiQuestionPath
+          && !wikiQuestionInspected
+          && (name === "search" || name === "recall_memory");
+        const toolRes = broadLookupBlocked
+          ? {
+              error: "Inspect the relevant Wiki question first. Use list_things_to_resolve only if you need its id.",
+            }
+          : cachedToolRes
+          ? {
+              result: {
+                repeatedCall: true,
+                message: "This exact tool call already ran in this turn. Use the earlier tool result and answer the user now.",
+                earlierResult: cachedToolRes.result ?? cachedToolRes,
+              },
+            }
+          : await executeToolCall(name, args, db, scopePath, actorPrincipalId, planeClient);
+        if (name === "inspect_thing_to_resolve" && toolRes.result?.found === true) {
+          wikiQuestionInspected = true;
+          maxModelResponses = Math.min(maxModelResponses, WIKI_QUESTION_MAX_MODEL_RESPONSES);
+        }
+        if (!cachedToolRes) toolResultCache.set(cacheKey, toolRes);
         const traceEntry = toolTrace[toolTrace.length - 1]!;
         if (toolRes.error) traceEntry.error = toolRes.error;
         else {
@@ -605,8 +832,8 @@ Available tools: get_context, list_records, log_change, log_decision, save_repor
     break;
   }
 
-  if (!finalText && iterations >= MAX_ITERS) {
-    finalText = "(max iterations reached)";
+  if (!finalText && iterations >= maxModelResponses) {
+    finalText = "I gathered the available information but could not finish a complete answer in this turn. Please ask me to continue, and I will use the inspected results already in this conversation.";
   }
   if (finalText && !finalPersisted) {
     await persistMessage(

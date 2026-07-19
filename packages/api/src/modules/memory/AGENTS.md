@@ -16,6 +16,7 @@ Provides `recallMemory(db, { query, scopePath?, limit? }, actor)` for MCP/UI cli
   - active docs in the effective scope subtree,
   - active docs in the nearest ancestor wiki-owning scope from the existing wiki walk,
   - root docs with slug `critical-facts` or `pattern-*`.
+- Legacy operational wiki-report pages are excluded from recall by the shared documents predicate from `@companyos/db`, including keyword and semantic retrieval paths.
 - Personal hits are returned with `source: "personal"` and are not boosted or re-ranked.
 - Root allowlist reads are mediated by service SQL predicates, not by granting root access.
 - Usage metadata must never store query text, snippets, markdown bodies, bearer tokens, or plaintext secrets.

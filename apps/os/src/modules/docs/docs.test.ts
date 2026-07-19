@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
 // Pure core conversion for md roundtrip guard (no React needed; works in jsdom / node)
 import { BlockNoteEditor } from "@blocknote/core";
@@ -9,9 +12,14 @@ import {
   reattachFrontmatter,
   splitTrailingSources,
   parseStructuredMarkdown,
+  pageDisplayCategory,
+  parsePageCategory,
   serializeStructuredMarkdown,
   wikilinksToMarkdown,
 } from "./DocEditor";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Fixture covering required elements per brief: headings, lists, code, table, image link, bold/italic
 const FIXTURE_MD = `# Heading 1
@@ -105,9 +113,9 @@ Body text.`;
       stale_after: "2026-10-07",
       confidence: "high",
     })).toEqual([
-      "Verified 7 Jul 2026",
-      "Learned 1 Jul 2026",
-      "Confidence: high",
+      "Checked 7 Jul 2026",
+      "Kept up to date by CompanyOS 1 Jul 2026",
+      "How sure CompanyOS is: high",
       "Review by 7 Oct 2026",
     ]);
   });
@@ -208,6 +216,37 @@ First content.
     expect(serializeStructuredMarkdown(form)).toBe(markdown);
   });
 
+  it("round-trips Page type frontmatter and preserves unknown frontmatter", () => {
+    const markdown = `---
+category: current-work
+confidence: high
+unknown_key: keep-me
+---
+Definition.
+`;
+
+    const form = parseStructuredMarkdown("Setup", markdown);
+    expect(form.category).toBe("current-work");
+    expect(parsePageCategory(markdown)).toBe("current-work");
+    expect(serializeStructuredMarkdown(form)).toBe(markdown);
+
+    form.category = "decisions-policies";
+    const serialized = serializeStructuredMarkdown(form);
+    expect(serialized).toContain("category: decisions-policies");
+    expect(serialized).toContain("confidence: high");
+    expect(serialized).toContain("unknown_key: keep-me");
+    expect(serialized).toContain("Definition.\n");
+  });
+
+  it("falls back legacy page types and maps reserved pages to purpose groups", () => {
+    expect(pageDisplayCategory({ scopePath: "client", slug: "wiki", markdown: "" })).toBe("Start here");
+    expect(pageDisplayCategory({ scopePath: "client", slug: "overview", markdown: "" })).toBe("Start here");
+    expect(pageDisplayCategory({ scopePath: "root", slug: "scope-map", markdown: "" })).toBe("Start here");
+    expect(pageDisplayCategory({ scopePath: "root", slug: "pattern-intake", markdown: "" })).toBe("Guides and processes");
+    expect(pageDisplayCategory({ scopePath: "client", slug: "decision", markdown: "---\ncategory: decisions-policies\n---\nBody" })).toBe("Decisions and policies");
+    expect(pageDisplayCategory({ scopePath: "client", slug: "legacy", markdown: "---\ncategory: old\n---\nBody" })).toBe("Other pages");
+  });
+
   it("updates aliases as a YAML list without rewriting the markdown body", () => {
     const markdown = `---
 confidence: high
@@ -257,5 +296,45 @@ const x = 1;
     expect(rendered).toContain("[Known](/s/client?tab=docs&doc=known-page)");
     expect(rendered).toContain('[Missing Page](/s/client?tab=docs&doc=missing-page "missing-wikilink")');
     expect(rendered).toContain("[remote](/s/client/ads?tab=docs&doc=remote)");
+  });
+});
+
+describe("docs UI plain wording", () => {
+  it("uses the approved plain labels in owned wiki surfaces", () => {
+    const editorSource = fs.readFileSync(path.join(__dirname, "DocEditor.tsx"), "utf8");
+    const viewSource = fs.readFileSync(path.join(__dirname, "DocsView.tsx"), "utf8");
+    const combined = `${editorSource}\n${viewSource}`;
+
+    for (const label of [
+      "Kept up to date by CompanyOS",
+      "Links from other pages",
+      "Needs a quick check",
+      "Mark as correct",
+      "Notify me",
+      "Notifications on",
+      "Also known as",
+      "What this is",
+      "More detail",
+      "Page sections",
+      "Simple",
+      "Advanced",
+      "Past versions",
+      "Advanced content",
+    ]) {
+      expect(combined).toContain(label);
+    }
+
+    expect(combined).not.toContain("AI-maintained");
+    expect(combined).not.toContain(">Backlinks<");
+    expect(combined).not.toContain(">Unreviewed<");
+    expect(combined).not.toContain("Mark verified");
+    expect(combined).not.toContain(">Follow<");
+    expect(combined).not.toContain(">Following<");
+    expect(combined).not.toContain(">Aliases<");
+    expect(combined).not.toContain(">Definition<");
+    expect(combined).not.toContain(">Details<");
+    expect(combined).not.toContain(">Sections<");
+    expect(combined).not.toContain(">Form<");
+    expect(combined).not.toContain(">Markdown<");
   });
 });

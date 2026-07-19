@@ -222,6 +222,30 @@ describe("search module", () => {
     expect(hybrid.some((hit) => hit.slug === "meta-ads")).toBe(true);
   });
 
+  it("excludes legacy operational report pages from keyword and semantic document search", async () => {
+    const sp = `system-report-search-${Date.now()}`;
+    await createScope(db, { slug: sp, name: "System Report Search", type: "project" }, rootPrincipalId);
+    await grantRole(db, { principalId: rootPrincipalId, scopePath: sp, role: "admin" }, rootPrincipalId);
+    await grantRole(db, { principalId: viewerPrincipalId, scopePath: sp, role: "viewer" }, rootPrincipalId);
+
+    await saveDoc(db, { scopePath: sp, slug: "customer-truth", title: "Customer Truth", bodyMd: "Operational-clean-search visible topic." }, rootPrincipalId);
+    await saveDoc(db, { scopePath: sp, slug: "lint-report-2026-07-19", title: "Old Wiki Health Report", bodyMd: "Operational-clean-search hidden report." }, rootPrincipalId);
+
+    const keyword = await search(db, { scopePath: sp, query: "operational-clean-search", mode: "keyword", kinds: ["doc"], limit: 10 }, viewerPrincipalId);
+    expect(keyword.some((hit) => hit.slug === "customer-truth")).toBe(true);
+    expect(keyword.some((hit) => hit.slug === "lint-report-2026-07-19")).toBe(false);
+
+    setEmbeddingClientForTests({
+      async embed({ text }) {
+        return semanticVector(text);
+      },
+    });
+    await backfillSemanticLayer(db, { scopePath: sp }, rootPrincipalId);
+    const semantic = await search(db, { scopePath: sp, query: "operational-clean-search", mode: "semantic", kinds: ["doc"], limit: 10 }, viewerPrincipalId);
+    expect(semantic.some((hit) => hit.slug === "customer-truth")).toBe(true);
+    expect(semantic.some((hit) => hit.slug === "lint-report-2026-07-19")).toBe(false);
+  });
+
   it("backfills records and docs idempotently", async () => {
     const sp = `semantic-backfill-${Date.now()}`;
     await createScope(db, { slug: sp, name: "Semantic Backfill", type: "project" }, rootPrincipalId);

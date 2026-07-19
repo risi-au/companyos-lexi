@@ -6,6 +6,7 @@ import {
   getDoc,
   getSkill,
   getSubtree,
+  isReservedOperationalWikiReportSlug,
   listHumanPersonalScopeTargets,
   listCapabilityRuns,
   listAttentionItems,
@@ -34,12 +35,13 @@ const DEFAULT_RUN_TOKEN_CEILING = 24_000;
 const DEFAULT_MONTHLY_TOKEN_BUDGET = 1_000_000;
 const MAX_RESPONSE_EXCERPT_CHARS = 2048;
 const WIKILINK_RE = /\[\[([^\]\n]+)\]\]/g;
-const PERSON_VS_WORK_ROUTING_RULE = "is the fact about the person or about the work? Person (tool prefs, folder conventions, schedules, working style) \u2192 that person's personal wiki. Client/project truth \u2192 scope wiki. Cross-client playbook \u2192 root pattern.";
+const PERSON_VS_WORK_ROUTING_RULE = "is the fact about the person or about the work? Person (tool prefs, folder conventions, schedules, working style) -> that person's personal wiki. Client/project truth -> scope wiki. Cross-client playbook -> root pattern.";
+const PAGE_PURPOSE_TAXONOMY = "New or updated topic markdown should include frontmatter category with one of: current-work, decisions-policies, guides-processes, reference. Reserved pages keep deterministic placement: wiki/overview/critical-facts/scope-map are Start here; root pattern-* pages are Guides and processes.";
 const JSON_ENVELOPE_INSTRUCTIONS: Record<BrainLlmRequest["purpose"], string> = {
-  "scope-ingest": "Return only one JSON object: {\"pages\":[{\"slug\":\"kebab-slug\",\"title\":\"Title\",\"bodyMd\":\"markdown\",\"targetScopePath\":\"optional-valid-target\"}],\"recordsDistilled\":0}. No prose, no markdown fence.",
-  "root-distill": "Return only one JSON object: {\"pages\":[{\"slug\":\"critical-facts|scope-map|pattern-name\",\"title\":\"Title\",\"bodyMd\":\"markdown\"}]}. No prose, no markdown fence.",
+  "scope-ingest": "Return only one JSON object: {\"pages\":[{\"slug\":\"kebab-slug\",\"title\":\"Title\",\"bodyMd\":\"markdown-with-category-frontmatter\",\"targetScopePath\":\"optional-valid-target\"}],\"recordsDistilled\":0}. Topic page frontmatter category must be one of current-work, decisions-policies, guides-processes, reference. No prose, no markdown fence.",
+  "root-distill": "Return only one JSON object: {\"pages\":[{\"slug\":\"critical-facts|scope-map|pattern-name\",\"title\":\"Title\",\"bodyMd\":\"markdown-with-category-frontmatter\"}]}. Use category guides-processes for root pattern-* pages. No prose, no markdown fence.",
   "project-overview": "Return only one JSON object: {\"pages\":[{\"slug\":\"overview\",\"title\":\"Overview\",\"bodyMd\":\"markdown\"}]}. No prose, no markdown fence.",
-  "lint-scope": "Return only one JSON object with either {\"findings\":[{\"type\":\"contradiction\",\"severity\":\"warning\",\"message\":\"...\",\"slugs\":[\"slug\"],\"action\":\"flagged\"}]} or {\"graduations\":[{\"direction\":\"personal-to-scope|scope-to-personal\",\"targetScopePath\":\"target\",\"fromScopePath\":\"source\",\"fromSlug\":\"slug\",\"proposal\":{\"slug\":\"target-slug\",\"title\":\"Title\",\"proposedMd\":\"markdown\"}}]}. No prose, no markdown fence.",
+  "lint-scope": "Return only one JSON object with either {\"findings\":[{\"version\":2,\"type\":\"contradiction\",\"relation\":\"scalar-mismatch|opposite-boolean|exclusive-status\",\"subject\":{\"entity\":\"normalized entity\",\"property\":\"normalized property\",\"timeframe\":\"normalized timeframe\"},\"explanation\":\"plain language\",\"claims\":[{\"slug\":\"slug-a\",\"title\":\"Title A\",\"quote\":\"exact current page quote\",\"normalizedValue\":\"value\"},{\"slug\":\"slug-b\",\"title\":\"Title B\",\"quote\":\"exact current page quote\",\"normalizedValue\":\"value\"}],\"choices\":[{\"id\":\"first\",\"label\":\"Keep first claim\",\"repair\":{\"slug\":\"slug-b\",\"title\":\"Title B\",\"currentMd\":\"current full markdown\",\"proposedMd\":\"changed full markdown\"}},{\"id\":\"second\",\"label\":\"Keep second claim\",\"repair\":{\"slug\":\"slug-a\",\"title\":\"Title A\",\"currentMd\":\"current full markdown\",\"proposedMd\":\"changed full markdown\"}}]}]} or {\"graduations\":[{\"direction\":\"personal-to-scope|scope-to-personal\",\"targetScopePath\":\"target\",\"fromScopePath\":\"source\",\"fromSlug\":\"slug\",\"proposal\":{\"slug\":\"target-slug\",\"title\":\"Title\",\"proposedMd\":\"markdown\"}}]}. No prose, no markdown fence.",
   "code-docs": "Return only one JSON object: {\"pages\":[{\"slug\":\"code-architecture|code-stack|code-integrations|code-ops\",\"title\":\"Title\",\"bodyMd\":\"markdown\"}]}. No prose, no markdown fence.",
 };
 
@@ -179,10 +181,60 @@ export interface LintFinding {
   slugs: string[];
   action: "auto-fixed" | "flagged";
   scopePath?: string;
+  payload?: WikiConflictPayloadV2 | WikiStalePayloadV2;
+  fingerprint?: string;
 }
 
 interface LintOutput {
-  findings: LintFinding[];
+  findings: unknown[];
+}
+
+type WikiConflictRelation = "scalar-mismatch" | "opposite-boolean" | "exclusive-status";
+
+interface WikiConflictSubject {
+  entity: string;
+  property: string;
+  timeframe: string;
+}
+
+interface WikiConflictClaim {
+  slug: string;
+  title: string;
+  quote: string;
+  normalizedValue: string;
+}
+
+interface WikiConflictChoice {
+  id: "first" | "second";
+  label: string;
+  repair: SinglePageRepair;
+}
+
+interface SinglePageRepair {
+  slug: string;
+  title: string;
+  currentMd: string;
+  proposedMd: string;
+}
+
+interface WikiConflictPayloadV2 {
+  version: 2;
+  type: "contradiction";
+  relation: WikiConflictRelation;
+  subject: WikiConflictSubject;
+  explanation: string;
+  claims: [WikiConflictClaim, WikiConflictClaim];
+  choices: [WikiConflictChoice, WikiConflictChoice];
+  scopePath: string;
+}
+
+interface WikiStalePayloadV2 {
+  version: 2;
+  type: "stale";
+  slug: string;
+  title: string;
+  currentMd: string;
+  reviewDueAt: string;
 }
 
 interface GraduationProposal {
@@ -222,13 +274,6 @@ function usablePage(page: Partial<IngestPageOutput> | null | undefined): page is
     page.title.trim().length > 0 &&
     typeof page.bodyMd === "string" &&
     page.bodyMd.trim().length > 0;
-}
-
-function usableFinding(finding: Partial<LintFinding> | null | undefined): finding is LintFinding {
-  return finding?.type === "contradiction" &&
-    typeof finding.message === "string" &&
-    finding.message.trim().length > 0 &&
-    Array.isArray(finding.slugs);
 }
 
 function outputFailure(
@@ -620,7 +665,7 @@ async function reportBrainRun(
       alert: hasWarning
         ? {
           severity: "warning",
-          message: `Brain lint found ${result.lintFindings.length} issue(s)`,
+          message: `Wiki health found ${result.lintFindings.length} question(s)`,
           metric: "brain.lint.findings",
           value: result.lintFindings.length,
         }
@@ -634,12 +679,199 @@ function lintFindingKey(finding: Pick<LintFinding, "type" | "slugs">): string {
   return `${finding.type}:${[...finding.slugs].sort().join(",")}`;
 }
 
+function lintFindingFingerprint(finding: LintFinding): string {
+  return finding.fingerprint ?? lintFindingKey(finding);
+}
+
 function graduationProposalKey(proposal: Pick<GraduationProposal, "direction" | "targetScopePath" | "fromScopePath" | "fromSlug" | "proposal">): string {
   return `${proposal.direction}:${proposal.targetScopePath}:${proposal.fromScopePath}:${proposal.fromSlug}:${proposal.proposal.slug}`;
 }
 
 function payloadRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function normalizeText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function lowerStable(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function sameSubject(a: WikiConflictSubject, b: WikiConflictSubject): boolean {
+  return lowerStable(a.entity) === lowerStable(b.entity) &&
+    lowerStable(a.property) === lowerStable(b.property) &&
+    lowerStable(a.timeframe) === lowerStable(b.timeframe);
+}
+
+function subjectFromValue(value: unknown): WikiConflictSubject | null {
+  const raw = payloadRecord(value);
+  const subject = {
+    entity: normalizeText(raw.entity),
+    property: normalizeText(raw.property),
+    timeframe: normalizeText(raw.timeframe),
+  };
+  return subject.entity && subject.property && subject.timeframe ? subject : null;
+}
+
+function claimFromValue(value: unknown): WikiConflictClaim | null {
+  const raw = payloadRecord(value);
+  const claim = {
+    slug: normalizeText(raw.slug),
+    title: normalizeText(raw.title),
+    quote: normalizeText(raw.quote),
+    normalizedValue: normalizeText(raw.normalizedValue),
+  };
+  return claim.slug && claim.title && claim.quote && claim.normalizedValue ? claim : null;
+}
+
+function repairFromValue(value: unknown): SinglePageRepair | null {
+  const raw = payloadRecord(value);
+  const repair = {
+    slug: normalizeText(raw.slug),
+    title: normalizeText(raw.title),
+    currentMd: typeof raw.currentMd === "string" ? raw.currentMd : "",
+    proposedMd: typeof raw.proposedMd === "string" ? raw.proposedMd : "",
+  };
+  return repair.slug && repair.title && repair.currentMd && repair.proposedMd ? repair : null;
+}
+
+function choiceFromValue(value: unknown): WikiConflictChoice | null {
+  const raw = payloadRecord(value);
+  const id = raw.id === "first" || raw.id === "second" ? raw.id : null;
+  const label = normalizeText(raw.label);
+  const repair = repairFromValue(raw.repair);
+  return id && label && repair ? { id, label, repair } : null;
+}
+
+function valuesShareExplicitStatusFamily(first: string, second: string): boolean {
+  const firstValue = lowerStable(first);
+  const secondValue = lowerStable(second);
+  const families = [
+    ["accepted", "rejected", "dismissed", "pending"],
+    ["approved", "rejected", "dismissed", "pending"],
+    ["open", "closed", "paused", "cancelled", "blocked"],
+    ["active", "inactive", "paused", "cancelled"],
+    ["draft", "published", "archived"],
+  ];
+  return families.some((family) => family.includes(firstValue) && family.includes(secondValue));
+}
+
+function booleanValue(value: string): boolean | null {
+  const normalized = lowerStable(value);
+  if (["true", "yes", "enabled", "active", "on"].includes(normalized)) return true;
+  if (["false", "no", "disabled", "inactive", "off"].includes(normalized)) return false;
+  return null;
+}
+
+function scalarParts(value: string): { scalar: string; unit: string } | null {
+  const normalized = lowerStable(value);
+  const suffixUnit = /^([-+]?\d+(?:\.\d+)?)\s*([a-z%$][a-z0-9%$-]*)$/i.exec(normalized);
+  if (suffixUnit) return { scalar: suffixUnit[1] ?? "", unit: suffixUnit[2] ?? "" };
+  const prefixUnit = /^([a-z%$][a-z%$-]*)\s*([-+]?\d+(?:\.\d+)?)$/i.exec(normalized);
+  if (prefixUnit) return { scalar: prefixUnit[2] ?? "", unit: prefixUnit[1] ?? "" };
+  return null;
+}
+
+function isProcessCompletionOutcomeConfusion(subject: WikiConflictSubject, claims: [WikiConflictClaim, WikiConflictClaim]): boolean {
+  const text = lowerStable(`${subject.property} ${claims[0].quote} ${claims[1].quote} ${claims[0].normalizedValue} ${claims[1].normalizedValue}`);
+  return text.includes("completed") &&
+    (text.includes("approved") || text.includes("accepted") || text.includes("successful") || text.includes("dismissed"));
+}
+
+function relationIsValid(relation: WikiConflictRelation, subject: WikiConflictSubject, claims: [WikiConflictClaim, WikiConflictClaim]): boolean {
+  const first = claims[0].normalizedValue;
+  const second = claims[1].normalizedValue;
+  if (lowerStable(first) === lowerStable(second)) return false;
+  if (isProcessCompletionOutcomeConfusion(subject, claims)) return false;
+  if (relation === "scalar-mismatch") {
+    const a = scalarParts(first);
+    const b = scalarParts(second);
+    return !!a && !!b && a.scalar !== b.scalar && a.unit === b.unit;
+  }
+  if (relation === "opposite-boolean") {
+    const a = booleanValue(first);
+    const b = booleanValue(second);
+    return a !== null && b !== null && a !== b;
+  }
+  return valuesShareExplicitStatusFamily(first, second);
+}
+
+function validateWikiConflictFinding(value: unknown, scopePath: string, docs: LoadedDoc[]): { finding?: LintFinding; reason?: string } {
+  const raw = payloadRecord(value);
+  if (raw.version !== 2 || raw.type !== "contradiction") return { reason: "finding is not a V2 contradiction" };
+  const relation = raw.relation === "scalar-mismatch" || raw.relation === "opposite-boolean" || raw.relation === "exclusive-status"
+    ? raw.relation
+    : null;
+  if (!relation) return { reason: "unsupported contradiction relation" };
+  const subject = subjectFromValue(raw.subject);
+  if (!subject) return { reason: "missing normalized subject" };
+  const explanation = normalizeText(raw.explanation);
+  if (!explanation) return { reason: "missing plain-language explanation" };
+  if (!Array.isArray(raw.claims) || raw.claims.length !== 2) return { reason: "expected exactly two claims" };
+  if (!Array.isArray(raw.choices) || raw.choices.length !== 2) return { reason: "expected exactly two choices" };
+  const claims = raw.claims.map(claimFromValue);
+  if (!claims[0] || !claims[1]) return { reason: "claim is missing title, quote, or normalized value" };
+  const pair = [claims[0], claims[1]] as [WikiConflictClaim, WikiConflictClaim];
+  if (pair[0].slug === pair[1].slug) return { reason: "claims must cite two different pages" };
+  const claimSubjects = raw.claims.map((claim) => subjectFromValue(payloadRecord(claim).subject));
+  if (claimSubjects.some(Boolean) && (!claimSubjects[0] || !claimSubjects[1] || !sameSubject(subject, claimSubjects[0]) || !sameSubject(subject, claimSubjects[1]))) {
+    return { reason: "claims do not describe the same normalized subject" };
+  }
+  const docsBySlug = new Map(docs.map((doc) => [doc.slug, doc]));
+  const firstDoc = docsBySlug.get(pair[0].slug);
+  const secondDoc = docsBySlug.get(pair[1].slug);
+  if (!firstDoc || !secondDoc) return { reason: "referenced page does not exist" };
+  if (firstDoc.title !== pair[0].title || secondDoc.title !== pair[1].title) return { reason: "referenced page title does not match current state" };
+  if (!firstDoc.bodyMd.includes(pair[0].quote) || !secondDoc.bodyMd.includes(pair[1].quote)) return { reason: "exact quote is missing from current page" };
+  if (!pair[0].quote.includes(pair[0].normalizedValue) || !pair[1].quote.includes(pair[1].normalizedValue)) return { reason: "normalized value is not present in quote" };
+  if (!relationIsValid(relation, subject, pair)) return { reason: "relation and values are not a supported conflict" };
+  const choices = raw.choices.map(choiceFromValue);
+  if (!choices[0] || !choices[1]) return { reason: "choice repair is incomplete" };
+  const choicePair = [choices[0], choices[1]] as [WikiConflictChoice, WikiConflictChoice];
+  if (choicePair[0].id !== "first" || choicePair[1].id !== "second") return { reason: "choices must be first then second" };
+  const expectedRepairs = { first: pair[1], second: pair[0] };
+  for (const choice of choicePair) {
+    const expected = expectedRepairs[choice.id];
+    const current = docsBySlug.get(choice.repair.slug);
+    if (!current || ![pair[0].slug, pair[1].slug].includes(choice.repair.slug)) return { reason: "repair targets an uncited page" };
+    if (choice.repair.slug !== expected.slug) return { reason: "choice must repair the page for the losing claim" };
+    if (choice.repair.title !== current.title) return { reason: "repair title does not match current page" };
+    if (choice.repair.currentMd !== current.bodyMd) return { reason: "repair current markdown is not byte-equal to current page" };
+    if (choice.repair.proposedMd === choice.repair.currentMd) return { reason: "repair proposed markdown makes no change" };
+  }
+  const payload: WikiConflictPayloadV2 = {
+    version: 2,
+    type: "contradiction",
+    relation,
+    subject,
+    explanation,
+    claims: pair,
+    choices: choicePair,
+    scopePath,
+  };
+  const sortedClaims = [...pair].sort((a, b) => a.slug.localeCompare(b.slug));
+  const fingerprint = [
+    "v2",
+    scopePath,
+    relation,
+    lowerStable(subject.entity),
+    lowerStable(subject.property),
+    lowerStable(subject.timeframe),
+    ...sortedClaims.flatMap((claim) => [claim.slug, claim.quote]),
+  ].join("|");
+  return {
+    finding: {
+      type: "contradiction",
+      severity: "warning",
+      message: explanation,
+      slugs: pair.map((claim) => claim.slug),
+      action: "flagged",
+      payload,
+      fingerprint,
+    },
+  };
 }
 
 async function createAttentionItemsForLintFindings(
@@ -660,6 +892,7 @@ async function createAttentionItemsForLintFindings(
     const open = await listAttentionItems(db, { scopePath, kind: "lint_finding", status: "open", limit: 200 }, actorPrincipalId);
     const existingKeys = new Set(open.map((item) => {
       const payload = payloadRecord(item.payload);
+      if (typeof payload.fingerprint === "string" && payload.fingerprint.startsWith("v2|")) return payload.fingerprint;
       return lintFindingKey({
         type: String(payload.type ?? "") as LintFinding["type"],
         slugs: Array.isArray(payload.slugs) ? payload.slugs.map(String) : [],
@@ -667,14 +900,16 @@ async function createAttentionItemsForLintFindings(
     }));
 
     for (const finding of scopeFindings) {
-      const key = lintFindingKey(finding);
+      const key = lintFindingFingerprint(finding);
       if (existingKeys.has(key)) continue;
       await createAttentionItem(db, {
         scopePath,
         kind: "lint_finding",
-        title: `Wiki lint: ${finding.type}`,
+        title: finding.type === "contradiction" ? "Two wiki pages disagree" : "This page may be out of date",
         summary: finding.message,
-        payload: { ...finding, scopePath },
+        payload: finding.payload
+          ? { ...finding.payload, scopePath, fingerprint: key }
+          : { ...finding, scopePath, fingerprint: key },
       }, actorPrincipalId);
       existingKeys.add(key);
     }
@@ -853,6 +1088,7 @@ async function ingestScope(
       prompt: promptWithJsonEnvelope("scope-ingest", {
         scopePath,
         wikiContract: "Update durable wiki pages in place with frontmatter, provenance-tagged Sources, and wikilinks.",
+        pagePurposeTaxonomy: PAGE_PURPOSE_TAXONOMY,
         routingRule: PERSON_VS_WORK_ROUTING_RULE,
         personalWikiTargets: personalTargets.map((target) => ({
           principalId: target.principalId,
@@ -997,7 +1233,7 @@ async function loadPersonalDocsForGraduation(
   for (const target of targets.slice(0, 20)) {
     const docs = await loadDocs(db, target.scopePath, actorPrincipalId);
     const pages = docs
-      .filter((doc) => doc.slug !== "lint-report" && !doc.slug.startsWith("lint-report"))
+      .filter((doc) => !isReservedOperationalWikiReportSlug(doc.slug))
       .slice(0, 5)
       .map(compactDoc);
     if (pages.length > 0) {
@@ -1100,6 +1336,7 @@ async function distillProjectOverview(
       prompt: promptWithJsonEnvelope("project-overview", {
         reservedSlug: "overview",
         instruction: "Write the project overview page. Cover what this project is, current state, and a recent-activity digest linking to changelog and decision record ids where available.",
+        pagePurposeTaxonomy: PAGE_PURPOSE_TAXONOMY,
         scope: { path: scope.path, name: scope.name, type: scope.type },
         since: since?.toISOString() ?? null,
         inputs: inputs.map(compactSource),
@@ -1155,7 +1392,7 @@ async function distillRoot(
     scopeDocs.push({
       scopePath,
       pages: docs
-        .filter((doc) => doc.slug === "wiki" || !doc.slug.startsWith("lint-report"))
+        .filter((doc) => !isReservedOperationalWikiReportSlug(doc.slug))
         .slice(0, 10)
         .map((doc) => ({ slug: doc.slug, title: doc.title, bodyMd: doc.bodyMd.slice(0, 2500) })),
     });
@@ -1170,6 +1407,7 @@ async function distillRoot(
       prompt: promptWithJsonEnvelope("root-distill", {
         rootReservedPages: ["critical-facts", "scope-map", "pattern-*"],
         instruction: "Write root pages. Pattern pages must be client-agnostic and exclude client-confidential specifics.",
+        pagePurposeTaxonomy: PAGE_PURPOSE_TAXONOMY,
         scopes: scopes.map((scope) => ({ path: scope.path, name: scope.name, type: scope.type, parentId: scope.parentId })),
         scopeDocs,
       }),
@@ -1255,10 +1493,11 @@ async function lintScope(
 ): Promise<LintScopeResult> {
   const docs = await loadDocs(db, scopePath, actorPrincipalId);
   if (docs.length === 0) return { findings: [], graduationProposals: [] };
+  const currentDocs = docs.filter((doc) => !isReservedOperationalWikiReportSlug(doc.slug));
   const findings: LintFinding[] = [];
   findings.push(...await fixIndexLinks(db, scopePath, docs, actorPrincipalId));
   findings.push(...await mergeExactDuplicates(db, scopePath, docs, actorPrincipalId));
-  findings.push(...staleFindings(docs, deps.now ?? new Date()));
+  findings.push(...staleFindings(currentDocs, deps.now ?? new Date()));
 
   const skill = await getSkill(db, { name: WIKI_MAINTENANCE_SKILL }, actorPrincipalId);
   const response = await callLlm(
@@ -1270,8 +1509,8 @@ async function lintScope(
       system: skill.body,
       prompt: promptWithJsonEnvelope("lint-scope", {
         scopePath,
-        instruction: "Find contradictions only. Return JSON findings; do not ask to auto-fix contradictions.",
-        pages: docs.map(compactDoc),
+        instruction: "Find contradictions only when two existing pages make exact quoted claims about the same entity, property, and timeframe. Use only scalar-mismatch, opposite-boolean, or exclusive-status. Never treat process completion as approval, acceptance, or success. Return a V2 evidence finding with one safe one-page repair for each possible outcome.",
+        pages: currentDocs.map(compactDoc),
       }),
       maxTokens: Math.max(1, runTokenCeiling - counters.tokens),
     },
@@ -1283,19 +1522,19 @@ async function lintScope(
   );
   const parsed = parseJsonObjectResult<LintOutput>(response.text, { findings: [] });
   const rawFindings = Array.isArray(parsed.value.findings) ? parsed.value.findings : [];
-  const usableFindings = rawFindings.filter(usableFinding);
+  const validated = rawFindings.map((finding) => validateWikiConflictFinding(finding, scopePath, currentDocs));
+  const llmFindings = validated.flatMap((result) => result.finding ? [result.finding] : []);
+  const rejectedReasons = validated.flatMap((result) => result.reason ? [result.reason] : []);
   const parseFailure = !parsed.ok
     ? outputFailure(counters, parsed.reason ?? "invalid JSON", response.text)
-    : rawFindings.length > 0 && usableFindings.length === 0
-      ? outputFailure(counters, "zero usable findings", response.text)
+    : rejectedReasons.length > 0
+      ? outputFailure(counters, `unsupported-conflict: ${rejectedReasons[0] ?? "invalid V2 finding"}`, response.text)
       : undefined;
-  const llmFindings = usableFindings
-    .map((finding) => ({ ...finding, action: "flagged" as const, severity: "warning" as const }));
   findings.push(...llmFindings);
   const graduation = await graduationProposalsForScope(
     db,
     scopePath,
-    docs,
+    currentDocs,
     actorPrincipalId,
     deps,
     counters,
@@ -1303,10 +1542,6 @@ async function lintScope(
     monthlyTokenBudget
   );
 
-  if (findings.some((finding) => finding.action === "flagged" || finding.type === "orphan")) {
-    await saveLintReport(db, scopePath, findings, actorPrincipalId, deps.now ?? new Date());
-    counters.pagesTouched += 1;
-  }
   return { findings, graduationProposals: graduation.proposals, parseFailure: parseFailure ?? graduation.parseFailure };
 }
 
@@ -1321,7 +1556,7 @@ async function fixIndexLinks(
   const reachable = reachableSlugs(index.bodyMd, docs);
   const topicSlugs = docs
     .map((doc) => doc.slug)
-    .filter((slug) => slug !== "wiki" && slug !== "lint-report" && !slug.startsWith("lint-report"));
+    .filter((slug) => slug !== "wiki" && !isReservedOperationalWikiReportSlug(slug));
   const missing = topicSlugs.filter((slug) => !reachable.has(slug));
   if (missing.length === 0) return [];
   const bodyMd = `${index.bodyMd.trim()}\n\n## Linked topic pages\n\n${missing.map((slug) => `- [[${slug}]]`).join("\n")}\n`;
@@ -1329,7 +1564,7 @@ async function fixIndexLinks(
   return missing.map((slug) => ({
     type: "orphan" as const,
     severity: "warning" as const,
-    message: `Linked orphaned page [[${slug}]] from the wiki index.`,
+    message: `Added ${slug} to the wiki menu so the page is easier to find.`,
     slugs: [slug],
     action: "auto-fixed" as const,
   }));
@@ -1367,7 +1602,7 @@ async function mergeExactDuplicates(
 ): Promise<LintFinding[]> {
   const findings: LintFinding[] = [];
   const seen = new Map<string, LoadedDoc>();
-  for (const doc of docs.filter((row) => row.slug !== "wiki" && !row.slug.startsWith("lint-report"))) {
+  for (const doc of docs.filter((row) => row.slug !== "wiki" && !isReservedOperationalWikiReportSlug(row.slug))) {
     const normalized = normalizeBody(doc.bodyMd);
     if (!normalized) continue;
     const existing = seen.get(normalized);
@@ -1380,7 +1615,7 @@ async function mergeExactDuplicates(
     findings.push({
       type: "duplicate",
       severity: "info",
-      message: `Archived exact duplicate [[${loser.slug}]].`,
+      message: `Removed an extra copy of ${loser.slug}; the matching page remains available.`,
       slugs: [existing.slug, doc.slug],
       action: "auto-fixed",
     });
@@ -1403,12 +1638,22 @@ function staleFindings(docs: LoadedDoc[], now: Date): LintFinding[] {
     if (!staleAfter) return [];
     const staleDate = new Date(staleAfter);
     if (Number.isNaN(staleDate.getTime()) || staleDate.getTime() > now.getTime()) return [];
+    const payload: WikiStalePayloadV2 = {
+      version: 2,
+      type: "stale",
+      slug: doc.slug,
+      title: doc.title,
+      currentMd: doc.bodyMd,
+      reviewDueAt: staleAfter,
+    };
     return [{
       type: "stale" as const,
       severity: "warning" as const,
-      message: `Stale claim review elapsed for [[${doc.slug}]] (${staleAfter}).`,
+      message: `${doc.title} may need a fresh review because its review date has passed (${staleAfter}).`,
       slugs: [doc.slug],
       action: "flagged" as const,
+      payload,
+      fingerprint: `v2|stale|${doc.slug}|${staleAfter}`,
     }];
   });
 }
@@ -1423,31 +1668,6 @@ function frontmatterValue(bodyMd: string, key: string): string | null {
     return (pair[1] ?? "").replace(/^["']|["']$/g, "").trim();
   }
   return null;
-}
-
-async function saveLintReport(
-  db: DB,
-  scopePath: string,
-  findings: LintFinding[],
-  actorPrincipalId: string,
-  now: Date
-): Promise<void> {
-  const body = [
-    `---`,
-    `learned_at: "${iso(now)}"`,
-    `verified_at: "${iso(now)}"`,
-    `confidence: high`,
-    `---`,
-    ``,
-    `# Lint Report`,
-    ``,
-    ...findings.map((finding) => `- ${finding.severity}: ${finding.type} (${finding.action}) - ${finding.message} ${finding.slugs.map((slug) => `[[${slug}]]`).join(" ")}`),
-    ``,
-    `## Sources`,
-    ``,
-    `- extracted: brain lint run (${iso(now)})`,
-  ].join("\n");
-  await saveDoc(db, { scopePath, slug: "lint-report", title: "Lint Report", bodyMd: body }, actorPrincipalId);
 }
 
 export function createLiteLlmBrainClient(config: LiteLlmBrainClientConfig): BrainLlmClient {

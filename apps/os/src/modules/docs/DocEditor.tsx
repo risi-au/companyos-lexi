@@ -10,6 +10,9 @@ import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
 import {
   parseAliasList,
+  PAGE_CATEGORY_OPTIONS,
+  pageDisplayCategory,
+  parsePageCategory,
   parseFrontmatter,
   parseStructuredMarkdown,
   reattachFrontmatter,
@@ -28,6 +31,8 @@ export {
   reattachFrontmatter,
   splitTrailingSources,
   parseStructuredMarkdown,
+  pageDisplayCategory,
+  parsePageCategory,
   serializeStructuredMarkdown,
   wikilinksToMarkdown,
 };
@@ -56,9 +61,9 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 
 export function buildMetadataChips(metadata: Record<string, string>): string[] {
   const chips: string[] = [];
-  if (metadata.verified_at) chips.push(`Verified ${formatDateChip(metadata.verified_at)}`);
-  if (metadata.learned_at) chips.push(`Learned ${formatDateChip(metadata.learned_at)}`);
-  if (metadata.confidence) chips.push(`Confidence: ${metadata.confidence}`);
+  if (metadata.verified_at) chips.push(`Checked ${formatDateChip(metadata.verified_at)}`);
+  if (metadata.learned_at) chips.push(`Kept up to date by CompanyOS ${formatDateChip(metadata.learned_at)}`);
+  if (metadata.confidence) chips.push(`How sure CompanyOS is: ${metadata.confidence}`);
   if (metadata.stale_after) chips.push(`Review by ${formatDateChip(metadata.stale_after)}`);
   return chips;
 }
@@ -259,6 +264,7 @@ export function DocEditor({
       setFormDraft((current) => {
         const next = cloneForm(current);
         next.originalAliases = [...next.aliases];
+        next.originalCategory = next.category;
         next.frontmatterRaw = parseFrontmatter(md).raw;
         return next;
       });
@@ -407,7 +413,7 @@ export function DocEditor({
       <div key={section.id} className="rounded-[var(--radius-sm)] border border-[var(--border)] p-[var(--space-3)]">
         <div className="mb-[var(--space-2)] flex items-center justify-between gap-[var(--space-2)]">
           <div className="text-[var(--font-size-xs)] font-medium uppercase text-[var(--muted-foreground)]">
-            {section.kind === "markdown" ? "Markdown block" : "Section"}
+            {section.kind === "markdown" ? "Advanced content" : "Section"}
           </div>
           <div className="flex items-center gap-[var(--space-1)]">
             <button
@@ -493,7 +499,7 @@ export function DocEditor({
               <div className="mt-[var(--space-2)] flex flex-wrap gap-[var(--space-1)]">
                 {unreviewed && (
                   <span className="rounded-[var(--radius-sm)] border border-[var(--accent)] bg-[var(--muted)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-xs)] text-[var(--accent)]">
-                    Unreviewed
+                    Needs a quick check
                   </span>
                 )}
                 {readPresentation.chips.map((chip) => (
@@ -531,9 +537,11 @@ export function DocEditor({
                   onClick={onToggleFollow}
                   disabled={isFollowBusy}
                   className="inline-flex min-h-[36px] items-center gap-[var(--space-1)] rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-2)] text-[var(--font-size-sm)] hover:bg-[var(--muted)] disabled:opacity-60"
+                  aria-label={isFollowing ? "Notifications on" : "Notify me"}
+                  title={isFollowing ? "Notifications on" : "Notify me"}
                 >
                   <Bell size={14} />
-                  {isFollowing ? "Following" : "Follow"}
+                  {isFollowing ? "Notifications on" : "Notify me"}
                   {isFollowing && <Check size={14} />}
                 </button>
               )}
@@ -542,8 +550,10 @@ export function DocEditor({
                   onClick={verifyPage}
                   disabled={isVerifying}
                   className="inline-flex min-h-[36px] items-center gap-[var(--space-1)] rounded-[var(--radius-sm)] border border-[var(--border)] px-[var(--space-2)] text-[var(--font-size-sm)] hover:bg-[var(--muted)] disabled:opacity-60"
+                  aria-label="Mark as correct"
+                  title="Mark as correct"
                 >
-                  <ShieldCheck size={14} /> {isVerifying ? "Verifying..." : "Mark verified"}
+                  <ShieldCheck size={14} /> {isVerifying ? "Marking..." : "Mark as correct"}
                 </button>
               )}
               {!readOnly && (
@@ -567,14 +577,14 @@ export function DocEditor({
                   onClick={() => switchWriteMode("form")}
                   className={`min-h-[32px] px-[var(--space-2)] ${writeMode === "form" ? "bg-[var(--primary)] text-[var(--primary-foreground)]" : "hover:bg-[var(--muted)]"}`}
                 >
-                  Form
+                  Simple
                 </button>
                 <button
                   type="button"
                   onClick={() => switchWriteMode("markdown")}
                   className={`min-h-[32px] border-l border-[var(--border)] px-[var(--space-2)] ${writeMode === "markdown" ? "bg-[var(--primary)] text-[var(--primary-foreground)]" : "hover:bg-[var(--muted)]"}`}
                 >
-                  Markdown
+                  Advanced
                 </button>
               </div>
               <div>{readOnly ? "Read only" : "Autosaves as you work"}</div>
@@ -607,7 +617,24 @@ export function DocEditor({
             </label>
 
             <label className="block text-[var(--font-size-xs)] font-medium uppercase text-[var(--muted-foreground)]">
-              Aliases
+              Page type
+              <select
+                value={formDraft.category}
+                onChange={(e) => updateForm((form) => {
+                  form.category = e.target.value as typeof form.category;
+                  return form;
+                })}
+                className="mt-[var(--space-1)] w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--font-size-sm)] normal-case text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
+              >
+                <option value="">Other pages</option>
+                {PAGE_CATEGORY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block text-[var(--font-size-xs)] font-medium uppercase text-[var(--muted-foreground)]">
+              Also known as
               <textarea
                 value={formDraft.aliases.join(", ")}
                 onChange={(e) => updateForm((form) => {
@@ -620,7 +647,7 @@ export function DocEditor({
             </label>
 
             <label className="block text-[var(--font-size-xs)] font-medium uppercase text-[var(--muted-foreground)]">
-              Definition
+              What this is
               <textarea
                 value={formDraft.definition}
                 onChange={(e) => updateForm((form) => {
@@ -633,7 +660,7 @@ export function DocEditor({
             </label>
 
             <label className="block text-[var(--font-size-xs)] font-medium uppercase text-[var(--muted-foreground)]">
-              Details
+              More detail
               <textarea
                 value={formDraft.details}
                 onChange={(e) => updateForm((form) => {
@@ -647,7 +674,7 @@ export function DocEditor({
 
             <div className="space-y-[var(--space-2)]">
               <div className="flex items-center justify-between gap-[var(--space-2)]">
-                <div className="text-[var(--font-size-xs)] font-medium uppercase text-[var(--muted-foreground)]">Sections</div>
+                <div className="text-[var(--font-size-xs)] font-medium uppercase text-[var(--muted-foreground)]">Page sections</div>
                 <button
                   type="button"
                   onClick={() => updateForm((form) => {

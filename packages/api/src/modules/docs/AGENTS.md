@@ -1,6 +1,6 @@
 # packages/api/src/modules/docs — AGENTS.md
 
-Knowledge base/wiki module (M3-01 + M8-01 + M10-04A): per-scope documents with markdown as canonical body. Revisions preserved (last 50), soft archive, slug uniqueness per scope with auto-suffix on derived slugs. Agents + HTTP + UI all use the same service layer. M8-01 adds wikilink extraction/backlinks and deferred semantic embeddings. M10-04A adds alias-aware wikilinks, subtree wiki browsing rows, and human-only page verification state stored in frontmatter. M10-04B adds per-page following, human-only auto-follow on create/verify, and coalesced follower notifications through targeted attention items. M10-05 adds code-shipped `cos-*` root self-doc pages seeded only when missing.
+Knowledge base/wiki module (M3-01 + M8-01 + M10-04A): per-scope documents with markdown as canonical body. Revisions preserved (last 50), soft archive, slug uniqueness per scope with auto-suffix on derived slugs. Agents + HTTP + UI all use the same service layer. M8-01 adds wikilink extraction/backlinks and deferred semantic embeddings. M10-04A adds alias-aware wikilinks, subtree wiki browsing rows, and human-only page verification state stored in frontmatter. M10-04B adds per-page following, human-only auto-follow on create/verify, and coalesced follower notifications through targeted attention items. M10-05 adds code-shipped `cos-*` root self-doc pages seeded only when missing. Wiki clarity adds page-purpose grouping from `category` frontmatter and hides legacy operational report pages from normal listings.
 
 ## Purpose
 Markdown-canonical wiki pages for scopes. Supports save (upsert by slug), get, list (excludes archived), rename, archive (soft), revisions + revert, backlinks, and human verification. All mutations emit kernel events. Viewer/editor/agent grants control access; verification requires a human principal with editor access.
@@ -37,10 +37,10 @@ All take `db: DB` first. Re-exported from `@companyos/api`.
 - `saveDoc(db, {scopePath, slug?, title, bodyMd?}, actor)`: editor/agent. Slug defaults to slugify(title) with -2/-3 suffix on collision for auto case. Upsert by (scope,slug). Appends revision + prune. Extracts links, resolves inbound exact/alias links, emits `doc.saved`, and enqueues embedding refresh.
 - `extractLinksForDocument(db, documentId, actor?)`: replaces that document's `doc_links` rows from wikilinks. Same-wiki links use `[[slug]]`; labelled links use `[[label|slug]]`; cross-wiki links use `[[scope-path:slug]]`. Exact slug matches win, then same-target-scope frontmatter `aliases:` match by normalized slug.
 - `getDoc(db, {scopePath, slug}, actor)`: viewer. Returns full or null. (returns archived too)
-- `verifyDoc(db, {scopePath, slug}, actor)`: editor + human principal only. Writes `verified_at` and `verified_by` frontmatter keys without changing the markdown body, appends a revision, emits `doc.verified`, and auto-follows the verifier.
-- `getBacklinks(db, {scopePath, slug}, actor)`: viewer. Returns source docs that link to the target slug in that scope, including alias links resolved to the target document id.
-- `getLinkGraph(db, {scopePath}, actor)`: viewer. Returns nodes and edges for docs in the requested subtree; `root` means the whole instance.
-- `listDocs(db, {scopePath, includeArchived?, includeDescendants?}, actor)`: viewer. Returns {id,slug,title,updatedAt,createdByKind,scopePath,unreviewed}[] ordered by scope path, position, then title. Excludes archived unless flag. `unreviewed` is true when the latest revision was saved by an agent and `verified_at` is absent or older than `learned_at`.
+- `verifyDoc(db, {scopePath, slug, nextReviewAt?}, actor)`: editor + human principal only. Writes `verified_at` and `verified_by` frontmatter keys without changing the markdown body, and when `nextReviewAt` is supplied it must be a real future date and is written as `stale_after` in the same update. A date-only value means the end of that named UTC calendar day. Appends a revision, emits `doc.verified`, and auto-follows the verifier.
+- `getBacklinks(db, {scopePath, slug}, actor)`: viewer. Returns source docs that link to the target slug in that scope, including alias links resolved to the target document id. Legacy operational report pages are excluded from normal backlink sources.
+- `getLinkGraph(db, {scopePath}, actor)`: viewer. Returns nodes and edges for docs in the requested subtree; `root` means the whole instance. Legacy operational report pages are excluded from graph nodes and edges.
+- `listDocs(db, {scopePath, includeArchived?, includeDescendants?}, actor)`: viewer. Returns {id,slug,title,updatedAt,createdByKind,scopePath,unreviewed,displayCategory}[] ordered by scope path, position, then title. Excludes archived unless flag and always excludes legacy operational report slugs from normal listing. `displayCategory` is additive and maps reserved pages plus `category` frontmatter into Start here, Current work, Decisions and policies, Guides and processes, Reference, or Other pages. `unreviewed` is true when the latest revision was saved by an agent and `verified_at` is absent or older than `learned_at`.
 - `renameDoc(db, {scopePath, slug, newTitle?, newSlug?}, actor)`: editor/agent. Changes title and/or slug (validates unique on change). Emits `doc.renamed`.
 - `archiveDoc(db, {scopePath, slug}, actor)`: editor/agent. Sets archived_at. Emits `doc.archived`. No hard delete.
 - `listRevisions(db, {scopePath, slug, limit?}, actor)`: viewer.
@@ -54,7 +54,7 @@ Slugify: lower, [a-z0-9-]+ only, collision suffix only on defaulted slug from ti
 ## Files
 - `src/modules/docs/service.ts`
 - `src/modules/docs/follows.ts`
-- `src/modules/docs/self-docs.ts` - exported `cos-*` product manual page constants plus `ensureSelfDocs(db)` seed-if-missing root wiki seeder
+- `src/modules/docs/self-docs.ts` - exported `cos-*` product manual page constants plus `ensureSelfDocs(db)` seed-if-missing root wiki seeder. Shipped Wiki guidance uses the same plain vocabulary as the UI: Wiki health, Wiki question, Needs a quick check, Notify me, Notifications on, Suggested Wiki update, Apply update, Keep current page, and Past versions.
 - `src/modules/docs/AGENTS.md`
 - `src/modules/docs/docs.test.ts`
 - Semantic/link tables: `packages/db/src/schema/documents.ts`, migration `0018_semantic_layer.sql`
@@ -79,6 +79,8 @@ Tests cover: migrations, access matrix, save/get/list roundtrip (byte exact md),
 - Save/revert extracts `[[slug]]`, `[[label|slug]]`, and `[[scope-path:slug]]` links into `doc_links`.
 - Frontmatter `aliases:` accepts YAML list or comma string and participates in wikilink resolution without new columns or indexes.
 - Verification metadata is frontmatter-only; no schema migration is used for review state.
+- Page purpose is frontmatter-only. Valid topic categories are `current-work`, `decisions-policies`, `guides-processes`, and `reference`; unknown or missing values display as Other pages. Reserved slugs map deterministically: `wiki`, `overview`, and root `critical-facts`/`scope-map` are Start here; root `pattern-*` pages are Guides and processes.
+- Legacy operational report slugs matched by `isReservedOperationalWikiReportSlug` stay available through authorized `getDoc` but are hidden from normal list, backlink source, and graph retrieval.
 - Followed page changes fan out inline after `doc.saved`, `doc.verified`, `doc.renamed`, `doc.archived`, and `doc.reverted`. Each follower except the actor gets one open targeted `page_update` attention item per page; later changes coalesce until dismissed.
 - Save/revert queues a deferred document embedding refresh through `lib/embeddings.ts`; LiteLLM failures must not fail document writes.
 - `ensureSelfDocs` creates the reserved root `cos-*` manual pages only when a slug is absent; it never refreshes or overwrites existing admin-edited pages.

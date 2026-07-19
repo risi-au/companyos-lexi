@@ -18,6 +18,7 @@ import {
   listConversations,
   getConversationMessages,
   saveDoc,
+  createAttentionItem,
   type LLMConfig,
 } from "../../index";
 
@@ -117,6 +118,62 @@ describe("resident agent (M3-04) with mocked LiteLLM fixture", () => {
   async function ensureRootAdmin(): Promise<void> {
     await ensureRootScope();
     await grantRole(db, { principalId: actorId, scopePath: "root", role: "admin" }, rootId);
+  }
+
+  async function seedWikiQuestion() {
+    await saveDoc(db, {
+      scopePath: demoScopePath,
+      slug: "pricing",
+      title: "Pricing",
+      bodyMd: "The current launch price is $20 per seat.",
+    }, actorId);
+    await saveDoc(db, {
+      scopePath: demoScopePath,
+      slug: "sales",
+      title: "Sales Notes",
+      bodyMd: "The current launch price is $30 per seat.",
+    }, actorId);
+
+    return createAttentionItem(db, {
+      scopePath: demoScopePath,
+      kind: "lint_finding",
+      title: "Wiki lint: contradiction",
+      summary: "Two wiki pages disagree about launch price.",
+      payload: {
+        version: 2,
+        type: "contradiction",
+        relation: "scalar-mismatch",
+        subject: { entity: "Launch plan", property: "price", timeframe: "current" },
+        explanation: "Two wiki pages disagree about the current launch price.",
+        claims: [
+          { slug: "pricing", title: "Pricing", quote: "The current launch price is $20 per seat.", normalizedValue: "$20 per seat" },
+          { slug: "sales", title: "Sales Notes", quote: "The current launch price is $30 per seat.", normalizedValue: "$30 per seat" },
+        ],
+        choices: [
+          {
+            id: "first",
+            label: "Use $20 per seat",
+            repair: {
+              slug: "sales",
+              title: "Sales Notes",
+              currentMd: "The current launch price is $30 per seat.",
+              proposedMd: "The current launch price is $20 per seat.",
+            },
+          },
+          {
+            id: "second",
+            label: "Use $30 per seat",
+            repair: {
+              slug: "pricing",
+              title: "Pricing",
+              currentMd: "The current launch price is $20 per seat.",
+              proposedMd: "The current launch price is $30 per seat.",
+            },
+          },
+        ],
+        scopePath: demoScopePath,
+      },
+    }, actorId);
   }
 
   it("mocked multi-step tool turn persists messages and returns final + emits event", async () => {
@@ -272,5 +329,185 @@ describe("resident agent (M3-04) with mocked LiteLLM fixture", () => {
     const resultText = JSON.stringify(res.toolTrace[0]!.result);
     expect(resultText).toContain(demoScopePath);
     expect(resultText).not.toContain(other.path);
+  });
+
+  it("lists once, inspects the selected Wiki question with both current page snapshots, then answers within three model responses", async () => {
+    const item = await seedWikiQuestion();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => makeToolCallResponse("list_things_to_resolve", { limit: 10 }, "call_list") })
+      .mockResolvedValueOnce({ ok: true, json: async () => makeToolCallResponse("inspect_thing_to_resolve", { id: item.id }, "call_inspect") })
+      .mockResolvedValueOnce({ ok: true, json: async () => makeFinalResponse("Two wiki pages disagree: Pricing says $20 and Sales Notes says $30. Use one of the offered actions to apply the matching Suggested wiki update.") });
+    (globalThis as any).fetch = fetchMock;
+
+    const res = await runTurn(db, { scopePath: demoScopePath, userMessage: "What is this Things to resolve Wiki question about?" }, actorId, llm);
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(res.finalText).toContain("Two wiki pages disagree");
+    expect(res.toolTrace.map((tool) => tool.name)).toEqual(["list_things_to_resolve", "inspect_thing_to_resolve"]);
+    expect(res.toolTrace.map((tool) => tool.name)).not.toEqual(expect.arrayContaining(["search", "recall_memory"]));
+    expect(res.toolTrace[0]!.result).toEqual([expect.objectContaining({
+      id: item.id,
+      label: "Two wiki pages disagree",
+      title: "Wiki question",
+    })]);
+    expect(res.toolTrace[1]!.result.referencedPages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ slug: "pricing", title: "Pricing", bodyMd: "The current launch price is $20 per seat.", scopePath: demoScopePath }),
+      expect.objectContaining({ slug: "sales", title: "Sales Notes", bodyMd: "The current launch price is $30 per seat.", scopePath: demoScopePath }),
+    ]));
+    expect(res.citations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ slug: "pricing", title: "Pricing", scopePath: demoScopePath, source: "scope" }),
+      expect.objectContaining({ slug: "sales", title: "Sales Notes", scopePath: demoScopePath, source: "scope" }),
+    ]));
+  });
+
+  it("directly inspects a Wiki question when the id is supplied", async () => {
+    const item = await seedWikiQuestion();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => makeToolCallResponse("inspect_thing_to_resolve", { id: item.id }, "call_inspect") })
+      .mockResolvedValueOnce({ ok: true, json: async () => makeFinalResponse("Inspected the Wiki question.") });
+    (globalThis as any).fetch = fetchMock;
+
+    const res = await runTurn(db, { scopePath: demoScopePath, userMessage: `Explain Things to resolve item ${item.id}` }, actorId, llm);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(res.toolTrace.map((tool) => tool.name)).toEqual(["inspect_thing_to_resolve"]);
+    expect(res.toolTrace[0]!.result.structuredItem.id).toBe(item.id);
+    expect(res.toolTrace[0]!.result.referencedPages).toHaveLength(2);
+    expect(res.citations).toHaveLength(2);
+  });
+
+  it("captures get_doc citations and refuses reserved Wiki health history pages through Ask OS", async () => {
+    await saveDoc(db, {
+      scopePath: demoScopePath,
+      slug: "operating-plan",
+      title: "Operating Plan",
+      bodyMd: "The operating plan is current.",
+    }, actorId);
+    await saveDoc(db, {
+      scopePath: demoScopePath,
+      slug: "lint-report-2026-07-19",
+      title: "Wiki health history",
+      bodyMd: "Operational history.",
+    }, actorId);
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => makeToolCallsResponse([
+          { id: "call_doc", name: "get_doc", args: { slug: "operating-plan" } },
+          { id: "call_reserved", name: "get_doc", args: { slug: "lint-report-2026-07-19" } },
+        ]),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => makeFinalResponse("Cited the operating plan and skipped the reserved page.") });
+    (globalThis as any).fetch = fetchMock;
+
+    const res = await runTurn(db, { scopePath: demoScopePath, userMessage: "Read the operating plan and the report" }, actorId, llm);
+
+    expect(res.toolTrace[0]!.result.slug).toBe("operating-plan");
+    expect(res.toolTrace[1]!.error).toContain("Reserved Wiki health history pages");
+    expect(res.citations).toEqual([{
+      slug: "operating-plan",
+      scopePath: demoScopePath,
+      source: "scope",
+      title: "Operating Plan",
+    }]);
+  });
+
+  it("does not run broad search or recall on the Wiki-question path", async () => {
+    const item = await seedWikiQuestion();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => makeToolCallResponse("inspect_thing_to_resolve", { id: item.id }, "call_inspect") })
+      .mockResolvedValueOnce({ ok: true, json: async () => makeFinalResponse("Answered from the inspected Wiki question.") });
+    (globalThis as any).fetch = fetchMock;
+
+    const res = await runTurn(db, { scopePath: demoScopePath, userMessage: `What should I do with notification ${item.id}?` }, actorId, llm);
+
+    expect(res.toolTrace.map((tool) => tool.name)).not.toEqual(expect.arrayContaining(["search", "recall_memory"]));
+    const firstRequest = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string);
+    expect(firstRequest.messages[0].content).toContain("inspect that item first");
+    expect(firstRequest.messages[0].content).toContain("Do not begin that path with broad search or recall_memory");
+  });
+
+  it("blocks a broad lookup until the requested Wiki question has been inspected", async () => {
+    const item = await seedWikiQuestion();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => makeToolCallResponse("search", { query: "launch price" }, "call_search") })
+      .mockResolvedValueOnce({ ok: true, json: async () => makeToolCallResponse("inspect_thing_to_resolve", { id: item.id }, "call_inspect") })
+      .mockResolvedValueOnce({ ok: true, json: async () => makeFinalResponse("Answered from the inspected Wiki question.") });
+    (globalThis as any).fetch = fetchMock;
+
+    const res = await runTurn(db, { scopePath: demoScopePath, userMessage: `Explain Wiki question ${item.id}` }, actorId, llm);
+
+    expect(res.toolTrace[0]!.error).toContain("Inspect the relevant Wiki question first");
+    expect(res.toolTrace[1]!.result.found).toBe(true);
+  });
+
+  it("recognizes the old Wiki health wording and blocks broad lookup until inspection", async () => {
+    const item = await seedWikiQuestion();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => makeToolCallResponse("search", { query: "intake workflow completed" }, "call_search") })
+      .mockResolvedValueOnce({ ok: true, json: async () => makeToolCallResponse("inspect_thing_to_resolve", { id: item.id }, "call_inspect") })
+      .mockResolvedValueOnce({ ok: true, json: async () => makeFinalResponse("The cited pages are the source for this question.") });
+    (globalThis as any).fetch = fetchMock;
+
+    const res = await runTurn(db, {
+      scopePath: demoScopePath,
+      userMessage: `Explain this lint finding: Wiki lint: contradiction. Item ${item.id}`,
+    }, actorId, llm);
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(res.toolTrace[0]!.error).toContain("Inspect the relevant Wiki question first");
+    expect(res.toolTrace[1]!.result.found).toBe(true);
+    expect(res.toolTrace.map((tool) => tool.name)).not.toContain("recall_memory");
+  });
+
+  it("does not execute an identical repeated tool call twice", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => makeToolCallsResponse([
+          { id: "call_context_1", name: "get_context", args: {} },
+          { id: "call_context_2", name: "get_context", args: {} },
+        ]),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => makeFinalResponse("Used the earlier result.") });
+    (globalThis as any).fetch = fetchMock;
+
+    const res = await runTurn(db, { scopePath: demoScopePath, userMessage: "repeat context" }, actorId, llm);
+
+    expect(res.toolTrace).toHaveLength(2);
+    expect(res.toolTrace[1]!.result).toMatchObject({
+      repeatedCall: true,
+      message: expect.stringContaining("already ran"),
+    });
+  });
+
+  it("allows ordinary requests to use more than three model responses", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => makeToolCallResponse("get_context", { step: 1 }, "call_1") })
+      .mockResolvedValueOnce({ ok: true, json: async () => makeToolCallResponse("get_context", { step: 2 }, "call_2") })
+      .mockResolvedValueOnce({ ok: true, json: async () => makeToolCallResponse("get_context", { step: 3 }, "call_3") })
+      .mockResolvedValueOnce({ ok: true, json: async () => makeToolCallResponse("get_context", { step: 4 }, "call_4") })
+      .mockResolvedValueOnce({ ok: true, json: async () => makeFinalResponse("Finished the ordinary multi-step request.") });
+    (globalThis as any).fetch = fetchMock;
+
+    const res = await runTurn(db, { scopePath: demoScopePath, userMessage: "work through this ordinary multi-step request" }, actorId, llm);
+
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(res.finalText).toBe("Finished the ordinary multi-step request.");
+  });
+
+  it("returns a friendly fallback after three Wiki-question responses instead of a max-iterations placeholder", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => makeToolCallResponse("get_context", {}, "call_1") })
+      .mockResolvedValueOnce({ ok: true, json: async () => makeToolCallResponse("get_context", {}, "call_2") })
+      .mockResolvedValueOnce({ ok: true, json: async () => makeToolCallResponse("get_context", {}, "call_3") });
+    (globalThis as any).fetch = fetchMock;
+
+    const res = await runTurn(db, { scopePath: demoScopePath, userMessage: "keep looping on this Wiki question" }, actorId, llm);
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(res.finalText).toContain("could not finish a complete answer");
+    expect(res.finalText).not.toContain("max iterations");
   });
 });

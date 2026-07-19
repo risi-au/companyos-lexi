@@ -84,6 +84,7 @@ import {
   listAttentionItems,
   countOpenAttentionItems,
   resolveAttentionItem,
+  resolveWikiQuestionAttentionItem,
   rejectIntakePacket,
   dismissIntakePacket,
   reopenIntakePacket,
@@ -364,6 +365,8 @@ export const api = {
     countOpenAttentionItems(db, input, actorPrincipalId),
   resolveAttentionItem: (input: Parameters<typeof resolveAttentionItem>[1], actorPrincipalId: string) =>
     resolveAttentionItem(db, input, actorPrincipalId),
+  resolveWikiQuestionAttentionItem: (input: Parameters<typeof resolveWikiQuestionAttentionItem>[1], actorPrincipalId: string) =>
+    resolveWikiQuestionAttentionItem(db, input, actorPrincipalId),
   rejectIntakePacket: (input: Parameters<typeof rejectIntakePacket>[1], actorPrincipalId: string) =>
     rejectIntakePacket(db, input, actorPrincipalId),
   dismissIntakePacket: (input: Parameters<typeof dismissIntakePacket>[1], actorPrincipalId: string) =>

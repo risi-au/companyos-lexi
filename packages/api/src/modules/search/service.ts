@@ -1,5 +1,5 @@
 import { and, desc, eq, like, or, sql } from "drizzle-orm";
-import { documents, embeddings, records, scopes } from "@companyos/db";
+import { documents, embeddings, notReservedOperationalWikiReportSlug, records, scopes } from "@companyos/db";
 import { type DB } from "../../kernel/events";
 import { requireAccess } from "../../kernel/grants";
 import { getScope } from "../../kernel/scopes";
@@ -90,7 +90,7 @@ async function keywordSearch(db: DB, scopePath: string, query: string, kinds: Se
       })
       .from(documents)
       .innerJoin(scopes, eq(documents.scopeId, scopes.id))
-      .where(and(scopeMatch, sql`${documents.archivedAt} is null`, sql`${vector} @@ ${tsquery}`))
+      .where(and(scopeMatch, sql`${documents.archivedAt} is null`, notReservedOperationalWikiReportSlug(documents.slug), sql`${vector} @@ ${tsquery}`))
       .orderBy(desc(sql`rank`))
       .limit(limit)) as RankedSearchHit[];
 
@@ -142,7 +142,7 @@ async function semanticSearch(db: DB, scopePath: string, queryEmbedding: number[
       .from(embeddings)
       .innerJoin(documents, eq(embeddings.entityId, documents.id))
       .innerJoin(scopes, eq(documents.scopeId, scopes.id))
-      .where(and(scopeMatch, eq(embeddings.entityType, "doc"), sql`${documents.archivedAt} is null`))
+      .where(and(scopeMatch, eq(embeddings.entityType, "doc"), sql`${documents.archivedAt} is null`, notReservedOperationalWikiReportSlug(documents.slug)))
       .orderBy(sql`${embeddings.embedding} <=> ${queryVector}`)
       .limit(candidatesPerKind)) as RankedSearchHit[];
     hits.push(...rows.map((row) => ({ ...row, source: "semantic" as const })));

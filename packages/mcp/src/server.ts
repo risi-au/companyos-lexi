@@ -63,7 +63,9 @@ import {
   updateIntakePacket,
   approveIntakePacket,
   listAttentionItems,
+  parseWikiQuestionPayload,
   resolveAttentionItem,
+  resolveWikiQuestionAttentionItem,
   provisionFromIntakePacket,
   listCredentials,
   getCredentialValue,
@@ -140,6 +142,40 @@ function formatDate(d: Date | string | null | undefined): string {
   if (!d) return "";
   const dt = d instanceof Date ? d : new Date(d);
   return dt.toISOString().slice(0, 10);
+}
+
+function attentionKindLabel(kind: string): string {
+  if (kind === "lint_finding") return "Wiki question";
+  if (kind === "wiki_proposal") return "Suggested wiki update";
+  return kind.replaceAll("_", " ");
+}
+
+function attentionSummary(item: { kind: string; title: string; payload: unknown }): string {
+  if (item.kind === "lint_finding") {
+    const parsed = parseWikiQuestionPayload(item.payload);
+    if (parsed.state === "v2-contradiction") {
+      return JSON.stringify({
+        summary: "Two wiki pages disagree",
+        explanation: parsed.payload.explanation,
+        claims: parsed.payload.claims,
+        actions: ["choose:first", "choose:second", "not-a-conflict"],
+      });
+    }
+    if (parsed.state === "v2-stale") {
+      return JSON.stringify({
+        summary: "This page may be out of date",
+        page: { slug: parsed.payload.slug, title: parsed.payload.title, reviewDueAt: parsed.payload.reviewDueAt },
+        actions: ["mark-current"],
+      });
+    }
+    return JSON.stringify({
+      summary: "This older check does not include enough evidence.",
+      pages: parsed.slugs,
+      actions: ["close-unclear"],
+    });
+  }
+  if (item.kind === "wiki_proposal") return "Suggested wiki update";
+  return item.title;
 }
 
 export function createServer(options: CreateServerOptions) {
@@ -282,7 +318,7 @@ export function createServer(options: CreateServerOptions) {
     "list_attention_items",
     {
       title: "List Attention Items",
-      description: "List Things to resolve items visible to the authenticated principal. Returns a compact text table; item bodies are not inlined into get_context.",
+      description: "List Things to resolve items visible to the authenticated principal. Wiki questions include a plain summary and allowed kind-specific actions; item bodies are not inlined into get_context.",
       inputSchema: z.object({
         scopePath: z.string().min(1).optional().describe("Optional scope path. Omit for visible aggregate; use root with descendants for full visible tree."),
         status: z.enum(["open", "approved", "rejected", "dismissed"]).optional(),
@@ -297,8 +333,8 @@ export function createServer(options: CreateServerOptions) {
           return { content: [{ type: "text", text: "No attention items." }] };
         }
         const lines = [
-          "id\tstatus\tkind\tscope\ttitle",
-          ...items.map((item) => `${item.id}\t${item.status}\t${item.kind}\t${item.scopePath}\t${item.title}`),
+          "id\tstatus\tkind\tscope\ttitle\tlabel\tsummary",
+          ...items.map((item) => `${item.id}\t${item.status}\t${item.kind}\t${item.scopePath}\t${item.kind === "lint_finding" ? "Wiki question" : item.title}\t${attentionKindLabel(item.kind)}\t${attentionSummary(item)}`),
         ];
         return { content: [{ type: "text", text: lines.join("\n") }] };
       } catch (e) {
@@ -327,6 +363,46 @@ export function createServer(options: CreateServerOptions) {
         const item = await resolveAttentionItem(db, { id, resolution, note }, actor);
         return {
           content: [{ type: "text", text: `Resolved ${item.id} as ${item.status} (${item.kind}) in ${item.scopePath}.` }],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "resolve_wiki_question",
+    {
+      title: "Resolve Wiki Question",
+      description: "Resolve a Wiki question with a kind-specific action. For two-page disagreements, use action choose with choice_id first or second, or not-a-conflict. For out-of-date pages, use mark-current with a future next_review_at date. Older or malformed checks can only use close-unclear. This is the only resolver for lint_finding items.",
+      inputSchema: z.object({
+        id: z.string().min(1).describe("Attention item id"),
+        action: z.enum(["choose", "not-a-conflict", "mark-current", "close-unclear"]),
+        choice_id: z.enum(["first", "second"]).optional().describe("Required only when action is choose."),
+        next_review_at: z.string().optional().describe("Future ISO date or YYYY-MM-DD, required only when action is mark-current."),
+        note: z.string().optional().describe("Human note recorded with the decision; required when action is not-a-conflict."),
+      }),
+    },
+    async ({ id, action, choice_id, next_review_at, note }) => {
+      try {
+        const actor = ensurePrincipal();
+        const resolvedAction =
+          action === "choose"
+            ? { type: "choose" as const, choiceId: choice_id ?? "first", note }
+            : action === "mark-current"
+              ? { type: "mark-current" as const, nextReviewAt: next_review_at ?? "", note }
+              : action === "not-a-conflict"
+                ? { type: "not-a-conflict" as const, note }
+                : { type: "close-unclear" as const, note };
+        if (action === "choose" && !choice_id) throw new Error("choice_id is required when action is choose.");
+        if (action === "mark-current" && !next_review_at) throw new Error("next_review_at is required when action is mark-current.");
+        if (action === "not-a-conflict" && (!note || note.trim().length < 3)) throw new Error("note is required when action is not-a-conflict.");
+        const item = await resolveWikiQuestionAttentionItem(db, { id, action: resolvedAction }, actor);
+        return {
+          content: [{ type: "text", text: `Resolved wiki question ${item.id} as ${item.status} in ${item.scopePath}.` }],
         };
       } catch (e) {
         return {
