@@ -24,9 +24,14 @@ Next.js (app router) tenant UI + thin HTTP API surface for agents/engines (n8n, 
   do not add `trustedProviders`, different-email linking, or disable the local-email
   verification guard. Same-email Google sign-in converges on the existing Better Auth
   user id only when the existing local email is already verified. Unverified local
-  accounts are not implicitly linked, preventing account pre-hijacking.
+  accounts are not implicitly linked, preventing account pre-hijacking. After that
+  guard fires, the sign-in form requires the existing password and then uses Better
+  Auth's authenticated `linkSocial` flow, proving control of both accounts before link.
 - **Home `/`:** middleware sends anonymous users to `/sign-in` and signed-in users to **`/s/root`**. Do not reintroduce `app/(app)/page.tsx` as a pure server `redirect("/s/root")` — Next.js 15.5.x can 500 those pages (`clientReferenceManifest` missing). Fallback only: `app/page.tsx` also redirects to `/s/root`.
-- Post-auth navigations must land on `/s/root` (or a safe same-origin `?redirect=` path from sign-in), not `/`.
+- Post-auth navigations land on `/s/root` (or a safe same-origin `?redirect=` path
+  from sign-in), not `/`. `/s/root` preserves the first visible project fallback and
+  then falls back to the actor's guaranteed personal scope, so personal-only users do
+  not receive a 404.
 - Google sign-in uses the same post-auth navigation policy, including resuming MCP
   OAuth authorization requests from `/sign-in`; Google sign-up lands on `/s/root`.
 

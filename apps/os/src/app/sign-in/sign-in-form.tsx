@@ -3,7 +3,10 @@
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
-import { getPostAuthDestination } from "@/lib/auth-redirect";
+import {
+  getPostAuthDestination,
+  shouldLinkGoogleAfterPassword,
+} from "@/lib/auth-redirect";
 import { GoogleSignInButton } from "@/components/GoogleSignInButton";
 import { Button } from "@companyos/ui";
 
@@ -18,7 +21,7 @@ function messageFromAuthError(code: string, description: string | null): string 
       return "The authorization server hit an error.";
     case "account_not_linked":
     case "unable_to_link_account":
-      return "This Google email matches an account that cannot be linked automatically. Sign in with your password instead.";
+      return "This Google email matches your existing account. Sign in with your password to securely link Google.";
     default:
       return code;
   }
@@ -35,6 +38,7 @@ export function SignInForm({ googleEnabled }: { googleEnabled: boolean }) {
   });
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const linkingGoogle = shouldLinkGoogleAfterPassword(searchParams);
 
   function postAuthDestination(): string {
     return getPostAuthDestination(searchParams, window.location.origin);
@@ -44,6 +48,7 @@ export function SignInForm({ googleEnabled }: { googleEnabled: boolean }) {
     const params = new URLSearchParams(searchParams.toString());
     params.delete("error");
     params.delete("error_description");
+    params.set("google_link", "1");
     const query = params.toString();
     return query ? `/sign-in?${query}` : "/sign-in";
   }
@@ -58,6 +63,19 @@ export function SignInForm({ googleEnabled }: { googleEnabled: boolean }) {
     if (res.error) {
       setError(res.error.message || "Couldn't sign in. Check your email and password, then retry.");
       setLoading(false);
+      return;
+    }
+
+    if (linkingGoogle) {
+      const linkResult = await authClient.linkSocial({
+        provider: "google",
+        callbackURL: postAuthDestination(),
+        errorCallbackURL: googleErrorDestination(),
+      });
+      if (linkResult.error) {
+        setError(linkResult.error.message || "Google could not be linked. Please try again.");
+        setLoading(false);
+      }
       return;
     }
 
@@ -125,7 +143,9 @@ export function SignInForm({ googleEnabled }: { googleEnabled: boolean }) {
           )}
 
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "Signing in..." : "Sign in"}
+            {loading
+              ? (linkingGoogle ? "Linking Google..." : "Signing in...")
+              : (linkingGoogle ? "Sign in and link Google" : "Sign in")}
           </Button>
         </form>
 

@@ -14,6 +14,7 @@ import { IntakePanel } from "@/modules/intake";
 import { AttentionCard } from "@/modules/attention";
 import { getDashboard } from "@companyos/api";
 import { AskOSButton } from "@/modules/agent";
+import { getPostAuthScopePath } from "@/lib/auth-redirect";
 import {
   addMemberToScope,
   archiveScopeAction,
@@ -90,13 +91,13 @@ export default async function ScopePage({ params, searchParams }: ScopePageProps
 
   const rootAccess = await api.resolveAccess(actor, "root");
 
-  // For root: if no root grant, redirect to first visible project (grant-filtered nav)
+  // For root: if no root grant, redirect to the first accessible landing scope.
   if (scopePath === "root") {
     if (!rootAccess) {
       const visible = await api.getVisibleTree(actor);
-      const first = visible.find((s: { type: string; path: string }) => s.type === "project");
-      if (first) {
-        redirect(`/s/${first.path}`);
+      const fallbackPath = getPostAuthScopePath(visible);
+      if (fallbackPath) {
+        redirect(fallbackPath);
       } else {
         notFound();
       }
