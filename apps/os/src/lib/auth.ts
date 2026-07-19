@@ -9,8 +9,10 @@ import { getCompanyOsPublicUrl, getMcpPublicUrl } from "@/lib/mcp-public-url";
 import { getOauthDcrRateLimit } from "@/lib/oauth-dcr-rate-limit";
 import { expandLoopbackRedirects } from "@/lib/oauth-loopback";
 import { tokenRequestWithDefaultResource } from "@/lib/oauth-resource";
+import { getGoogleProviderConfig } from "@/lib/google-auth";
 
 const db = createDb();
+const googleProvider = getGoogleProviderConfig();
 
 export const auth = betterAuth({
   baseURL: getCompanyOsPublicUrl(),
@@ -21,6 +23,15 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: false,
+  },
+  ...(googleProvider ? { socialProviders: { google: googleProvider } } : {}),
+  account: {
+    accountLinking: {
+      enabled: true,
+      // Keep Better Auth's pre-hijacking guard explicit: a verified Google
+      // identity must not be linked into an unverified local account.
+      requireLocalEmailVerified: true,
+    },
   },
   plugins: [
     jwt({

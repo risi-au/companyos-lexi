@@ -35,6 +35,9 @@ Purpose: Development and production Docker Compose bundles for the shared data/m
 - `COS_VAULT_KEY` is passed through to the prod OS service and documented in
   `.env.example`; missing values keep the app bootable but disable credential vault
   reads/writes.
+- `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are optional prod OS pass-through
+  values. Both must be non-empty to enable Google social login; either missing or
+  blank keeps the instance bootable with email/password auth only.
 - `.github/workflows/release.yml` - gates, builds/pushes GHCR images, deploys staging over SSH, and smoke-tests staging.
 - `packages/db/scripts/migrate.mjs` runs migrations via the drizzle-orm programmatic migrator (delegated from root db:migrate; drizzle-kit remains for generate only).
 
@@ -51,6 +54,8 @@ Purpose: Development and production Docker Compose bundles for the shared data/m
 - YAML valid (manual review or actionlint in implementer sandbox); images pinned; healthchecks present; staging deploy summary reports tag, image digests, migrate result, and smoke status.
 - Backup changes: run `shellcheck infra/backup/backup.sh` when available, otherwise `bash -n infra/backup/backup.sh`; validate `docker compose -f infra/docker-compose.prod.yml --profile backup config` when Docker/Podman is available.
 - Config uses only env var refs.
+- Google auth compose config must use fail-open empty defaults, never required
+  interpolation, so unconfigured instances continue to boot.
 - README covers dev, first deploy, upgrade, rollback, and Plane side-by-side.
 - db migrate path uses the drizzle-orm programmatic migrator (packages/db/scripts/migrate.mjs); the drizzle-kit CLI dies silently on 0018's nested dollar-quoted DO block.
 - In implementer sandboxes without Docker, do not run Docker. The orchestrator verifies `docker build` and `docker compose config`.

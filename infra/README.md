@@ -92,6 +92,25 @@ image tag for fast iteration. `infra/docker-compose.prod.yml` pulls the OS and m
 images from GHCR, starts Postgres/LiteLLM/n8n, runs migrations once, then starts the OS app.
 It includes no Caddy, no cloudflared, and no reverse proxy.
 
+### Optional Google sign-in
+
+Google social login is disabled unless both `GOOGLE_CLIENT_ID` and
+`GOOGLE_CLIENT_SECRET` are non-empty in the instance environment. Leave either blank
+to run with email/password auth only; the OS container passes both values through with
+empty defaults so unconfigured instances still boot.
+
+Configure these authorized redirect URIs in Google Cloud for the matching OAuth web
+client:
+
+- Local dev: `http://localhost:3000/api/auth/callback/google`
+- Staging: `https://cos-staging.risi.au/api/auth/callback/google`
+
+Staging activation is owner-gated: register the staging callback in Google Cloud, add
+both values to the VPS `~/app/.env`, restart/redeploy the OS stack, then verify a new
+Google user and, when available, a same-email existing user whose local email is already
+verified. Better Auth deliberately blocks implicit linking into unverified local accounts
+to prevent account pre-hijacking. Do not commit credential values or print them in logs.
+
 ### First deploy
 
 1. On the VPS, copy `.env.example` to `.env` and replace every prod placeholder with real values. `COMPANYOS_TAG` is required and has no default.
