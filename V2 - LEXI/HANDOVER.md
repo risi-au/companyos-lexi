@@ -4,6 +4,33 @@
 
 ---
 
+## UPDATE — Session 2 (2026-07-22): fork is live + harness hardened
+
+**This is now a real fork, deployed and running. Read this section first.**
+
+### Fork + deploy (isolated from cos-staging)
+- Git: `origin` = `github.com/risi-au/companyos-lexi` (private); `upstream` = original `companyos`.
+- Deploys to **https://lexi.risi.au** on merge to `main` (separate VPS stack, port 3001, `lexi-*` containers). Full contract in `docs/LEXI-DEPLOY.md`. cos-staging is untouched.
+- VPS + Cloudflare + GitHub secrets (`LEXI_SSH_*`) were set up by an agent; Lexi is live (307→/sign-in). `main` @ Shot 0 merged.
+
+### Board + OmniRoute (durable)
+- **Launch the board with `V2 - LEXI/start-lexi-board.cmd`** — NOT `cline --kanban` (broken: `kanban@0.1.70` ships no `dist/entry.js`). The board itself works from `dist/cli.js`.
+- The board's **AI planner sidebar is broken** (same bug). Do decomposition/execution via **headless cline** or **board cards** (card execution works: worktree-isolated, per-card model override, auto-PR).
+- OmniRoute API: `PUT /api/combos/{id}` (Bearer gateway key — held by owner, not committed). Combos are cost-safe; compositions + rules in `OMNIROUTE-CLINE-SETUP.md`.
+- **Cost-safety (after a codex-burn incident):** board default = `lexi-mechanical`; `lexi-orchestrator` = codex **sol-medium** (single planning call/shot); `lexi-implementer` leads **kiro-agentic → deepseek-v4-pro** (codex last). `opencode-go` decommissioned. `kiro`+direct `deepseek` adopted.
+
+### Progress
+- **Shot 0 (hygiene) — DONE, merged (PR #1).** Primer §7 lists all 64 MCP tools; 3 stale task statuses → `done`.
+- **Next: Shot 1 — M11-01 arming ritual** on `lexi-cheap` (no codex). First real-code shot → first live deploy.
+
+### Autonomous `/goal` runner — owner-approved policy
+Run shots as **board cards** (visible: Backlog→In Progress→Review→Done), one card per shot, per-card tier. Loop: create card → execute (worktree) → gate (`typecheck && lint && test`) → review (+`lexi-reviewer` for R2) → **auto-merge when green+clean** → deploy → next.
+- **Auto-merge** authorized when gate green + review clean.
+- **PAUSE and ask only for:** security/secrets/auth, and genuinely ambiguous requirements. (Migrations/R2 proceed autonomously.)
+- **Hard-safety guardrail (always):** still confirm before irreversibly deleting data, sending real external messages, or entering credentials.
+
+---
+
 ## What happened in this session
 
 ### Fork + safety net
