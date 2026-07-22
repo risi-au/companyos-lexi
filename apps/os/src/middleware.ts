@@ -6,7 +6,7 @@ import { getSessionCookie } from "better-auth/cookies";
 // happens server-side in the (app) layout via auth.api.getSession; this just
 // keeps anonymous users off app routes.
 //
-// Authenticated `/` must redirect to `/s/root` here (not via a pure server
+// Authenticated `/` must redirect to `/digest` here (not via a pure server
 // page under `(app)`). Next.js 15.5.x can 500 on server-only pages that omit
 // clientReferenceManifest; hitting `/` after login was the production failure.
 export function middleware(request: NextRequest) {
@@ -28,7 +28,7 @@ export function middleware(request: NextRequest) {
   }
 
   // Auth errors (e.g. from /api/auth/error) bounce to `/?error=...`; without this
-  // the error query is dropped by the `/` -> `/s/root` (or -> `/sign-in`) redirects
+  // the error query is dropped by the `/` -> `/digest` (or -> `/sign-in`) redirects
   // below and the user dead-ends with no message (#90). Route it to /sign-in, which
   // renders the error.
   const authError = request.nextUrl.searchParams.get("error");
@@ -52,7 +52,7 @@ export function middleware(request: NextRequest) {
 
   // Signed-in home: never render a page at `/` — go straight to the root scope.
   if (pathname === "/") {
-    return NextResponse.redirect(new URL("/s/root", request.url));
+    return NextResponse.redirect(new URL("/digest", request.url));
   }
 
   return NextResponse.next();

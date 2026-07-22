@@ -63,6 +63,7 @@ import {
   listCredentials,
   deleteCredential,
   listSessions,
+  getDigest,
   findNearestWiki,
   queryUsage,
   usageRecommendations,
@@ -218,6 +219,8 @@ export const api = {
   listTasks: (input: Parameters<typeof listTasks>[2], actorPrincipalId: string) =>
     listTasks(db, getPlaneClient() as any, input, actorPrincipalId),
   getPlaneUrl: (scopePath: string) => getPlaneUrl(db, scopePath),
+  getDigest: (input: Parameters<typeof getDigest>[2], actorPrincipalId: string) =>
+    getDigest(db, getPlaneClient() as any, input, actorPrincipalId),
 
   // Grants
   grantRole: (input: Parameters<typeof grantRole>[1], actor?: string | null) =>

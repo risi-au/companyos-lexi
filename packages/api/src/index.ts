@@ -64,6 +64,9 @@ export * from "./modules/intake/service";
 export * from "./modules/attention/service";
 export { isReservedOperationalWikiReportSlug } from "@companyos/db";
 
+// Daily digest (M13-05)
+export * from "./modules/digest/service";
+
 // Credential vault (M8-09)
 export * from "./modules/credentials/service";
 
