@@ -67,6 +67,9 @@ export { isReservedOperationalWikiReportSlug } from "@companyos/db";
 // Daily digest (M13-05)
 export * from "./modules/digest/service";
 
+// Assistants module (M13-01, M13-07)
+export * from "./modules/assistants/service";
+
 // Credential vault (M8-09)
 export * from "./modules/credentials/service";
 
