@@ -84,9 +84,22 @@ N8N_ENCRYPTION_KEY=<fresh>
 N8N_WEBHOOK_URL=https://n8n-lexi.risi.au/
 N8N_HOST=n8n-lexi.risi.au
 
-# Provider keys, Plane, GitHub, embeddings, backups — add as needed
+# Plane — REUSE the existing Plane instance (do NOT run a second Plane).
+# Use a DEDICATED Lexi workspace so tasks never intermix with cos-staging.
+PLANE_BASE_URL=<existing Plane URL>
+PLANE_API_TOKEN=<token for the Lexi workspace>
+PLANE_WORKSPACE_SLUG=lexi
+PLANE_WEBHOOK_SECRET=<fresh; used by a Lexi-only Plane webhook>
+
+# Provider keys, GitHub, embeddings, backups — add as needed
 # (same var names as docker-compose.lexi.yml).
 ```
+
+**Plane:** Lexi does not bundle Plane — it connects to the existing instance via
+the four `PLANE_*` vars above. Keep task data isolated by giving Lexi its own
+workspace (`PLANE_WORKSPACE_SLUG=lexi`) rather than sharing cos-staging's, and
+create a Lexi-only Plane webhook targeting `https://lexi.risi.au/api/v1/webhooks/plane`
+with its own `PLANE_WEBHOOK_SECRET`. Not required for boot or for Shot 0.
 
 ### 3. Cloudflare: route `lexi.risi.au` → the VPS
 
