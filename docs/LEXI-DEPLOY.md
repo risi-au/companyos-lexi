@@ -1,6 +1,6 @@
 # Lexi OS — Deploy & Isolation Runbook
 
-*How the Lexi fork deploys to `https://lexi-os.risi.au` WITHOUT ever touching
+*How the Lexi fork deploys to `https://lexi.risi.au` WITHOUT ever touching
 `cos-staging.risi.au`. This is a fork of CompanyOS; the two run side by side on
 the same VPS as fully separate stacks.*
 
@@ -24,7 +24,7 @@ This fork's pipeline is deliberately retargeted so that can never happen here.
 | Docker network | `companyos-prod` | `lexi-prod` |
 | Named volumes | `postgres_data`, `n8n_data` | `lexi_postgres_data`, `lexi_n8n_data` |
 | Published OS port | `127.0.0.1:3000` | `127.0.0.1:3001` (`OS_PORT`) |
-| Public URL | `https://cos-staging.risi.au` | `https://lexi-os.risi.au` |
+| Public URL | `https://cos-staging.risi.au` | `https://lexi.risi.au` |
 | Deploy image tag var | `COMPANYOS_TAG` | `LEXI_TAG` |
 | GitHub SSH secrets | `STAGING_SSH_*` | `LEXI_SSH_*` |
 
@@ -67,7 +67,7 @@ LEXI_TAG=main
 OS_PORT=3001
 
 # Public identity
-COMPANYOS_URL=https://lexi-os.risi.au
+COMPANYOS_URL=https://lexi.risi.au
 INSTANCE_NAME=Lexi OS
 
 # Core secrets — generate fresh, do NOT copy from ~/app/.env
@@ -81,32 +81,32 @@ COS_VAULT_KEY=<fresh>
 N8N_BASIC_AUTH_USER=<fresh>
 N8N_BASIC_AUTH_PASSWORD=<fresh>
 N8N_ENCRYPTION_KEY=<fresh>
-N8N_WEBHOOK_URL=https://n8n-lexi-os.risi.au/
-N8N_HOST=n8n-lexi-os.risi.au
+N8N_WEBHOOK_URL=https://n8n-lexi.risi.au/
+N8N_HOST=n8n-lexi.risi.au
 
 # Provider keys, Plane, GitHub, embeddings, backups — add as needed
 # (same var names as docker-compose.lexi.yml).
 ```
 
-### 3. Cloudflare: route `lexi-os.risi.au` → the VPS
+### 3. Cloudflare: route `lexi.risi.au` → the VPS
 
 Add a public hostname to the SAME tunnel that serves cos-staging (or a new
 tunnel), pointing at the Lexi OS port:
 
 ```
-lexi-os.risi.au  ->  http://127.0.0.1:3001
+lexi.risi.au  ->  http://127.0.0.1:3001
 ```
 
-`lexi-os.risi.au` is a single-level subdomain, so the Cloudflare free-tier
+`lexi.risi.au` is a single-level subdomain, so the Cloudflare free-tier
 edge cert covers it (unlike multi-level names). If n8n is enabled, add
-`n8n-lexi-os.risi.au -> http://127.0.0.1:<n8n published port>` too (publish that
+`n8n-lexi.risi.au -> http://127.0.0.1:<n8n published port>` too (publish that
 port in the compose file first — it is not published by default).
 
 ## Deploying
 
 Automatic: merge to `main` (or push a `v*` tag) → `Release (Lexi OS)` workflow
 builds `companyos-lexi-{os,migrate}` arm64 images → deploys to `~/lexi` →
-smoke-tests `https://lexi-os.risi.au`.
+smoke-tests `https://lexi.risi.au`.
 
 Manual equivalent on the VPS:
 
@@ -120,7 +120,7 @@ docker compose --env-file .env -f docker-compose.lexi.yml ps
 
 ## Smoke checklist
 
-- `https://lexi-os.risi.au` loads: anonymous → `/sign-in`; after login → `/s/root`
+- `https://lexi.risi.au` loads: anonymous → `/sign-in`; after login → `/s/root`
 - `docker compose -f docker-compose.lexi.yml logs migrate` ended successfully
 - `docker compose -f docker-compose.lexi.yml ps` shows `lexi-os-prod` healthy
 - cos-staging is unaffected: `https://cos-staging.risi.au` still loads, and

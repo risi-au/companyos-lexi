@@ -6,9 +6,9 @@
 # (OS_PORT default 3001, vs cos-staging's 3000), and distinct GHCR image repos
 # (companyos-lexi-{os,migrate}). Deploy from ~/lexi on the VPS with its own .env.
 #
-# COMPANYOS_URL in ~/lexi/.env must be https://lexi-os.risi.au (the app config
+# COMPANYOS_URL in ~/lexi/.env must be https://lexi.risi.au (the app config
 # var name is unchanged; only its value differs). Cloudflare tunnel routes
-# lexi-os.risi.au -> 127.0.0.1:${OS_PORT:-3001}. See docs/LEXI-DEPLOY.md.
+# lexi.risi.au -> 127.0.0.1:${OS_PORT:-3001}. See docs/LEXI-DEPLOY.md.
 services:
   postgres:
     image: pgvector/pgvector:pg17
