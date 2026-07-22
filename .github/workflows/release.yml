@@ -1,7 +1,7 @@
 # Release (Lexi OS) — a FORK of CompanyOS. This pipeline is deliberately isolated
 # from cos-staging: it builds distinct GHCR images (companyos-lexi-{os,migrate}),
 # deploys to ~/lexi on the VPS (its own compose project, network, volumes and
-# published port), and smoke-tests https://lexi-os.risi.au. It must NEVER touch
+# published port), and smoke-tests https://lexi.risi.au. It must NEVER touch
 # cos-staging.risi.au, the ~/app stack, or the companyos-{os,migrate} images.
 #
 # Requires repo secrets: LEXI_SSH_HOST, LEXI_SSH_USER, LEXI_SSH_KEY.
@@ -243,7 +243,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          curl -fsS --max-time 20 https://lexi-os.risi.au >/dev/null
+          curl -fsS --max-time 20 https://lexi.risi.au >/dev/null
           smoke_status="$?"
           set -e
 
