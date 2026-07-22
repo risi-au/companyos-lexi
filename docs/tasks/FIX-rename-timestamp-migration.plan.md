@@ -1,6 +1,6 @@
 # FIX-rename-timestamp-migration: rename 20260710083235_attention_items into the 00NN sequence
 
-status: in-progress
+status: done
 type: bugfix
 issue: #56 (first checkbox; the historical snapshot rebuild checkbox stays open)
 module: packages/db (migration metadata only; zero schema or DB changes)

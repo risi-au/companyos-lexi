@@ -1,6 +1,6 @@
 # M6 — Remote MCP, Connect, Manager & Companions (overview)
 
-status: todo (blocked on: M5 queue complete)
+status: done (all child tasks complete)
 module: milestone overview — not dispatchable; see M6-01..M6-07
 
 ## Milestone goal

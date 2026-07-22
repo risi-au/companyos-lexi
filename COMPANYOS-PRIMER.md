@@ -197,7 +197,9 @@ tools are added or deprecated with warnings, never silently changed.
   `list_tasks`
 - **Sessions**: `register_session`, `update_session`, `complete_session`,
   `list_sessions`
-- **Docs**: `save_doc`, `get_doc`, `list_docs`, `list_doc_revisions`, `revert_doc`
+- **Docs**: `save_doc`, `get_doc`, `list_docs`, `list_doc_revisions`, `revert_doc`,
+  `rename_doc`, `archive_doc`
+- **Wiki/links**: `get_backlinks`, `get_link_graph`, `resolve_wiki_question`
 - **Dashboards**: `save_dashboard`, `get_dashboard`, `list_dashboards`,
   `list_widget_types`, `revert_dashboard`
 - **Metrics**: `write_metrics`, `query_metrics`, `list_metric_names`
@@ -209,7 +211,8 @@ tools are added or deprecated with warnings, never silently changed.
   `get_intake_packet`, `update_intake_packet`, `approve_intake_packet`,
   `provision_from_intake_packet`
 - **Capabilities & ops**: `register_capability`, `report_run`, `list_capabilities`,
-  `list_capability_runs`, `list_alerts`, `provision_scope`
+  `list_capability_runs`, `list_alerts`, `provision_scope`,
+  `list_attention_items`, `resolve_attention_item`
 - **Admin-gated analytics**: `query_usage`
 
 ---

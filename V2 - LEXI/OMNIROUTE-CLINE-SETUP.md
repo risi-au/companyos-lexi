@@ -35,15 +35,24 @@
 
 ### Custom combos created
 
-| Combo | Strategy | Models | Primary upstream (verified) |
-|---|---|---|---|
-| **lexi-orchestrator** | priority | 3 | gpt-5.6-sol (codex) — your /goal brain |
-| **lexi-implementer** | priority | 3 | gpt-5.6-terra (codex) — R2/mid shots |
-| **lexi-cheap** | lkgp | 7 | zai-glm-4.7 (cerebras) — bulk executor, first hit fast+free |
-| **lexi-mechanical** | cost-optimized | 6 | glm-4.7-flash (cloudflare) — docs/explore/trivial |
-| **lexi-reviewer** | priority | 4 | claude-sonnet-5 (claude sub) — cross-vendor fresh eyes |
+Combo compositions (updated 2026-07-22 — priority order shown; `opencode-go`
+decommissioned (account full) and removed from every combo; `kiro` and direct
+`deepseek` providers adopted):
 
-**Total:** 32 model targets across 10 providers, 5 role-pinned lanes.
+| Combo | Strategy | Targets (in order) |
+|---|---|---|
+| **lexi-orchestrator** | priority | codex/gpt-5.6-sol-high → claude/claude-sonnet-5 → kiro/claude-sonnet-4.5-thinking → deepseek/deepseek-v4-pro |
+| **lexi-implementer** | priority | codex/gpt-5.6-terra-medium → claude/claude-sonnet-4-6 → kiro/claude-sonnet-4.5-thinking-agentic → deepseek/deepseek-v4-pro |
+| **lexi-cheap** | lkgp | cerebras/zai-glm-4.7 → cloudflare/kimi-k2.7-code → cloudflare/glm-5.2 → deepseek/deepseek-v4-flash → nvidia/minimax-m2.7 → opencode/minimax-m3-free → kiro/glm-5 |
+| **lexi-mechanical** | cost-optimized | groq/gpt-oss-120b → cerebras/gpt-oss-120b → opencode/deepseek-v4-flash-free → cloudflare/glm-4.7-flash → nvidia/gemma-4-31b → deepseek/deepseek-v4-flash |
+| **lexi-reviewer** | priority | claude/claude-sonnet-5 → nvidia/deepseek-v4-pro → cerebras/zai-glm-4.7 → kiro/claude-sonnet-4.5-thinking |
+
+Notes: `kiro` exposes Claude Sonnet 4.5 (+ Haiku 4.5, glm-5, minimax, qwen3-coder)
+on a **separate quota** from the primary `claude` OAuth sub — used as Claude
+redundancy in the priority lanes. `deepseek` is the direct provider (v4-pro/flash),
+preferred over the nvidia-routed and the retired opencode free routes.
+Combo edits are done via `PUT /api/combos/{id}` with the full object
+(Authorization: Bearer <gateway key>); the admin dashboard is password-gated.
 
 ---
 
@@ -73,8 +82,23 @@ cline -P "openai-compatible" -m <combo-name> -c "C:\dev\companyos-lexi" --auto-a
 ### Kanban board
 
 - **URL:** http://localhost:3484
-- **Launch:** `cline --kanban` (starts hub daemon + board)
-- **Current status:** Hub daemon is answering (WebSocket /ws = 200), but the frontend may not render from the npm global install. Fix: reinstall cline globally (`npm i -g cline@latest`) or run cline from source. The board is cosmetic — headless CLI execution works end-to-end (tested: `lexi-mechanical` created `V2-LEXI-SMOKE-TEST.txt` in the fork with exact content, no side effects).
+- **Launch:** run `V2 - LEXI/start-lexi-board.cmd` (or `node "$(npm root -g)/kanban/dist/cli.js"`).
+  **Do NOT use `cline --kanban`** — it is broken in `cline@3.0.46` + `kanban@0.1.70`
+  (latest): the launcher requires `kanban/dist/entry.js`, which the published
+  package does not ship, so it crashes with MODULE_NOT_FOUND. A clean reinstall
+  does not fix it (latest = same versions, file still absent). The board itself
+  runs fine from `dist/cli.js`.
+- **Provider config (durable):** the board uses the `openai-compatible` provider →
+  `http://localhost:20128`, model `lexi-orchestrator`, bypass-permissions ON.
+  The model picker only persists `lexi-mechanical`; select any other combo via the
+  picker's "Use '<id>' as custom ID" entry (routing accepts all combos).
+- **Broken: the AI "Kanban Agent" planner sidebar** (same missing `entry.js`) —
+  it errors "Unknown or disabled provider openai-compatible". Do decomposition and
+  execution via **headless cline** instead (uses the working hub-daemon path):
+  ```
+  cline -P openai-compatible -m lexi-orchestrator -p -c "C:\dev\companyos-lexi" "<brief>"   # plan
+  cline -P openai-compatible -m lexi-cheap --auto-approve true -c "C:\dev\companyos-lexi" "<card>"  # execute
+  ```
 
 ### Per-card model assignments (for the board)
 

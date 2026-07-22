@@ -1,6 +1,6 @@
 # FEAT-connected-apps-list: Connected apps section in ConnectPanel
 
-status: in-progress
+status: done
 type: feature
 issue: #67 (M11 decision 12 visible half, follow-up to the closed #53 arc)
 module: apps/os connect (UI only)
