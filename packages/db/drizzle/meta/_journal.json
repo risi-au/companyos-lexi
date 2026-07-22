@@ -225,6 +225,13 @@
       "when": 1784239445719,
       "tag": "0031_abandoned_rumiko_fujikawa",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1784724113353,
+      "tag": "0032_light_crystal",
+      "breakpoints": true
     }
   ]
 }

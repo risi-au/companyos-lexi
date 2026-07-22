@@ -33,8 +33,10 @@ export const agentSessions = pgTable(
     tokenId: uuid("token_id").references(() => tokens.id, { onDelete: "set null" }),
     principalId: uuid("principal_id").references(() => principals.id, { onDelete: "set null" }),
     worktreeRef: text("worktree_ref"),
+    brief: jsonb("brief"),
     summary: text("summary"),
     citations: jsonb("citations"),
+    structuredReturn: jsonb("structured_return"),
     lastHeartbeat: timestamp("last_heartbeat", { withTimezone: true }).notNull().defaultNow(),
     createdBy: uuid("created_by")
       .notNull()
@@ -46,6 +48,32 @@ export const agentSessions = pgTable(
     scopeStatusUpdatedIdx: index("agent_sessions_scope_status_updated_idx").on(t.scopeId, t.status, t.updatedAt),
   })
 );
+
+export interface SessionBrief {
+  /** One-line goal for the session. Required when a brief is provided. */
+  goal: string;
+  /** Scope paths, doc slugs, or record ids that frame the work. */
+  contextRefs?: string[];
+  /** Reference to the kickoff artifact (doc slug or record id). */
+  kickoffArtifactRef?: string;
+  /** Free-text description or schema hint of what the wrap-up should contain. */
+  expectedReturn?: string;
+}
+
+export interface SessionStructuredReturn {
+  /** What happened / the result. Required when a structured return is provided. */
+  outcome: string;
+  /** Refs to artifacts produced (doc slugs, record ids, urls). */
+  artifacts?: string[];
+  /** Record ids logged during the session. */
+  recordsLogged?: string[];
+  /** Points where a human had to intervene. */
+  humanInterventions?: string[];
+  /** What was hard, blocked, or surprising. */
+  friction?: string[];
+  /** Follow-up actions for next time. */
+  followUps?: string[];
+}
 
 export interface AgentSessionCitation {
   slug: string;
@@ -65,8 +93,10 @@ export interface AgentSession {
   tokenId: string | null;
   principalId: string | null;
   worktreeRef: string | null;
+  brief: SessionBrief | null;
   summary: string | null;
   citations: AgentSessionCitation[] | null;
+  structuredReturn: SessionStructuredReturn | null;
   lastHeartbeat: Date;
   createdBy: string;
   createdAt: Date;
@@ -74,4 +104,4 @@ export interface AgentSession {
 }
 
 export type NewAgentSession = Pick<AgentSession, "scopeId" | "title" | "engine" | "createdBy"> &
-  Partial<Pick<AgentSession, "model" | "status" | "tokenId" | "principalId" | "worktreeRef" | "summary" | "citations" | "lastHeartbeat">>;
+  Partial<Pick<AgentSession, "model" | "status" | "tokenId" | "principalId" | "worktreeRef" | "brief" | "summary" | "citations" | "structuredReturn" | "lastHeartbeat">>;

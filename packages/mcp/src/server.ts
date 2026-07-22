@@ -48,6 +48,7 @@ import {
   getContextBundle,
   verifyWorkbench,
   registerSession,
+  getSession,
   updateSession,
   completeSession,
   listSessions,
@@ -489,9 +490,18 @@ export function createServer(options: CreateServerOptions) {
         model: z.string().optional().describe("Optional model name"),
         token_id: z.string().optional().describe("Optional CompanyOS token id associated with this session"),
         worktree_ref: z.string().optional().describe("Optional worktree/folder reference"),
+        brief: z
+          .object({
+            goal: z.string().min(1).describe("One-line goal for the session"),
+            contextRefs: z.array(z.string()).optional().describe("Scope paths, doc slugs, or record ids that frame the work"),
+            kickoffArtifactRef: z.string().optional().describe("Reference to the kickoff artifact"),
+            expectedReturn: z.string().optional().describe("What the wrap-up should contain"),
+          })
+          .optional()
+          .describe("Optional brief for the session"),
       }),
     },
-    async ({ scope, title, engine, model, token_id, worktree_ref }) => {
+    async ({ scope, title, engine, model, token_id, worktree_ref, brief }) => {
       try {
         const actor = ensurePrincipal();
         const result = await registerSession(
@@ -503,6 +513,7 @@ export function createServer(options: CreateServerOptions) {
             model: model ?? null,
             tokenId: token_id ?? null,
             worktreeRef: worktree_ref ?? null,
+            brief: brief ?? null,
           },
           actor
         );
@@ -565,22 +576,68 @@ export function createServer(options: CreateServerOptions) {
         session_id: z.string().min(1).describe("Session uuid"),
         summary: z.string().optional().describe("Optional wrap-up summary"),
         citations: z.array(citationSchema).optional().describe("Optional wiki page citations that informed the session wrap-up"),
+        structured_return: z
+          .object({
+            outcome: z.string().min(1).describe("What was achieved / the result"),
+            artifacts: z.array(z.string()).optional().describe("Refs to artifacts produced (doc slugs, record ids, urls)"),
+            recordsLogged: z.array(z.string()).optional().describe("Record ids logged during the session"),
+            humanInterventions: z.array(z.string()).optional().describe("Points where a human had to intervene"),
+            friction: z.array(z.string()).optional().describe("What was hard, blocked, or surprising"),
+            followUps: z.array(z.string()).optional().describe("Open items or next steps"),
+          })
+          .optional()
+          .describe("Optional minimum return contract for the wrap-up"),
       }),
     },
-    async ({ session_id, summary, citations }) => {
+    async ({ session_id, summary, citations, structured_return }) => {
       try {
         const actor = ensurePrincipal();
         const normalizedCitations = citations?.map((citation) => ({
           ...citation,
           source: citation.source ?? "scope" as const,
         }));
-        const result = await completeSession(db, { sessionId: session_id, summary, citations: normalizedCitations }, actor);
+        const result = await completeSession(db, { sessionId: session_id, summary, citations: normalizedCitations, structuredReturn: structured_return }, actor);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
       } catch (e) {
         return {
           content: [{ type: "text", text: `Error: ${formatError(e)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "get_session",
+    {
+      title: "Get Session",
+      description: "Retrieve a single session by ID. Returns the full session record including brief, structured return, citations, and all metadata. Use to verify session state or retrieve context. Requires viewer on the session scope.",
+      inputSchema: z.object({
+        session_id: z.string().uuid().describe("Session ID to retrieve"),
+      }),
+    },
+    async ({ session_id }) => {
+      try {
+        const actor = ensurePrincipal();
+        const session = await getSession(db, session_id, actor);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(session, null, 2),
+            },
+          ],
+        };
+      } catch (e) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Error: ${formatError(e)}`,
+            },
+          ],
           isError: true,
         };
       }

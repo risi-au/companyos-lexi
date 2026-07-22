@@ -240,4 +240,107 @@ describe("sessions module", () => {
     expect(branchRows.some((row) => row.scopePath === siblingPath)).toBe(false);
     expect(branchRows.find((row) => row.id === child.id)?.scopePath).toBe(childPath);
   });
+
+  it("registers a session with a valid brief and retrieves it via getSession", async () => {
+    const brief = {
+      goal: "Implement briefed sessions feature",
+      contextRefs: ["docs/sessions", "M13-02"],
+      kickoffArtifactRef: "shot2a-packet.md",
+      expectedReturn: "Migration, updated service, passing tests",
+    };
+
+    const session = await registerSession(db, {
+      scopePath,
+      title: "Briefed session",
+      engine: "codex",
+      brief,
+    }, editorId);
+
+    expect(session.brief).toMatchObject({
+      goal: "Implement briefed sessions feature",
+      contextRefs: ["docs/sessions", "M13-02"],
+    });
+
+    const { getSession } = await import("../../index");
+    const retrieved = await getSession(db, session.id, viewerId);
+    expect(retrieved.brief?.goal).toBe("Implement briefed sessions feature");
+    expect(retrieved.brief?.kickoffArtifactRef).toBe("shot2a-packet.md");
+  });
+
+  it("rejects session registration with invalid brief (empty goal)", async () => {
+    await expect(
+      registerSession(db, {
+        scopePath,
+        title: "Invalid brief",
+        engine: "codex",
+        brief: { goal: "" },
+      }, editorId)
+    ).rejects.toThrow("Session brief requires a non-empty goal");
+
+    await expect(
+      registerSession(db, {
+        scopePath,
+        title: "Missing goal",
+        engine: "codex",
+        brief: {} as any,
+      }, editorId)
+    ).rejects.toThrow("Session brief requires a non-empty goal");
+  });
+
+  it("completes a session with valid structuredReturn and retrieves it", async () => {
+    const session = await registerSession(db, {
+      scopePath,
+      title: "Structured wrap-up",
+      engine: "codex",
+    }, editorId);
+
+    const structuredReturn = {
+      outcome: "Feature implemented successfully",
+      artifacts: ["migration-0032", "service.ts", "sessions.test.ts"],
+      recordsLogged: ["rec-001", "rec-002"],
+      humanInterventions: ["Fixed test harness issue"],
+      friction: ["Drizzle snapshot collision"],
+      followUps: ["Update documentation", "Add UI integration"],
+    };
+
+    const completed = await completeSession(db, {
+      sessionId: session.id,
+      structuredReturn,
+    }, editorId);
+
+    expect(completed.structuredReturn?.outcome).toBe("Feature implemented successfully");
+    expect(completed.structuredReturn?.artifacts).toHaveLength(3);
+    expect(completed.structuredReturn?.followUps).toContain("Update documentation");
+
+    const [row] = await db
+      .select()
+      .from(schema.agentSessions)
+      .where(eq(schema.agentSessions.id, session.id));
+    expect(row?.structuredReturn).toMatchObject({
+      outcome: "Feature implemented successfully",
+      artifacts: expect.arrayContaining(["migration-0032"]),
+    });
+  });
+
+  it("rejects session completion with invalid structuredReturn (empty outcome)", async () => {
+    const session = await registerSession(db, {
+      scopePath,
+      title: "Invalid completion",
+      engine: "codex",
+    }, editorId);
+
+    await expect(
+      completeSession(db, {
+        sessionId: session.id,
+        structuredReturn: { outcome: "" },
+      }, editorId)
+    ).rejects.toThrow("Session structuredReturn requires a non-empty outcome");
+
+    await expect(
+      completeSession(db, {
+        sessionId: session.id,
+        structuredReturn: {} as any,
+      }, editorId)
+    ).rejects.toThrow("Session structuredReturn requires a non-empty outcome");
+  });
 });

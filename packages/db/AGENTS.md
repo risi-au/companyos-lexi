@@ -11,7 +11,7 @@ Drizzle schema package for CompanyOS. Owns table definitions, typed row interfac
 - Kernel tables live in `src/schema/kernel.ts`.
 - `scope_type` includes `personal` for per-human personal wikis; the migration is a plain enum value add.
 - Vertical module tables live in separate files such as `documents.ts`, `agent.ts`, `sessions.ts`, and are re-exported by `src/schema/index.ts`.
-- `agent_sessions` includes nullable wrap-up fields from M10-03: `summary` text and `citations` jsonb. `citations` stores an array shaped like API memory citations: slug, scopePath, optional revisionId/title, and source.
+- `agent_sessions` includes nullable wrap-up fields from M10-03: `summary` text and `citations` jsonb. `citations` stores an array shaped like API memory citations: slug, scopePath, optional revisionId/title, and source. M13-02 added nullable `brief` and `structured_return` jsonb (migration 0032) for structured session kickoff and wrap-up.
 - `doc_follows` stores per-document/principal follows with a unique `(document_id, principal_id)` index and `principal_id` index.
 - Documents exports the shared operational wiki-report predicate: `isReservedOperationalWikiReportSlug` matches legacy `lint-report` / `lint-report-*` slugs, and `notReservedOperationalWikiReportSlug` is the reusable Drizzle visibility condition for normal document retrieval surfaces. Direct authorized document lookup remains a service concern and is not changed by this predicate.
 - `intake_packet_status` includes `provisioning` (0031): the in-flight claim held
