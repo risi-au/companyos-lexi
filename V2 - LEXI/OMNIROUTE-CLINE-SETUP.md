@@ -41,8 +41,8 @@ decommissioned (account full) and removed from every combo; `kiro` and direct
 
 | Combo | Strategy | Targets (in order) |
 |---|---|---|
-| **lexi-orchestrator** | priority | codex/gpt-5.6-sol-high → claude/claude-sonnet-5 → kiro/claude-sonnet-4.5-thinking → deepseek/deepseek-v4-pro |
-| **lexi-implementer** | priority | codex/gpt-5.6-terra-medium → claude/claude-sonnet-4-6 → kiro/claude-sonnet-4.5-thinking-agentic → deepseek/deepseek-v4-pro |
+| **lexi-orchestrator** | priority | codex/gpt-5.6-sol-**medium** → claude/claude-sonnet-5 → kiro/claude-sonnet-4.5-thinking → deepseek/deepseek-v4-pro |
+| **lexi-implementer** | priority | kiro/claude-sonnet-4.5-thinking-agentic → deepseek/deepseek-v4-pro → claude/claude-sonnet-4-6 → codex/gpt-5.6-terra-medium |
 | **lexi-cheap** | lkgp | cerebras/zai-glm-4.7 → cloudflare/kimi-k2.7-code → cloudflare/glm-5.2 → deepseek/deepseek-v4-flash → nvidia/minimax-m2.7 → opencode/minimax-m3-free → kiro/glm-5 |
 | **lexi-mechanical** | cost-optimized | groq/gpt-oss-120b → cerebras/gpt-oss-120b → opencode/deepseek-v4-flash-free → cloudflare/glm-4.7-flash → nvidia/gemma-4-31b → deepseek/deepseek-v4-flash |
 | **lexi-reviewer** | priority | claude/claude-sonnet-5 → nvidia/deepseek-v4-pro → cerebras/zai-glm-4.7 → kiro/claude-sonnet-4.5-thinking |
@@ -53,6 +53,19 @@ redundancy in the priority lanes. `deepseek` is the direct provider (v4-pro/flas
 preferred over the nvidia-routed and the retired opencode free routes.
 Combo edits are done via `PUT /api/combos/{id}` with the full object
 (Authorization: Bearer <gateway key>); the admin dashboard is password-gated.
+
+**Cost-safety rules (learned 2026-07-22 after a codex-quota incident):**
+- **Never make `lexi-orchestrator` the board default model.** `priority` strategy
+  sends 100% of traffic to target[0] (codex); as the ambient default it took 375
+  agentic calls and burned the codex sub. Board default stays `lexi-mechanical`.
+- **Codex is precious → reserve it for single-shot work.** `lexi-orchestrator`
+  (one planning call per shot) leads with codex at **medium** reasoning, not high.
+  `lexi-implementer` (agentic = many calls per card) leads with **kiro** (Claude
+  4.5, separate quota) then **deepseek-v4-pro**, with codex demoted to last-resort.
+- Reasoning tier matters: `-high`/`-xhigh`/`-max`/`-ultra` generate large hidden
+  reasoning-token counts. Use `-medium` unless a task truly needs deep reasoning.
+- Combo metrics/health can be reset via `DELETE /api/combos/metrics`.
+- Metrics/health: `GET /api/combos/metrics` (per-combo reqs, success, latency).
 
 ---
 
