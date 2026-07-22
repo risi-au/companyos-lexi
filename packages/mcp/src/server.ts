@@ -49,6 +49,7 @@ import {
   verifyWorkbench,
   registerSession,
   getSession,
+  getDigest,
   updateSession,
   completeSession,
   listSessions,
@@ -2473,6 +2474,34 @@ ${JSON.stringify(rec.data || {}, null, 2)}
         },
       ],
     })
+  );
+
+  server.registerTool(
+    "get_digest",
+    {
+      title: "Get Digest",
+      description:
+        "Compose the daily digest for a scope: five lanes (waiting-for-feedback, waiting-for-approval, completed-to-review, automation candidates, ready-to-start), each item explaining why it needs you and what happens after you act. Read-only. Requires viewer on the scope.",
+      inputSchema: z.object({
+        scope: z.string().optional().describe("Scope path; defaults to root"),
+        include_descendants: z.boolean().optional().describe("Include descendant scopes (default true)"),
+        limit_per_lane: z.number().int().min(1).max(100).optional().describe("Max items per lane (default 20)"),
+      }),
+    },
+    async ({ scope, include_descendants, limit_per_lane }) => {
+      try {
+        const actor = ensurePrincipal();
+        const result = await getDigest(
+          db,
+          planeClient,
+          { scopePath: scope || "root", includeDescendants: include_descendants, limit: limit_per_lane },
+          actor
+        );
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: `Error: ${formatError(e)}` }], isError: true };
+      }
+    }
   );
 
   return server;

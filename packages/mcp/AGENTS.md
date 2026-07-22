@@ -53,6 +53,7 @@ Stdio auth uses `COS_TOKEN` env. HTTP auth uses `Authorization: Bearer cos_...` 
 - `list_intake_packets`, `get_intake_packet`, `update_intake_packet` - intake queue and pre-approval edits. Viewer for reads; editor/agent for update.
 - `approve_intake_packet`, `provision_from_intake_packet` - admin-gated and explicitly described as requiring human instruction; approval does not provision, provisioning calls the API `provisionFromIntakePacket` path.
 - `save_dashboard({scope, name?, spec})`, `get_dashboard`, `list_dashboards`, `list_widget_types`, `revert_dashboard` - dashboard spec authoring. `list_widget_types` is public discovery; writes require editor/agent.
+- `get_digest({scope?, include_descendants?, limit_per_lane?})` - compose the daily digest (5 lanes) for a scope; read-only. Viewer.
 - `save_doc`, `get_doc`, `list_docs`, `list_doc_revisions`, `revert_doc` - KB markdown documents. Writes require editor/agent.
 - `rename_doc`, `archive_doc`, `get_backlinks`, `get_link_graph` - wiki gardening tools for agents. Rename/archive require editor/agent; backlinks/link graph require viewer. They delegate to docs services and rely on existing doc link/event upkeep.
 - `save_canvas`, `get_canvas`, `list_canvases` - Excalidraw scene JSON. Writes require editor/agent.

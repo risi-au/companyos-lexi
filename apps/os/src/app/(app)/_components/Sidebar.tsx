@@ -238,6 +238,16 @@ export function Sidebar({ tree, selected = null, taskManagerUrl = null, instance
       </label>
     </div>
 
+    <div className="border-b border-[var(--border)] px-[var(--space-3)] py-[var(--space-2)]">
+      <Link
+        href="/digest"
+        onClick={closeDrawer}
+        className="flex h-[32px] items-center gap-[var(--space-2)] rounded-[var(--radius-3)] px-[var(--space-2)] text-[var(--font-size-sm)] font-medium text-[var(--fg)] hover:bg-[var(--hover)]"
+      >
+        Digest
+      </Link>
+    </div>
+
     <div className="flex-1 overflow-auto p-[var(--space-2)] text-[var(--font-size-sm)] text-[var(--fg)]">
       {/* work group — expand/collapse project tree */}
       <div className="mb-[var(--space-4)]">
