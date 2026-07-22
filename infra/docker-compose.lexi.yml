@@ -1,0 +1,205 @@
+# Lexi OS stack — a SEPARATE deployment from cos-staging.
+#
+# This stack is designed to run on the SAME VPS as cos-staging without any
+# collision: distinct container_names (lexi-*), a distinct docker network
+# (lexi-prod), distinct named volumes (lexi_*), a distinct published host port
+# (OS_PORT default 3001, vs cos-staging's 3000), and distinct GHCR image repos
+# (companyos-lexi-{os,migrate}). Deploy from ~/lexi on the VPS with its own .env.
+#
+# COMPANYOS_URL in ~/lexi/.env must be https://lexi-os.risi.au (the app config
+# var name is unchanged; only its value differs). Cloudflare tunnel routes
+# lexi-os.risi.au -> 127.0.0.1:${OS_PORT:-3001}. See docs/LEXI-DEPLOY.md.
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: lexi-postgres-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - lexi_postgres_data:/var/lib/postgresql/data
+      - ./postgres-init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:?POSTGRES_USER is required}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - lexi-prod
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: lexi-litellm-prod
+    restart: unless-stopped
+    environment:
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY is required}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/litellm
+      - STORE_MODEL_IN_DB=True
+      - LITELLM_LOG=${LITELLM_LOG:-INFO}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - MOONSHOT_API_KEY=${MOONSHOT_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - LITELLM_EMBED_MODEL=${LITELLM_EMBED_MODEL:-openai/text-embedding-3-small}
+    volumes:
+      - ./litellm.config.yaml:/app/config.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:4000/health/liveliness', timeout=3).status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - lexi-prod
+
+  n8n:
+    image: n8nio/n8n:2.25.3
+    container_name: lexi-n8n-prod
+    restart: unless-stopped
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=${N8N_BASIC_AUTH_ACTIVE:-true}
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:?N8N_BASIC_AUTH_USER is required}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:?N8N_BASIC_AUTH_PASSWORD is required}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY is required}
+      - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL:?N8N_WEBHOOK_URL is required}
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE:-UTC}
+      - N8N_HOST=${N8N_HOST:?N8N_HOST is required}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-https}
+    volumes:
+      - lexi_n8n_data:/home/node/.n8n
+    networks:
+      - lexi-prod
+
+  migrate:
+    image: ghcr.io/risi-au/companyos-lexi-migrate:${LEXI_TAG:?LEXI_TAG is required}
+    container_name: lexi-migrate-prod
+    restart: "no"
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/companyos
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - lexi-prod
+
+  os:
+    image: ghcr.io/risi-au/companyos-lexi-os:${LEXI_TAG:?LEXI_TAG is required}
+    container_name: lexi-os-prod
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${OS_PORT:-3001}:3000"
+    environment:
+      - NODE_ENV=production
+      - HOSTNAME=0.0.0.0
+      - PORT=3000
+      - DATABASE_URL=postgresql://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/companyos
+      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
+      - COMPANYOS_URL=${COMPANYOS_URL:?COMPANYOS_URL is required}
+      - BETTER_AUTH_URL=${COMPANYOS_URL}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - INSTANCE_NAME=${INSTANCE_NAME:-Lexi OS}
+      - COS_VAULT_KEY=${COS_VAULT_KEY:-}
+      - LITELLM_BASE_URL=http://litellm:4000
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY is required}
+      - BRAIN_LITELLM_API_KEY=${BRAIN_LITELLM_API_KEY:-}
+      - BRAIN_RUN_TOKEN_CEILING=${BRAIN_RUN_TOKEN_CEILING:-24000}
+      - BRAIN_MONTHLY_TOKEN_BUDGET=${BRAIN_MONTHLY_TOKEN_BUDGET:-1000000}
+      - LITELLM_EMBED_KEY=${LITELLM_EMBED_KEY:-}
+      - EMBEDDING_DIMENSIONS=${EMBEDDING_DIMENSIONS:-1536}
+      - PLANE_BASE_URL=${PLANE_BASE_URL:-}
+      - PLANE_API_TOKEN=${PLANE_API_TOKEN:-}
+      - PLANE_WORKSPACE_SLUG=${PLANE_WORKSPACE_SLUG:-}
+      - PLANE_WEBHOOK_SECRET=${PLANE_WEBHOOK_SECRET:-}
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-}
+      - GITHUB_ORG=${GITHUB_ORG:-}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - SKILLS_REPO=${SKILLS_REPO:-}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      litellm:
+        condition: service_healthy
+    networks:
+      - lexi-prod
+
+  # Opt-in: enable with COMPOSE_PROFILES=brain once BRAIN_ENGINE_TOKEN (root-admin
+  # cos_ token) is minted. Interpolation is parse-time, so the token must fail-open.
+  brain-cron:
+    image: alpine:3.20
+    container_name: lexi-brain-cron-prod
+    restart: unless-stopped
+    profiles:
+      - brain
+    environment:
+      - BRAIN_ENGINE_TOKEN=${BRAIN_ENGINE_TOKEN:-}
+      - BRAIN_INGEST_CRON=${BRAIN_INGEST_CRON:-0 2 * * *}
+      - BRAIN_LINT_CRON=${BRAIN_LINT_CRON:-0 3 * * 0}
+    depends_on:
+      os:
+        condition: service_started
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        cat > /etc/crontabs/root <<EOF
+        $${BRAIN_INGEST_CRON} wget -qO- --header="Authorization: Bearer $${BRAIN_ENGINE_TOKEN}" --header="Content-Type: application/json" --post-data='{"mode":"ingest"}' http://os:3000/api/v1/brain/run >/proc/1/fd/1 2>/proc/1/fd/2
+        $${BRAIN_LINT_CRON} wget -qO- --header="Authorization: Bearer $${BRAIN_ENGINE_TOKEN}" --header="Content-Type: application/json" --post-data='{"mode":"lint"}' http://os:3000/api/v1/brain/run >/proc/1/fd/1 2>/proc/1/fd/2
+        EOF
+        crond -f -l 8
+    networks:
+      - lexi-prod
+
+  backup:
+    build:
+      context: .
+      dockerfile: backup/Dockerfile
+    image: lexi-backup:postgres17
+    pull_policy: build
+    container_name: lexi-backup-prod
+    restart: unless-stopped
+    profiles:
+      - backup
+    environment:
+      - PGHOST=postgres
+      - PGPORT=5432
+      - PGUSER=${POSTGRES_USER:?POSTGRES_USER is required}
+      - PGPASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      - BACKUP_DATABASES=${BACKUP_DATABASES:-companyos,litellm}
+      - BACKUP_ENCRYPTION_KEY=${BACKUP_ENCRYPTION_KEY:-}
+      - BACKUP_S3_ENDPOINT=${BACKUP_S3_ENDPOINT:-}
+      - BACKUP_S3_BUCKET=${BACKUP_S3_BUCKET:-}
+      - BACKUP_S3_ACCESS_KEY_ID=${BACKUP_S3_ACCESS_KEY_ID:-}
+      - BACKUP_S3_SECRET_ACCESS_KEY=${BACKUP_S3_SECRET_ACCESS_KEY:-}
+      - BACKUP_S3_REGION=${BACKUP_S3_REGION:-auto}
+      - BACKUP_S3_PREFIX=${BACKUP_S3_PREFIX:-lexi}
+      - BACKUP_SCHEDULE_UTC=${BACKUP_SCHEDULE_UTC:-03:00}
+      - BACKUP_REPORT_TOKEN=${BACKUP_REPORT_TOKEN:-}
+      - BACKUP_REPORT_URL=${BACKUP_REPORT_URL:-http://os:3000/api/v1/capabilities/report-run}
+      - BACKUP_REPORT_SCOPE=${BACKUP_REPORT_SCOPE:-root}
+    volumes:
+      - ./backup/backup.sh:/backup/backup.sh:ro
+      - ./.env:/host-env/.env:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: ["/bin/bash"]
+    command: ["/backup/backup.sh", "daemon"]
+    networks:
+      - lexi-prod
+
+networks:
+  lexi-prod:
+    driver: bridge
+
+volumes:
+  lexi_postgres_data:
+  lexi_n8n_data:

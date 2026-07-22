@@ -1,9 +1,12 @@
-# M9-02 decision: docs/DEPLOYMENT.md, docs/VPS.md, infra/docker-compose.prod.yml,
-# and infra/README.md only show staging/live docker compose pulls by tag; docs/VPS.md
-# records staging as linux/arm64/aarch64, and local dev builds its own images. With
-# no actual amd64 image pull path in docs/, infra/, or scripts/, publish arm64-only
-# images on GitHub's native ARM runner and skip manifest stitching.
-name: Release
+# Release (Lexi OS) — a FORK of CompanyOS. This pipeline is deliberately isolated
+# from cos-staging: it builds distinct GHCR images (companyos-lexi-{os,migrate}),
+# deploys to ~/lexi on the VPS (its own compose project, network, volumes and
+# published port), and smoke-tests https://lexi-os.risi.au. It must NEVER touch
+# cos-staging.risi.au, the ~/app stack, or the companyos-{os,migrate} images.
+#
+# Requires repo secrets: LEXI_SSH_HOST, LEXI_SSH_USER, LEXI_SSH_KEY.
+# See docs/LEXI-DEPLOY.md for the one-time VPS + Cloudflare + secrets setup.
+name: Release (Lexi OS)
 
 on:
   push:
@@ -86,9 +89,9 @@ jobs:
           target: os
           push: true
           platforms: linux/arm64
-          tags: ghcr.io/risi-au/companyos-os:${{ steps.image_tag.outputs.tag }}
-          cache-from: type=gha,scope=companyos-os-arm64
-          cache-to: type=gha,scope=companyos-os-arm64,mode=max
+          tags: ghcr.io/risi-au/companyos-lexi-os:${{ steps.image_tag.outputs.tag }}
+          cache-from: type=gha,scope=companyos-lexi-os-arm64
+          cache-to: type=gha,scope=companyos-lexi-os-arm64,mode=max
 
       - name: Build and push migrate image
         id: build_migrate
@@ -99,28 +102,28 @@ jobs:
           target: migrate
           push: true
           platforms: linux/arm64
-          tags: ghcr.io/risi-au/companyos-migrate:${{ steps.image_tag.outputs.tag }}
-          cache-from: type=gha,scope=companyos-migrate-arm64
-          cache-to: type=gha,scope=companyos-migrate-arm64,mode=max
+          tags: ghcr.io/risi-au/companyos-lexi-migrate:${{ steps.image_tag.outputs.tag }}
+          cache-from: type=gha,scope=companyos-lexi-migrate-arm64
+          cache-to: type=gha,scope=companyos-lexi-migrate-arm64,mode=max
 
-  deploy-staging:
+  deploy-lexi:
     runs-on: ubuntu-latest
     needs: build-arm64-images
-    concurrency: staging-deploy
+    concurrency: lexi-deploy
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate staging SSH secrets
+      - name: Validate Lexi SSH secrets
         shell: bash
         env:
-          STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
-          STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER }}
-          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          LEXI_SSH_HOST: ${{ secrets.LEXI_SSH_HOST }}
+          LEXI_SSH_USER: ${{ secrets.LEXI_SSH_USER }}
+          LEXI_SSH_KEY: ${{ secrets.LEXI_SSH_KEY }}
         run: |
           missing=0
-          for secret_name in STAGING_SSH_HOST STAGING_SSH_USER STAGING_SSH_KEY; do
+          for secret_name in LEXI_SSH_HOST LEXI_SSH_USER LEXI_SSH_KEY; do
             if [[ -z "${!secret_name}" ]]; then
-              echo "::error title=Missing GitHub secret::${secret_name} is required for deploy-staging"
+              echo "::error title=Missing GitHub secret::${secret_name} is required for deploy-lexi"
               missing=1
             fi
           done
@@ -129,107 +132,105 @@ jobs:
       - name: Start SSH agent
         uses: webfactory/ssh-agent@v0.9.0
         with:
-          ssh-private-key: ${{ secrets.STAGING_SSH_KEY }}
+          ssh-private-key: ${{ secrets.LEXI_SSH_KEY }}
 
-      - name: Trust staging host key
+      - name: Trust Lexi host key
         shell: bash
         env:
-          STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          LEXI_SSH_HOST: ${{ secrets.LEXI_SSH_HOST }}
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          ssh-keyscan -H "$STAGING_SSH_HOST" >> ~/.ssh/known_hosts
+          ssh-keyscan -H "$LEXI_SSH_HOST" >> ~/.ssh/known_hosts
 
-      # The repo is the source of truth for the staging stack definition; without
-      # this sync the VPS runs whatever compose file was last hand-placed there
-      # (which is how staging postgres missed the pgvector image switch).
-      - name: Sync compose assets to staging
+      # The repo is the source of truth for the Lexi stack definition. Assets land
+      # in ~/lexi (NOT ~/app, which is cos-staging).
+      - name: Sync compose assets to Lexi
         shell: bash
         env:
-          STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
-          STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER }}
+          LEXI_SSH_HOST: ${{ secrets.LEXI_SSH_HOST }}
+          LEXI_SSH_USER: ${{ secrets.LEXI_SSH_USER }}
         run: |
-          ssh "${STAGING_SSH_USER}@${STAGING_SSH_HOST}" "mkdir -p ~/app/backup"
-          scp infra/docker-compose.prod.yml infra/postgres-init.sql infra/litellm.config.yaml \
-            "${STAGING_SSH_USER}@${STAGING_SSH_HOST}:app/"
+          ssh "${LEXI_SSH_USER}@${LEXI_SSH_HOST}" "mkdir -p ~/lexi/backup"
+          scp infra/docker-compose.lexi.yml infra/postgres-init.sql infra/litellm.config.yaml \
+            "${LEXI_SSH_USER}@${LEXI_SSH_HOST}:lexi/"
           scp infra/backup/Dockerfile infra/backup/backup.sh \
-            "${STAGING_SSH_USER}@${STAGING_SSH_HOST}:app/backup/"
+            "${LEXI_SSH_USER}@${LEXI_SSH_HOST}:lexi/backup/"
 
-      - name: Deploy staging over SSH
+      - name: Deploy Lexi over SSH
         id: deploy
         shell: bash
         env:
           DEPLOY_TAG: ${{ needs['build-arm64-images'].outputs.image_tag }}
-          STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
-          STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER }}
+          LEXI_SSH_HOST: ${{ secrets.LEXI_SSH_HOST }}
+          LEXI_SSH_USER: ${{ secrets.LEXI_SSH_USER }}
         run: |
           set -o pipefail
           remote_log="$(mktemp)"
 
           set +e
-          ssh "${STAGING_SSH_USER}@${STAGING_SSH_HOST}" "COMPANYOS_DEPLOY_TAG=${DEPLOY_TAG@Q} bash -se" <<'REMOTE_SCRIPT' | tee "$remote_log"
+          ssh "${LEXI_SSH_USER}@${LEXI_SSH_HOST}" "LEXI_DEPLOY_TAG=${DEPLOY_TAG@Q} bash -se" <<'REMOTE_SCRIPT' | tee "$remote_log"
           set -Eeuo pipefail
 
-          cd ~/app
+          cd ~/lexi
 
           touch .env
           cp .env .env.bak
-          if grep -q '^COMPANYOS_TAG=' .env; then
-            sed -i "s/^COMPANYOS_TAG=.*/COMPANYOS_TAG=${COMPANYOS_DEPLOY_TAG}/" .env
+          if grep -q '^LEXI_TAG=' .env; then
+            sed -i "s/^LEXI_TAG=.*/LEXI_TAG=${LEXI_DEPLOY_TAG}/" .env
           else
-            printf '\nCOMPANYOS_TAG=%s\n' "$COMPANYOS_DEPLOY_TAG" >> .env
+            printf '\nLEXI_TAG=%s\n' "$LEXI_DEPLOY_TAG" >> .env
           fi
 
-          # Pull registry images only — backup is built locally (pull_policy: build,
-          # no registry copy exists) and the VPS compose still tries to pull it once
-          # the backup profile is active, failing the deploy. New services with
-          # mutable tags must be added here; pinned-tag services are pulled by
-          # `up` on first run regardless.
-          docker compose --env-file .env -f docker-compose.prod.yml pull \
+          OS_PORT="$(grep -E '^OS_PORT=' .env | tail -n 1 | cut -d= -f2)"
+          OS_PORT="${OS_PORT:-3001}"
+
+          # Pull registry images only — backup is built locally (pull_policy: build).
+          docker compose --env-file .env -f docker-compose.lexi.yml pull \
             postgres litellm n8n migrate os brain-cron
           set +e
-          docker compose --env-file .env -f docker-compose.prod.yml up -d --build
+          docker compose --env-file .env -f docker-compose.lexi.yml up -d --build
           compose_up_status="$?"
           set -e
 
-          migrate_cid="$(docker compose --env-file .env -f docker-compose.prod.yml ps --all -q migrate | tail -n 1)"
+          migrate_cid="$(docker compose --env-file .env -f docker-compose.lexi.yml ps --all -q migrate | tail -n 1)"
           if [[ -z "$migrate_cid" ]]; then
-            echo "COMPANYOS_MIGRATE_RESULT=failed"
+            echo "LEXI_MIGRATE_RESULT=failed"
             echo "::error title=Missing migrate container::docker compose did not return a migrate container id"
-            docker compose --env-file .env -f docker-compose.prod.yml logs --no-color migrate || true
+            docker compose --env-file .env -f docker-compose.lexi.yml logs --no-color migrate || true
             exit 1
           fi
 
           migrate_exit="$(docker wait "$migrate_cid" | tail -n 1)"
           if [[ "$migrate_exit" != "0" ]]; then
-            echo "COMPANYOS_MIGRATE_RESULT=failed"
-            echo "::error title=Staging migrate failed::migrate exited with ${migrate_exit}"
-            docker compose --env-file .env -f docker-compose.prod.yml logs --no-color migrate || true
+            echo "LEXI_MIGRATE_RESULT=failed"
+            echo "::error title=Lexi migrate failed::migrate exited with ${migrate_exit}"
+            docker compose --env-file .env -f docker-compose.lexi.yml logs --no-color migrate || true
             exit 1
           fi
-          echo "COMPANYOS_MIGRATE_RESULT=success"
+          echo "LEXI_MIGRATE_RESULT=success"
 
           if [[ "$compose_up_status" != "0" ]]; then
-            echo "::error title=Staging compose up failed::docker compose up -d exited with ${compose_up_status}"
-            docker compose --env-file .env -f docker-compose.prod.yml logs --no-color migrate || true
+            echo "::error title=Lexi compose up failed::docker compose up -d exited with ${compose_up_status}"
+            docker compose --env-file .env -f docker-compose.lexi.yml logs --no-color migrate || true
             exit "$compose_up_status"
           fi
 
-          curl -fsS --max-time 10 http://127.0.0.1:3000/ >/dev/null
-          echo "COMPANYOS_INTERNAL_SMOKE=success"
+          curl -fsS --max-time 10 "http://127.0.0.1:${OS_PORT}/" >/dev/null
+          echo "LEXI_INTERNAL_SMOKE=success"
           REMOTE_SCRIPT
           ssh_status="${PIPESTATUS[0]}"
           set -e
 
-          if grep -q '^COMPANYOS_MIGRATE_RESULT=success$' "$remote_log"; then
+          if grep -q '^LEXI_MIGRATE_RESULT=success$' "$remote_log"; then
             echo "migrate_result=success" >> "$GITHUB_OUTPUT"
-          elif grep -q '^COMPANYOS_MIGRATE_RESULT=failed$' "$remote_log"; then
+          elif grep -q '^LEXI_MIGRATE_RESULT=failed$' "$remote_log"; then
             echo "migrate_result=failed" >> "$GITHUB_OUTPUT"
           else
             echo "migrate_result=unknown" >> "$GITHUB_OUTPUT"
           fi
 
-          if grep -q '^COMPANYOS_INTERNAL_SMOKE=success$' "$remote_log"; then
+          if grep -q '^LEXI_INTERNAL_SMOKE=success$' "$remote_log"; then
             echo "internal_smoke_status=success" >> "$GITHUB_OUTPUT"
           else
             echo "internal_smoke_status=not completed" >> "$GITHUB_OUTPUT"
@@ -237,12 +238,12 @@ jobs:
 
           exit "$ssh_status"
 
-      - name: External staging smoke
+      - name: External Lexi smoke
         id: external_smoke
         shell: bash
         run: |
           set +e
-          curl -fsS --max-time 20 https://cos-staging.risi.au >/dev/null
+          curl -fsS --max-time 20 https://lexi-os.risi.au >/dev/null
           smoke_status="$?"
           set -e
 
@@ -254,7 +255,7 @@ jobs:
 
           exit "$smoke_status"
 
-      - name: Write staging deploy summary
+      - name: Write Lexi deploy summary
         if: always()
         shell: bash
         env:
@@ -266,7 +267,7 @@ jobs:
           EXTERNAL_SMOKE_STATUS: ${{ steps.external_smoke.outputs.status || 'not run' }}
         run: |
           {
-            echo "## Staging deploy"
+            echo "## Lexi deploy"
             echo
             echo "- Tag: \`${DEPLOY_TAG}\`"
             echo "- OS image digest: \`${OS_DIGEST}\`"
