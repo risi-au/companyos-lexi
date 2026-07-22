@@ -1,6 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { and, desc, eq, like, or } from "drizzle-orm";
-import { agentSessions, scopes, type AgentSession } from "@companyos/db";
+import { 
+  agentSessions, 
+  scopes, 
+  type AgentSession,
+  type SessionBrief,
+  type SessionStructuredReturn 
+} from "@companyos/db";
 import { emitEvent, type DB } from "../../kernel/events";
 import { requireAccess } from "../../kernel/grants";
 import { getScope } from "../../kernel/scopes";
@@ -25,6 +31,7 @@ export interface RegisterSessionInput {
   model?: string | null;
   tokenId?: string | null;
   worktreeRef?: string | null;
+  brief?: SessionBrief | null;
 }
 
 export interface UpdateSessionInput {
@@ -38,6 +45,7 @@ export interface CompleteSessionInput {
   sessionId: string;
   summary?: string;
   citations?: Citation[];
+  structuredReturn?: SessionStructuredReturn | null;
 }
 
 export interface ListSessionsInput {
@@ -80,6 +88,10 @@ export async function registerSession(
   if (!title) throw new Error("Session title is required");
   if (!engine) throw new Error("Session engine is required");
 
+  if (input.brief && (!input.brief.goal || !input.brief.goal.trim())) {
+    throw new Error("Session brief requires a non-empty goal");
+  }
+
   const scope = await getScope(db, scopePath);
   if (!scope) {
     throw new ScopeNotFoundError(scopePath);
@@ -98,6 +110,7 @@ export async function registerSession(
       tokenId: input.tokenId ?? null,
       principalId: actorPrincipalId,
       worktreeRef: input.worktreeRef ?? null,
+      brief: input.brief ?? null,
       status: "running",
       lastHeartbeat: now,
       createdBy: actorPrincipalId,
@@ -140,8 +153,10 @@ async function loadSessionWithScope(
       tokenId: agentSessions.tokenId,
       principalId: agentSessions.principalId,
       worktreeRef: agentSessions.worktreeRef,
+      brief: agentSessions.brief,
       summary: agentSessions.summary,
       citations: agentSessions.citations,
+      structuredReturn: agentSessions.structuredReturn,
       lastHeartbeat: agentSessions.lastHeartbeat,
       createdBy: agentSessions.createdBy,
       createdAt: agentSessions.createdAt,
@@ -154,6 +169,21 @@ async function loadSessionWithScope(
     .limit(1)) as Array<AgentSession & { scopePath: string }>;
 
   return row ?? null;
+}
+
+export async function getSession(
+  db: DB,
+  sessionId: string,
+  actorPrincipalId: string
+): Promise<AgentSession> {
+  const existing = await loadSessionWithScope(db, sessionId);
+  if (!existing) {
+    throw new SessionNotFoundError(sessionId);
+  }
+
+  await requireAccess(db, actorPrincipalId, existing.scopePath, "viewer");
+
+  return existing;
 }
 
 export async function updateSession(
@@ -226,12 +256,17 @@ export async function completeSession(
 
   await requireAccess(db, actorPrincipalId, existing.scopePath, "editor");
 
+  if (input.structuredReturn && (!input.structuredReturn.outcome || !input.structuredReturn.outcome.trim())) {
+    throw new Error("Session structuredReturn requires a non-empty outcome");
+  }
+
   const now = new Date();
   const summary = input.summary ?? null;
   const citations = input.citations ?? null;
+  const structuredReturn = input.structuredReturn ?? null;
   const [updated] = (await db
     .update(agentSessions)
-    .set({ status: "completed", summary, citations, updatedAt: now, lastHeartbeat: now })
+    .set({ status: "completed", summary, citations, structuredReturn, updatedAt: now, lastHeartbeat: now })
     .where(eq(agentSessions.id, input.sessionId))
     .returning()) as AgentSession[];
 
@@ -248,6 +283,7 @@ export async function completeSession(
       scopePath: existing.scopePath,
       summary,
       citations,
+      structuredReturn,
     },
   });
 
@@ -287,8 +323,10 @@ export async function listSessions(
       tokenId: agentSessions.tokenId,
       principalId: agentSessions.principalId,
       worktreeRef: agentSessions.worktreeRef,
+      brief: agentSessions.brief,
       summary: agentSessions.summary,
       citations: agentSessions.citations,
+      structuredReturn: agentSessions.structuredReturn,
       lastHeartbeat: agentSessions.lastHeartbeat,
       createdBy: agentSessions.createdBy,
       createdAt: agentSessions.createdAt,

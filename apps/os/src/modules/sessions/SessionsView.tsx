@@ -27,6 +27,8 @@ interface SessionRow {
   summary: string | null;
   citations: Citation[] | null;
   lastHeartbeat: Date | string;
+  brief?: { goal: string; contextRefs?: string[]; kickoffArtifactRef?: string; expectedReturn?: string } | null;
+  structuredReturn?: { outcome: string; followUps?: string[]; friction?: string[] } | null;
 }
 
 const statusOptions: { value: StatusFilter; label: string }[] = [
@@ -94,6 +96,7 @@ export function SessionsView({
   const [sessions, setSessions] = useState<SessionRow[]>(initialSessions);
   const [status, setStatus] = useState<StatusFilter>("all");
   const [scopeFilter, setScopeFilter] = useState("");
+  const [unreviewedOnly, setUnreviewedOnly] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -115,9 +118,15 @@ export function SessionsView({
 
   const visibleSessions = useMemo(() => {
     const needle = scopeFilter.trim().toLowerCase();
-    if (!needle) return sessions;
-    return sessions.filter((session) => session.scopePath.toLowerCase().includes(needle));
-  }, [sessions, scopeFilter]);
+    let rows = sessions;
+    if (needle) {
+      rows = rows.filter((session) => session.scopePath.toLowerCase().includes(needle));
+    }
+    if (unreviewedOnly) {
+      rows = rows.filter((session) => session.status === "completed");
+    }
+    return rows;
+  }, [sessions, scopeFilter, unreviewedOnly]);
 
   return (
     <div className="space-y-[var(--space-4)]">
@@ -146,6 +155,15 @@ export function SessionsView({
             placeholder="Filter by project/sub-project"
           />
         </div>
+
+        <label className="flex items-center gap-[var(--space-2)] pb-[var(--space-2)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
+          <input
+            type="checkbox"
+            checked={unreviewedOnly}
+            onChange={(event) => setUnreviewedOnly(event.target.checked)}
+          />
+          Unreviewed (completed) only
+        </label>
 
         <div className="pb-[var(--space-2)] text-[var(--font-size-xs)] text-[var(--muted-foreground)]">
           {isPending ? "Loading…" : `${visibleSessions.length} sessions`}
@@ -178,7 +196,8 @@ export function SessionsView({
             <tbody>
               {visibleSessions.map((session) => {
                 const citations = citationList(session.citations);
-                const hasWrapUp = session.status === "completed" && (Boolean(session.summary) || citations.length > 0);
+                const sr = session.structuredReturn;
+                const hasWrapUp = session.status === "completed" && (Boolean(session.summary) || citations.length > 0 || Boolean(sr));
                 return (
                   <Fragment key={session.id}>
                     <tr className={hasWrapUp ? "" : "border-b border-[var(--border)] last:border-b-0"}>
@@ -215,8 +234,24 @@ export function SessionsView({
                       <tr className="border-b border-[var(--border)] last:border-b-0">
                         <td colSpan={6} className="px-[var(--space-3)] pb-[var(--space-3)]">
                           <div className="space-y-[var(--space-2)] py-[var(--space-1)] text-[var(--font-size-xs)]">
+                            {session.brief?.goal ? (
+                              <div className="text-[var(--muted-foreground)]">
+                                <span className="font-medium text-[var(--foreground)]">Brief:</span> {session.brief.goal}
+                              </div>
+                            ) : null}
                             {session.summary ? (
                               <div className="whitespace-pre-wrap text-[var(--foreground)]">{session.summary}</div>
+                            ) : null}
+                            {sr ? (
+                              <div className="space-y-[var(--space-1)]">
+                                <div><span className="font-medium text-[var(--foreground)]">Outcome:</span> {sr.outcome}</div>
+                                {sr.followUps && sr.followUps.length > 0 ? (
+                                  <div className="text-[var(--muted-foreground)]">Follow-ups: {sr.followUps.join("; ")}</div>
+                                ) : null}
+                                {sr.friction && sr.friction.length > 0 ? (
+                                  <div className="text-[var(--muted-foreground)]">Friction: {sr.friction.join("; ")}</div>
+                                ) : null}
+                              </div>
                             ) : null}
                             <CitationChips citations={citations} />
                           </div>

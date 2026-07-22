@@ -167,6 +167,7 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       "get_intake_packet",
       "get_link_graph",
       "get_record",
+      "get_session",
       "get_skill",
       "get_tree",
       "list_attention_items",
