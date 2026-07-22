@@ -122,3 +122,13 @@ M10-04B: list_attention_items, esolve_attention_item, and get_context rely on t
 - The mounted /api/mcp handler accepts either the existing cos_ token lane or an OAuth access-token lane supplied by apps/os; MCP tool signatures remain unchanged.
 - Auth callbacks may attach wwwAuthenticate to a 401 error. The HTTP wrapper forwards it as WWW-Authenticate, enabling RFC 9728 protected-resource discovery without changing JSON error bodies.
 - Stdio continues to use COS_TOKEN; user-facing MCP configuration errors use COMPANYOS_TOKEN as the canonical provisioning variable.
+
+
+## Arming ritual (M11-01)
+- The server advertises `instructions` on the MCP `initialize` handshake (the exported
+  `SERVER_INSTRUCTIONS` in `src/server.ts`): the start→work→wrap ritual plus the
+  memory-subordination doctrine. Every connecting client is armed in-band.
+- Two MCP prompts (additive): `start_task({scope, goal?})` renders the arming sequence,
+  and `wrap_up({session_id})` renders the debrief sequence. Prompt args are string-typed
+  per the MCP prompt contract; the callbacks return static guidance text (no db, no auth).
+- Full tool inventory + per-client conformance matrix: `docs/tasks/M11-01-tool-surface-audit.md`.

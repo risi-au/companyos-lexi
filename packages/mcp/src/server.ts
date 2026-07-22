@@ -84,6 +84,29 @@ import {
   VaultNotConfiguredError,
 } from "@companyos/api";
 
+export const SERVER_INSTRUCTIONS = `You are connecting to CompanyOS over MCP. CompanyOS is the system of record; your own memory is a disposable cache. Follow this ritual every session.
+
+START (arming):
+1. Call \`whoami\` to confirm your principal and grants.
+2. Call \`get_context({scope})\` for the scope you are working in — it returns identity, attached modules, recent decisions/changelog, and any open sessions.
+3. Call \`recall_memory({query})\` BEFORE any external research or broad record trawling — CompanyOS wikis are authoritative.
+4. Join or register a session: if \`get_context\` lists an open session for your scope, join it (reuse its id); otherwise call \`register_session({scope, title, engine})\`. Multiple tools cooperate on ONE human session — do not spawn a parallel session for the same task.
+5. Check \`list_attention_items\` for anything awaiting an answer.
+
+WORK:
+- Heartbeat with \`update_session({session_id})\` on long tasks.
+- Persist durable outputs as you go: \`log_change\`, \`log_decision\`, \`save_report\`, \`save_note\`. Every meaningful write should leave a record.
+
+WRAP (debrief):
+- Call \`complete_session({session_id, summary, citations})\`. Cite the wiki pages that informed the work. The summary is the structured wrap-up the next session reads.
+
+DOCTRINE:
+- CompanyOS wikis (via \`recall_memory\`/\`get_context\`) are authoritative; tool-local memory is a cache — never treat your memory as the source of truth.
+- Durable facts graduate back to CompanyOS via wrap-ups and wiki proposals, never by importing your memory store.
+- Use full scope paths everywhere. Prefer structured \`data\` alongside markdown bodies for machine consumption.
+
+The \`start_task\` and \`wrap_up\` prompts encode this ritual if your client supports MCP prompts.`;
+
 export interface CreateServerOptions {
   db: DB;
   principalId: string | null;
@@ -184,10 +207,13 @@ export function createServer(options: CreateServerOptions) {
     ? createGitHubClientFromEnv()
     : options.githubClient;
 
-  const server = new McpServer({
-    name: "companyos",
-    version: "0.0.0",
-  });
+  const server = new McpServer(
+    {
+      name: "companyos",
+      version: "0.0.0",
+    },
+    { instructions: SERVER_INSTRUCTIONS }
+  );
 
   // ping - no auth required for connectivity
   server.registerTool(
@@ -2343,6 +2369,53 @@ ${JSON.stringify(rec.data || {}, null, 2)}
         return { content: [{ type: "text", text: `Error: ${formatError(e)}` }], isError: true };
       }
     }
+  );
+
+  server.registerPrompt(
+    "start_task",
+    {
+      title: "Start Task (arming ritual)",
+      description:
+        "Arm a CompanyOS work session: confirm principal, load scope context and memory, and join or register the session before doing work.",
+      argsSchema: {
+        scope: z.string().describe("Scope path you are working in, e.g. 'nutritionwarehouse/marketing'"),
+        goal: z.string().optional().describe("Optional one-line goal for this session"),
+      },
+    },
+    ({ scope, goal }) => ({
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: `Arm a CompanyOS session for scope "${scope}"${goal ? ` with the goal: ${goal}` : ""}.\n\nDo this in order:\n1. Call whoami to confirm principal and grants.\n2. Call get_context({scope: "${scope}"}) and read the modules, recent decisions, and any open sessions.\n3. Call recall_memory({query: "<what you need to know>"}) before any external research — CompanyOS wikis are authoritative.\n4. If get_context lists an open session for this scope, join it by reusing its id; otherwise call register_session({scope: "${scope}", title: "<short title>", engine: "<your client>"}).\n5. Call list_attention_items to see anything awaiting an answer.\nThen begin the work.`,
+          },
+        },
+      ],
+    })
+  );
+
+  server.registerPrompt(
+    "wrap_up",
+    {
+      title: "Wrap Up (debrief ritual)",
+      description:
+        "Debrief a CompanyOS work session: persist outputs as records and complete the session with a cited structured summary.",
+      argsSchema: {
+        session_id: z.string().describe("The session id you registered or joined at start"),
+      },
+    },
+    ({ session_id }) => ({
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: `Wrap up CompanyOS session ${session_id}.\n\nDo this in order:\n1. Persist any durable outputs you have not already recorded: log_change / log_decision / save_report / save_note under the right scope.\n2. Call complete_session({session_id: "${session_id}", summary: "<what happened, outcomes, follow-ups>", citations: [ ... wiki pages that informed the work ... ]}).\n\nThe summary is what the next session reads — make it a real structured wrap-up (outcome, artifacts, records logged, follow-ups). Do not import tool-local memory; durable facts graduate via this wrap-up and wiki proposals.`,
+          },
+        },
+      ],
+    })
   );
 
   return server;

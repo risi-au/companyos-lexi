@@ -37,6 +37,7 @@ import {
   GitHubClient,
 } from "@companyos/api";
 import { createHttpHandler, createServer, ping } from "./index";
+import { SERVER_INSTRUCTIONS } from "./server";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1440,5 +1441,38 @@ describe("MCP server roundtrips (in-memory + PGlite)", () => {
       logSpy.mockRestore();
       errorSpy.mockRestore();
     }
+  });
+});
+
+describe("MCP arming ritual (instructions + prompts)", () => {
+  it("exports SERVER_INSTRUCTIONS carrying the ritual", () => {
+    expect(typeof SERVER_INSTRUCTIONS).toBe("string");
+    expect(SERVER_INSTRUCTIONS.length).toBeGreaterThan(0);
+    expect(SERVER_INSTRUCTIONS).toContain("recall_memory");
+    expect(SERVER_INSTRUCTIONS).toContain("complete_session");
+  });
+
+  it("registers start_task and wrap_up prompts and renders start_task", async () => {
+    const pg = new PGlite({ extensions: { vector } });
+    const db2: any = drizzle(pg, { schema });
+    await migrate(db2, { migrationsFolder });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const mcpClient = new Client({ name: "ritual-test", version: "0.0.0" });
+    const server = createServer({ db: db2, principalId: null });
+    await Promise.all([
+      mcpClient.connect(clientTransport),
+      server.connect(serverTransport),
+    ]);
+    const prompts = await mcpClient.listPrompts();
+    const names = (prompts.prompts || []).map((p: any) => p.name).sort();
+    expect(names).toContain("start_task");
+    expect(names).toContain("wrap_up");
+    const got = await mcpClient.getPrompt({ name: "start_task", arguments: { scope: "root" } });
+    expect(Array.isArray(got.messages)).toBe(true);
+    expect(got.messages.length).toBeGreaterThan(0);
+    const first: any = got.messages[0];
+    const text: string = first?.content?.text ?? "";
+    expect(text).toContain("get_context");
+    await pg.close();
   });
 });

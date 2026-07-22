@@ -121,14 +121,15 @@ exists; the OS session is the only shared state.
     "Use a worker token instead" lane for non-human principals. Remaining sliver:
     (b) platform/vault credentials still live in the separate Credentials tab, not
     unified into the connect surface.
-  - **REMAINING:** streamable HTTP hardening; server instructions carrying the ritual;
-    `start_task`/`wrap_up` MCP prompts; tool-surface audit (names, counts,
-    descriptions written for any model — some clients degrade with large tool lists);
-    **conformance matrix**: claude.ai (web/desktop/mobile), Claude Code, Hermes, Codex,
-    Cursor — connect, list tools, run the ritual, join a session, answer an attention
-    item. First checkpoint (gates everything): verify the staging endpoint from
-    claude.ai's custom-connector flow and Claude Code via the wizard — the last open
-    #53 checkbox (owner smoke).
+  - **DONE (Lexi shot 1, 2026-07-22):** server instructions carrying the ritual
+    (`SERVER_INSTRUCTIONS` on the MCP `initialize` handshake); `start_task`/`wrap_up`
+    MCP prompts; tool-surface audit (names, counts, descriptions) +
+    **conformance matrix** scaffold in `docs/tasks/M11-01-tool-surface-audit.md`.
+  - **REMAINING:** streamable HTTP hardening; filling the conformance matrix rows for
+    claude.ai (web/desktop/mobile), Claude Code, Hermes, Codex, Cursor — connect, list
+    tools, run the ritual, join a session, answer an attention item. First checkpoint
+    (gates everything): verify the staging endpoint from claude.ai's custom-connector
+    flow and Claude Code via the wizard — the last open #53 checkbox (owner smoke).
 - **M11-02 reference integrations:** Claude Max recipe (Projects, OAuth connect,
   memory posture) and Hermes recipe (profiles, VPS install, memory posture) as
   skills-repo content. Both encode **scope pinning**: each workspace container
