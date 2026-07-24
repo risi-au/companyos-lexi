@@ -67,6 +67,9 @@ export { isReservedOperationalWikiReportSlug } from "@companyos/db";
 // Daily digest (M13-05)
 export * from "./modules/digest/service";
 
+// Kickoff gradient + defaulting cascade (M13-04)
+export * from "./modules/kickoff/service";
+
 // Assistants module (M13-01, M13-07)
 export * from "./modules/assistants/service";
 
