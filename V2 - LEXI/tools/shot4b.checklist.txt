@@ -1,0 +1,6 @@
+# Shot 4B conformance — MCP get_digest
+packages/mcp/src/server.ts :: getDigest,
+packages/mcp/src/server.ts :: "get_digest"
+packages/mcp/src/server.ts :: limit_per_lane
+packages/mcp/src/ping.test.ts :: "get_digest"
+packages/mcp/AGENTS.md :: get_digest

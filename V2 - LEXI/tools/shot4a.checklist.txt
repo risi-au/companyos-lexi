@@ -1,0 +1,13 @@
+# Shot 4A conformance — digest api module
+packages/api/src/modules/digest/service.ts :: export async function getDigest
+packages/api/src/modules/digest/service.ts :: waiting_for_feedback
+packages/api/src/modules/digest/service.ts :: waiting_for_approval
+packages/api/src/modules/digest/service.ts :: completed_to_review
+packages/api/src/modules/digest/service.ts :: automation_candidates
+packages/api/src/modules/digest/service.ts :: ready_to_start
+packages/api/src/modules/digest/service.ts :: whyItNeedsYou
+packages/api/src/modules/digest/service.ts :: whatHappensAfter
+packages/api/src/modules/digest/service.ts :: if (planeClient)
+packages/api/src/index.ts :: ./modules/digest/service
+packages/api/src/modules/digest/AGENTS.md :: getDigest
+packages/api/src/modules/digest/digest.test.ts :: getDigest

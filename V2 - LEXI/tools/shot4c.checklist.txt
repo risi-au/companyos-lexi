@@ -1,0 +1,11 @@
+# Shot 4C conformance — digest UI + landing flip
+apps/os/src/lib/api.ts :: getDigest
+apps/os/src/middleware.ts :: /digest
+apps/os/src/middleware.ts :: !/s/root
+apps/os/src/app/page.tsx :: /digest
+apps/os/src/app/page.tsx :: !/s/root
+apps/os/src/app/(app)/digest/page.tsx :: DigestView
+apps/os/src/modules/digest/DigestView.tsx :: whyItNeedsYou
+apps/os/src/modules/digest/DigestView.tsx :: whatHappensAfter
+apps/os/src/modules/digest/index.ts :: DigestView
+apps/os/src/app/(app)/_components/Sidebar.tsx :: /digest
