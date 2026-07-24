@@ -1,0 +1,11 @@
+# Shot 3 conformance — assistant bundles
+packages/api/src/modules/assistants/service.ts :: export function parseAssistantBundle
+packages/api/src/modules/assistants/service.ts :: assistantBundleSchema
+packages/api/src/modules/assistants/service.ts :: skillsManifest
+packages/api/src/modules/assistants/service.ts :: returnContract
+packages/api/src/modules/assistants/service.ts :: metaAdsAssistantBundle
+packages/api/src/modules/assistants/service.ts :: NAMES ONLY
+packages/api/src/index.ts :: ./modules/assistants/service
+packages/api/src/modules/assistants/assistants.test.ts :: parseAssistantBundle
+docs/patterns/assistant-identity.md :: setAdminLiteLlmKeyBudget
+docs/assistants/meta-ads-assistant.md :: Meta Ads Assistant
