@@ -50,6 +50,8 @@ import {
   registerSession,
   getSession,
   getDigest,
+  assembleKickoffArtifact,
+  recordKickoffAnswers,
   updateSession,
   completeSession,
   listSessions,
@@ -2497,6 +2499,63 @@ ${JSON.stringify(rec.data || {}, null, 2)}
           { scopePath: scope || "root", includeDescendants: include_descendants, limit: limit_per_lane },
           actor
         );
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: `Error: ${formatError(e)}` }], isError: true };
+      }
+    }
+  );
+
+  server.registerTool(
+    "get_kickoff",
+    {
+      title: "Get Kickoff",
+      description:
+        "Assemble a session kickoff artifact for a scope. Resolves needed answers through the defaulting cascade (run answers -> your personal profile -> scope defaults -> template defaults) and returns a connectivity-appropriate artifact: 'full' (you have the MCP arming ritual), 'checklist' (middle), or 'paste' (a self-contained pack for a disconnected tool). Also returns the resolved answers with their source and the open questions (misses). Read-only. Requires viewer on the scope.",
+      inputSchema: z.object({
+        scope: z.string().describe("Scope path you are arming for"),
+        goal: z.string().describe("One-line goal for the session"),
+        connectivity: z.enum(["full", "checklist", "paste"]).optional().describe("Tool connectivity tier (default 'checklist')"),
+        questions: z.array(z.object({
+          key: z.string(),
+          question: z.string(),
+          layer: z.enum(["personal", "scope"]).optional(),
+          default: z.string().optional(),
+        })).optional().describe("Questions the kickoff needs answered, resolved via the cascade"),
+        run_answers: z.record(z.string()).optional().describe("Answers already known this run (highest cascade priority)"),
+      }),
+    },
+    async ({ scope, goal, connectivity, questions, run_answers }) => {
+      try {
+        const actor = ensurePrincipal();
+        const result = await assembleKickoffArtifact(
+          db,
+          { scopePath: scope, goal, connectivity: connectivity ?? "checklist", questions, runAnswers: run_answers },
+          actor
+        );
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: `Error: ${formatError(e)}` }], isError: true };
+      }
+    }
+  );
+
+  server.registerTool(
+    "record_kickoff_answers",
+    {
+      title: "Record Kickoff Answers",
+      description:
+        "Write back answers obtained during kickoff so future sessions resolve them as cache hits. target 'personal' writes to your personal working profile; 'scope' writes to the scope's kickoff defaults. Requires editor on the target scope.",
+      inputSchema: z.object({
+        scope: z.string().describe("Scope path (used as-is for target 'scope')"),
+        answers: z.record(z.string()).describe("Map of question key -> answer to persist"),
+        target: z.enum(["personal", "scope"]).describe("Which cache layer to write"),
+      }),
+    },
+    async ({ scope, answers, target }) => {
+      try {
+        const actor = ensurePrincipal();
+        const result = await recordKickoffAnswers(db, { scopePath: scope, answers, target }, actor);
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       } catch (e) {
         return { content: [{ type: "text", text: `Error: ${formatError(e)}` }], isError: true };
